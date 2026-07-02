@@ -1,0 +1,13 @@
+{
+  "name": "@uxcompiler/figma-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node -e \"console.log('figma-plugin: no tests yet')\""
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.117.0"
+  }
+}

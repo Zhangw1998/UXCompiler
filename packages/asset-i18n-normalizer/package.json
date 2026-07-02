@@ -1,0 +1,14 @@
+{
+  "name": "@uxcompiler/asset-i18n-normalizer",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node -e \"console.log('asset-i18n-normalizer: no tests yet')\""
+  },
+  "dependencies": {
+    "@uxcompiler/ir-schemas": "workspace:*"
+  }
+}

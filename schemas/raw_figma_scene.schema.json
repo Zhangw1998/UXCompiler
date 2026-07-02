@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://uxcompiler.local/schemas/raw_figma_scene.schema.json",
+  "title": "RawFigmaScene",
+  "type": "object",
+  "required": ["version", "source", "root"],
+  "properties": {
+    "version": { "type": "string" },
+    "source": {
+      "type": "object",
+      "properties": {
+        "fileKey": { "type": "string" },
+        "pageId": { "type": "string" },
+        "frameNodeId": { "type": "string" },
+        "exportedAt": { "type": "string" },
+        "viewport": {
+          "type": "object",
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "number" },
+            "height": { "type": "number" },
+            "scale": { "type": "number" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "root": { "$ref": "#/$defs/rawNode" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "bounds": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number" },
+        "height": { "type": "number" }
+      },
+      "additionalProperties": true
+    },
+    "rawNode": {
+      "type": "object",
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "visible": { "type": "boolean" },
+        "absoluteBoundingBox": { "$ref": "#/$defs/bounds" },
+        "absoluteRenderBounds": {
+          "anyOf": [{ "$ref": "#/$defs/bounds" }, { "type": "null" }]
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/rawNode" }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #111827;
+      }
+      label {
+        display: block;
+        margin: 0 0 6px;
+        font-weight: 600;
+      }
+      input {
+        box-sizing: border-box;
+        width: 100%;
+        height: 32px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        padding: 0 8px;
+      }
+      button {
+        height: 34px;
+        margin-top: 12px;
+        border: 0;
+        border-radius: 6px;
+        color: white;
+        background: #1654d6;
+        font-weight: 600;
+      }
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .secondary {
+        color: #111827;
+        background: #e5e7eb;
+      }
+      pre {
+        min-height: 72px;
+        margin: 12px 0 0;
+        white-space: pre-wrap;
+        color: #374151;
+      }
+    </style>
+  </head>
+  <body>
+    <label for="endpoint">Local API endpoint</label>
+    <input id="endpoint" value="http://127.0.0.1:8787/api/snapshots" />
+    <div class="actions">
+      <button id="check" class="secondary">Check Local API</button>
+      <button id="sync">Sync Selection</button>
+    </div>
+    <pre id="status">Select a Frame, Component, Instance, or Section.</pre>
+    <script>
+      const endpoint = document.getElementById("endpoint");
+      const status = document.getElementById("status");
+      document.getElementById("check").onclick = () => {
+        status.textContent = "Checking...";
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "check-health",
+              endpoint: endpoint.value
+            }
+          },
+          "*"
+        );
+      };
+      document.getElementById("sync").onclick = () => {
+        status.textContent = "Syncing...";
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "sync-selection",
+              endpoint: endpoint.value
+            }
+          },
+          "*"
+        );
+      };
+      window.onmessage = (event) => {
+        const message = event.data.pluginMessage;
+        if (!message) return;
+        status.textContent = message.message || JSON.stringify(message, null, 2);
+      };
+    </script>
+  </body>
+</html>

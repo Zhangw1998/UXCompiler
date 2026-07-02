@@ -1,0 +1,66 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
+const manifestPath = resolve(process.cwd(), "apps/figma-plugin/manifest.json");
+const uiPath = resolve(process.cwd(), "apps/figma-plugin/src/ui.html");
+const mainPath = resolve(process.cwd(), "apps/figma-plugin/src/main.ts");
+const builtMainPath = resolve(process.cwd(), "apps/figma-plugin/dist/main.js");
+
+const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const ui = await readFile(uiPath, "utf8");
+const main = await readFile(mainPath, "utf8");
+const builtMain = await readFile(builtMainPath, "utf8");
+
+assertEqual(manifest.main, "dist/main.js", "manifest main path");
+assertEqual(manifest.ui, "src/ui.html", "manifest UI path");
+assertEqual(manifest.documentAccess, "dynamic-page", "manifest document access");
+assertEqual(manifest.enablePrivatePluginApi, true, "manifest private plugin API access");
+assertValidDevelopmentPluginId(manifest.id);
+assertIncludes(manifest.editorType ?? [], "figma", "manifest editor type");
+
+const endpoint = readDefaultEndpoint(ui);
+const endpointOrigin = new URL(endpoint).origin;
+assertIncludes(manifest.networkAccess?.allowedDomains ?? [], endpointOrigin, "manifest network access");
+assertIncludes(manifest.networkAccess?.devAllowedDomains ?? [], endpointOrigin, "manifest dev network access");
+assertIncludes(ui, "type: \"check-health\"", "UI health message");
+assertIncludes(ui, "type: \"sync-selection\"", "UI sync message");
+assertIncludes(main, "message.type === \"check-health\"", "main health handler");
+assertIncludes(main, "message.type !== \"sync-selection\"", "main sync handler");
+assertIncludes(main, "url.pathname = \"/health\"", "main health URL derivation");
+assertNotIncludes(main, "figma.root", "main should avoid document root access");
+assertIncludes(builtMain, "message.type === \"check-health\"", "built main health handler");
+assertIncludes(builtMain, "message.type !== \"sync-selection\"", "built main sync handler");
+assertNotIncludes(builtMain, "figma.root", "built main should avoid document root access");
+
+console.log("figma plugin bridge verification passed");
+
+function readDefaultEndpoint(uiHtml) {
+  const match = uiHtml.match(/id="endpoint" value="([^"]+)"/);
+  if (!match) throw new Error("Could not find default endpoint input value in figma plugin UI.");
+  return match[1];
+}
+
+function assertEqual(actual, expected, label) {
+  if (actual !== expected) {
+    throw new Error(`${label}: expected ${expected}, received ${actual}`);
+  }
+}
+
+function assertIncludes(value, expected, label) {
+  if (!value.includes(expected)) {
+    throw new Error(`${label}: expected to include ${expected}`);
+  }
+}
+
+function assertNotIncludes(value, expected, label) {
+  if (value.includes(expected)) {
+    throw new Error(`${label}: expected not to include ${expected}`);
+  }
+}
+
+function assertValidDevelopmentPluginId(id) {
+  if (id === undefined) return;
+  if (typeof id !== "string" || !/^\d+$/.test(id)) {
+    throw new Error("manifest id should be omitted for local development or set to a Figma-assigned numeric plugin id.");
+  }
+}

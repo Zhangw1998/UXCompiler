@@ -1,0 +1,21 @@
+{
+  "name": "@uxcompiler/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "uxc": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node -e \"console.log('cli: no tests yet')\"",
+    "uxc": "node dist/index.js"
+  },
+  "dependencies": {
+    "@uxcompiler/figma-extractor": "workspace:*",
+    "@uxcompiler/ir-schemas": "workspace:*",
+    "@uxcompiler/normalizer": "workspace:*",
+    "@uxcompiler/visual-diff": "workspace:*"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@uxcompiler/visual-diff",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node -e \"console.log('visual-diff: no tests yet')\""
+  },
+  "dependencies": {
+    "@uxcompiler/ir-schemas": "workspace:*",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/pngjs": "^6.0.5"
+  }
+}

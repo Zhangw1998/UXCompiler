@@ -1,0 +1,173 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  apps/cli:
+    dependencies:
+      '@uxcompiler/figma-extractor':
+        specifier: workspace:*
+        version: link:../../packages/figma-extractor
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../../packages/ir-schemas
+      '@uxcompiler/normalizer':
+        specifier: workspace:*
+        version: link:../../packages/normalizer
+      '@uxcompiler/visual-diff':
+        specifier: workspace:*
+        version: link:../../packages/visual-diff
+
+  apps/figma-plugin:
+    devDependencies:
+      '@figma/plugin-typings':
+        specifier: ^1.117.0
+        version: 1.130.0
+
+  apps/local-api:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../../packages/ir-schemas
+      '@uxcompiler/normalizer':
+        specifier: workspace:*
+        version: link:../../packages/normalizer
+      '@uxcompiler/visual-diff':
+        specifier: workspace:*
+        version: link:../../packages/visual-diff
+
+  packages/asset-i18n-normalizer:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/figma-extractor:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/flutter-fidelity-renderer:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/ir-schemas: {}
+
+  packages/layout-inferencer:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/normalizer:
+    dependencies:
+      '@uxcompiler/asset-i18n-normalizer':
+        specifier: workspace:*
+        version: link:../asset-i18n-normalizer
+      '@uxcompiler/flutter-fidelity-renderer':
+        specifier: workspace:*
+        version: link:../flutter-fidelity-renderer
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+      '@uxcompiler/layout-inferencer':
+        specifier: workspace:*
+        version: link:../layout-inferencer
+      '@uxcompiler/scene-canonicalizer':
+        specifier: workspace:*
+        version: link:../scene-canonicalizer
+      '@uxcompiler/token-miner':
+        specifier: workspace:*
+        version: link:../token-miner
+
+  packages/scene-canonicalizer:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/token-miner:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/visual-diff:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+      pixelmatch:
+        specifier: ^7.2.0
+        version: 7.2.0
+      pngjs:
+        specifier: ^7.0.0
+        version: 7.0.0
+    devDependencies:
+      '@types/pngjs':
+        specifier: ^6.0.5
+        version: 6.0.5
+
+packages:
+
+  '@figma/plugin-typings@1.130.0':
+    resolution: {integrity: sha512-kz+eU4TXBr99YrMyF2/WtcsdS6K4Ksy3datZZtuCUUSDPRknJAVLZpjhBESCd0tCtHRWKeo4l/I7Aze6lHB52A==}
+
+  '@types/node@24.13.2':
+    resolution: {integrity: sha512-fRa09kZTgu8o71KFcDjUFuc7F+dEbZYZmkI0mg5YBTRs0yMKjYHsq/c0urDKeDb+D5qVgXOdFcuu+DZPKOITwA==}
+
+  '@types/pngjs@6.0.5':
+    resolution: {integrity: sha512-0k5eKfrA83JOZPppLtS2C7OUtyNAl2wKNxfyYl9Q5g9lPkgBl/9hNyAu6HuEH2J4XmIv2znEpkDd0SaZVxW6iQ==}
+
+  pixelmatch@7.2.0:
+    resolution: {integrity: sha512-xhcb4yHu9sM/G7foGzoLtXYcC0zHEaOXXjRKhGup0fw78Nf2Tkiapv4EQyMzrbcmQPsllAI7DbFY2UT7PlI9Pg==}
+    hasBin: true
+
+  pngjs@7.0.0:
+    resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
+    engines: {node: '>=14.19.0'}
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+  undici-types@7.18.2:
+    resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
+
+snapshots:
+
+  '@figma/plugin-typings@1.130.0': {}
+
+  '@types/node@24.13.2':
+    dependencies:
+      undici-types: 7.18.2
+
+  '@types/pngjs@6.0.5':
+    dependencies:
+      '@types/node': 24.13.2
+
+  pixelmatch@7.2.0:
+    dependencies:
+      pngjs: 7.0.0
+
+  pngjs@7.0.0: {}
+
+  typescript@5.9.3: {}
+
+  undici-types@7.18.2: {}

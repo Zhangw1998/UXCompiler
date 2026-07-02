@@ -1,0 +1,19 @@
+{
+  "name": "@uxcompiler/normalizer",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node -e \"console.log('normalizer: no tests yet')\""
+  },
+  "dependencies": {
+    "@uxcompiler/asset-i18n-normalizer": "workspace:*",
+    "@uxcompiler/flutter-fidelity-renderer": "workspace:*",
+    "@uxcompiler/ir-schemas": "workspace:*",
+    "@uxcompiler/layout-inferencer": "workspace:*",
+    "@uxcompiler/scene-canonicalizer": "workspace:*",
+    "@uxcompiler/token-miner": "workspace:*"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "UXCompiler Bridge",
+  "api": "1.0.0",
+  "main": "dist/main.js",
+  "ui": "src/ui.html",
+  "documentAccess": "dynamic-page",
+  "enablePrivatePluginApi": true,
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["http://127.0.0.1:8787", "http://localhost:8787"],
+    "devAllowedDomains": ["http://127.0.0.1:8787", "http://localhost:8787"],
+    "reasoning": "Sync selected Figma frame snapshots to the local UXCompiler workbench API."
+  }
+}
