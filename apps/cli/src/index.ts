@@ -5,9 +5,12 @@ import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { createCodegenReview } from "@uxcompiler/codegen-review";
+import { promoteGeneratedWidget } from "@uxcompiler/component-promoter";
 import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "@uxcompiler/figma-extractor";
 import {
   assertRawFigmaScene,
+  type ComponentPromotionRule,
+  type ComponentRegistry,
   type CodegenArbPatch,
   type CodegenGeneratedFile,
   type CodegenPubspecPatch,
@@ -177,6 +180,21 @@ interface CodegenWriteOptions {
   allowBlocked?: boolean;
 }
 
+interface CodegenPromoteOptions {
+  review: string;
+  file: string;
+  componentId: string;
+  name: string;
+  sourceNodeIds: string[];
+  import: string;
+  flutterConstructor: string;
+  out?: string;
+  registry?: string;
+  rules?: string;
+  reason: string;
+  allowManualFile?: boolean;
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") {
@@ -299,9 +317,13 @@ async function runCodegenCommand(args: string[]): Promise<void> {
     printCodegenHelp();
     return;
   }
-  if (subcommand !== "review" && subcommand !== "write") throw new Error(`Unknown codegen subcommand "${subcommand}".`);
+  if (subcommand !== "review" && subcommand !== "write" && subcommand !== "promote") throw new Error(`Unknown codegen subcommand "${subcommand}".`);
   if (subcommand === "write") {
     await runCodegenWriteCommand(rest);
+    return;
+  }
+  if (subcommand === "promote") {
+    await runCodegenPromoteCommand(rest);
     return;
   }
   const options = parseCodegenReviewOptions(rest);
@@ -375,6 +397,54 @@ async function runCodegenWriteCommand(args: string[]): Promise<void> {
   console.log(`Wrote: ${result.report.wrote}`);
   console.log(`Files written: ${result.report.files.filter((file) => file.status === "created" || file.status === "updated").length}`);
   console.log(`Report: ${reportPath}`);
+}
+
+async function runCodegenPromoteCommand(args: string[]): Promise<void> {
+  const options = parseCodegenPromoteOptions(args);
+  const reviewDir = resolve(process.cwd(), options.review);
+  const outDir = resolve(process.cwd(), options.out ?? options.review);
+  const generatedFilePath = normalizeGeneratedFilePath(options.file);
+  const generatedFileContent = await readFile(resolve(reviewDir, "generated", generatedFilePath), "utf8");
+  const componentRegistry =
+    (options.registry
+      ? await readOptionalJsonFile<ComponentRegistry>(options.registry)
+      : await readOptionalJsonFile<ComponentRegistry>(resolve(reviewDir, "component_registry.json"))) ?? undefined;
+  const promotionRules =
+    (options.rules
+      ? await readOptionalJsonFile<ComponentPromotionRule[]>(options.rules)
+      : await readOptionalJsonFile<ComponentPromotionRule[]>(resolve(reviewDir, "codegen_promotion_rules.json"))) ?? [];
+  const result = promoteGeneratedWidget({
+    componentRegistry,
+    promotionRules,
+    generatedFileContent,
+    request: {
+      componentId: options.componentId,
+      name: options.name,
+      generatedFilePath,
+      sourceNodeIds: options.sourceNodeIds,
+      flutter: {
+        import: options.import,
+        constructor: options.flutterConstructor
+      },
+      reason: options.reason,
+      allowManualFile: options.allowManualFile
+    }
+  });
+
+  await mkdir(outDir, { recursive: true });
+  await Promise.all([
+    writeJsonFile(resolve(outDir, "promote_report.json"), result.promoteReport),
+    writeJsonFile(resolve(outDir, "component_registry.json"), result.componentRegistry),
+    writeJsonFile(resolve(outDir, "codegen_promotion_rules.json"), result.promotionRules)
+  ]);
+  if (!result.promoteReport.promoted) {
+    throw new Error(`Generated widget promotion was rejected. See ${resolve(outDir, "promote_report.json")}.`);
+  }
+
+  console.log(`UXCompiler generated widget promotion completed.`);
+  console.log(`Component: ${options.name}`);
+  console.log(`Generated file: ${generatedFilePath}`);
+  console.log(`Artifacts: ${outDir}`);
 }
 
 async function runTreeCommand(args: string[]): Promise<void> {
@@ -1292,6 +1362,71 @@ function parseCodegenWriteOptions(args: string[]): CodegenWriteOptions {
   return options as CodegenWriteOptions;
 }
 
+function parseCodegenPromoteOptions(args: string[]): CodegenPromoteOptions {
+  const options: Partial<CodegenPromoteOptions> & { sourceNodeIds: string[] } = { sourceNodeIds: [] };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+    if (arg === "--review") {
+      if (!next) throw new Error("Missing value for --review.");
+      options.review = next;
+      index += 1;
+    } else if (arg === "--file") {
+      if (!next) throw new Error("Missing value for --file.");
+      options.file = next;
+      index += 1;
+    } else if (arg === "--component-id") {
+      if (!next) throw new Error("Missing value for --component-id.");
+      options.componentId = next;
+      index += 1;
+    } else if (arg === "--name") {
+      if (!next) throw new Error("Missing value for --name.");
+      options.name = next;
+      index += 1;
+    } else if (arg === "--source-node-id" || arg === "--source-node") {
+      if (!next) throw new Error(`Missing value for ${arg}.`);
+      options.sourceNodeIds.push(next);
+      index += 1;
+    } else if (arg === "--import") {
+      if (!next) throw new Error("Missing value for --import.");
+      options.import = next;
+      index += 1;
+    } else if (arg === "--constructor") {
+      if (!next) throw new Error("Missing value for --constructor.");
+      options.flutterConstructor = next;
+      index += 1;
+    } else if (arg === "--out" || arg === "-o") {
+      if (!next) throw new Error("Missing value for --out.");
+      options.out = next;
+      index += 1;
+    } else if (arg === "--registry") {
+      if (!next) throw new Error("Missing value for --registry.");
+      options.registry = next;
+      index += 1;
+    } else if (arg === "--rules") {
+      if (!next) throw new Error("Missing value for --rules.");
+      options.rules = next;
+      index += 1;
+    } else if (arg === "--reason") {
+      if (!next) throw new Error("Missing value for --reason.");
+      options.reason = next;
+      index += 1;
+    } else if (arg === "--allow-manual-file") {
+      options.allowManualFile = true;
+    } else {
+      throw new Error(`Unknown codegen promote option "${arg}".`);
+    }
+  }
+  if (!options.review) throw new Error("Missing required option --review.");
+  if (!options.file) throw new Error("Missing required option --file.");
+  if (!options.componentId) throw new Error("Missing required option --component-id.");
+  if (!options.name) throw new Error("Missing required option --name.");
+  if (!options.import) throw new Error("Missing required option --import.");
+  if (!options.flutterConstructor) throw new Error("Missing required option --constructor.");
+  if (!options.reason) throw new Error("Missing required option --reason.");
+  return options as CodegenPromoteOptions;
+}
+
 async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionResult): Promise<void> {
   await mkdir(resolve(outDir, "raw_assets"), { recursive: true });
   await writeFile(resolve(outDir, "raw_figma_scene.json"), `${JSON.stringify(extraction.rawFigmaScene, null, 2)}\n`, "utf8");
@@ -1541,6 +1676,10 @@ async function readGeneratedFiles(root: string): Promise<CodegenGeneratedFile[]>
     .sort((left, right) => left.path.localeCompare(right.path));
 }
 
+function normalizeGeneratedFilePath(path: string): string {
+  return path.replace(/^generated\//, "").replace(/^\/+/, "");
+}
+
 async function writeFileWithDirs(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content, "utf8");
@@ -1587,6 +1726,7 @@ Usage:
   uxc studio apply --artifacts <artifacts_dir> --operations <operations.json> --out <studio_dir>
   uxc codegen review --artifacts <artifacts_dir> --out <codegen_dir>
   uxc codegen write --review <codegen_dir> --project-path <flutter_project>
+  uxc codegen promote --review <codegen_dir> --file <generated_dart> --component-id <id> --name <PascalCase>
   uxc doctor
 
 Commands:
@@ -1711,6 +1851,7 @@ function printCodegenHelp(): void {
 Usage:
   uxc codegen review --artifacts <artifacts_dir> --out <codegen_dir>
   uxc codegen write --review <codegen_dir> --project-path <flutter_project>
+  uxc codegen promote --review <codegen_dir> --file <generated_dart> --component-id <id> --name <PascalCase>
 
 Review options:
   --project-path             Optional Flutter project root. Existing files are read for conflict detection only.
@@ -1726,6 +1867,15 @@ Write options:
   --dry-run                  Produce project_write_report.json without writing files.
   --allow-blocked            Attempt safe writes even when non-file review gates are blocked; manual conflicts remain blocked.
 
+Promote options:
+  --source-node-id           Source node id covered by the promoted component. May be repeated.
+  --import                   Flutter import for the promoted handwritten widget.
+  --constructor              Flutter constructor or static constructor.
+  --registry                 Optional existing component_registry.json.
+  --rules                    Optional existing codegen_promotion_rules.json.
+  --reason                   Required human-readable promotion reason.
+  --allow-manual-file        Allow promotion when the file no longer has generated markers.
+
 Outputs:
   codegen_review.json
   flutter_generation_manifest.json
@@ -1739,6 +1889,9 @@ Outputs:
   generated/
   patches/
   project_write_report.json
+  promote_report.json
+  component_registry.json
+  codegen_promotion_rules.json
 `);
 }
 

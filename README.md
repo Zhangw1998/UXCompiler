@@ -22,6 +22,7 @@ This repo currently supports:
 - Headless Component / Token / Asset / i18n Studios for registries and final reviewed manifests.
 - Headless Codegen Review for generated Flutter files, patches, write gates, and incremental sync reports.
 - Headless Project Writer for safe Flutter project writes with generated-marker checks, backups, ARB/pubspec updates, and reports.
+- Headless Generated Widget Promotion for moving generated widgets into the Component Registry with future codegen skip rules.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -39,6 +40,7 @@ This repo currently supports:
 - Headless TypeScript studio review engine for component, token, asset, and i18n overrides.
 - Headless TypeScript codegen review engine for generated-file manifests, patch review, pubspec/ARB plans, and incremental sync reports.
 - Headless TypeScript project writer for gated generated-file writes, asset copy, ARB merge, pubspec asset declaration, and backups.
+- Headless TypeScript component promotion engine for generated widget promotion, Component Registry updates, and future codegen rules.
 
 ## Install And Verify
 
@@ -47,7 +49,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review, project-writer smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review, project-writer, component-promoter smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -220,6 +222,22 @@ node apps/cli/dist/index.js codegen write \
 ```
 
 Use `--dry-run` to produce `project_write_report.json` without writing files. Project Writer does not overwrite manual conflicts; generated updates are backed up under the project `.uxcompiler/backups/` directory unless `--backup-root` is provided.
+
+Promote a generated widget into the Component Registry:
+
+```bash
+node apps/cli/dist/index.js codegen promote \
+  --review artifacts/codegen-review \
+  --file lib/generated/fidelity/preview_page.dart \
+  --component-id cmp_login_preview \
+  --name LoginPreview \
+  --source-node-id 1:1 \
+  --import package:app/features/login/login_preview.dart \
+  --constructor LoginPreview \
+  --reason "Promote generated login preview into a handwritten component."
+```
+
+This writes `promote_report.json`, `component_registry.json`, and `codegen_promotion_rules.json`. The promotion rule tells future codegen to skip rewriting that generated region and update call sites only.
 
 ## Fetch And Compile A Real Figma Frame
 
