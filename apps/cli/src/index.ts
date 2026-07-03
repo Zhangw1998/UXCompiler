@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
+import { createCodegenReview } from "@uxcompiler/codegen-review";
 import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "@uxcompiler/figma-extractor";
 import {
   assertRawFigmaScene,
+  type CodegenReviewResult,
+  type CodegenReviewManifest,
   type OverrideSet,
   type PipelineArtifacts,
   type StudioOperation,
@@ -149,6 +152,17 @@ interface StudioApplyOptions {
   actor?: "user" | "agent" | "system";
 }
 
+interface CodegenReviewOptions {
+  artifacts: string;
+  out: string;
+  projectPath?: string;
+  previousManifest?: string;
+  projectId?: string;
+  buildId?: string;
+  normalizedIrId?: string;
+  allowLowVisualScore?: boolean;
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") {
@@ -178,6 +192,11 @@ async function main(): Promise<void> {
 
   if (command === "studio") {
     await runStudioCommand(args);
+    return;
+  }
+
+  if (command === "codegen") {
+    await runCodegenCommand(args);
     return;
   }
 
@@ -258,6 +277,61 @@ async function runStudioCommand(args: string[]): Promise<void> {
   console.log(`Artifacts: ${outDir}`);
   console.log(`Components: ${result.componentRegistry.components.length}`);
   console.log(`Tokens: ${result.tokenRegistry.tokens.length}`);
+}
+
+async function runCodegenCommand(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args;
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    printCodegenHelp();
+    return;
+  }
+  if (subcommand !== "review") throw new Error(`Unknown codegen subcommand "${subcommand}".`);
+  const options = parseCodegenReviewOptions(rest);
+  const artifactDir = resolve(process.cwd(), options.artifacts);
+  const outDir = resolve(process.cwd(), options.out);
+  const flutterPreviewFiles = await readTextFilesRecursively(resolve(artifactDir, "flutter_preview"));
+  const existingProjectFiles = options.projectPath
+    ? await readExistingProjectFiles(resolve(process.cwd(), options.projectPath), Object.keys(flutterPreviewFiles))
+    : undefined;
+  const result = createCodegenReview({
+    normalizedDesignIR: await readFirstJsonFile([
+      resolve(artifactDir, "reviewed_normalized_design_ir.json"),
+      resolve(artifactDir, "normalized_design_ir.json")
+    ]),
+    assetManifest: await readFirstJsonFile([
+      resolve(artifactDir, "final_asset_manifest.json"),
+      resolve(artifactDir, "reviewed_asset_manifest.json"),
+      resolve(artifactDir, "asset_manifest.json")
+    ]),
+    i18nManifest: await readFirstJsonFile([
+      resolve(artifactDir, "final_i18n_manifest.json"),
+      resolve(artifactDir, "reviewed_i18n_manifest.json"),
+      resolve(artifactDir, "i18n_manifest.json")
+    ]),
+    existingArbFile: await readOptionalJsonFile(resolve(artifactDir, "existing_arb/app_en.arb")),
+    flutterPreviewFiles,
+    existingProjectFiles,
+    previousManifest: options.previousManifest ? await readJsonFile<CodegenReviewManifest>(options.previousManifest) : undefined,
+    reviewTasks: await readOptionalJsonFile(resolve(artifactDir, "review_tasks.json")),
+    taskStatusReport: await readOptionalJsonFile(resolve(artifactDir, "task_status_report.json")),
+    visualDiffReport: await readOptionalJsonFile(resolve(artifactDir, "visual_diff_report.json")),
+    fidelityGenerationManifest: await readOptionalJsonFile(resolve(artifactDir, "fidelity_generation_manifest.json")),
+    nodePixelMap: await readOptionalJsonFile(resolve(artifactDir, "node_pixel_map.json")),
+    overrideSet: await readOptionalJsonFile(resolve(artifactDir, "override_set.json")),
+    staleOverrideReport: await readOptionalJsonFile(resolve(artifactDir, "stale_override_report.json")),
+    projectId: options.projectId,
+    buildId: options.buildId,
+    normalizedIrId: options.normalizedIrId,
+    allowLowVisualScore: options.allowLowVisualScore
+  });
+
+  await writeCodegenReviewArtifacts(outDir, result);
+
+  console.log(`UXCompiler codegen review completed.`);
+  console.log(`Write gate: ${result.codegenReview.gates.status}`);
+  console.log(`Files to create: ${result.filesToCreate.length}`);
+  console.log(`Files to modify: ${result.filesToModify.length}`);
+  console.log(`Artifacts: ${outDir}`);
 }
 
 async function runTreeCommand(args: string[]): Promise<void> {
@@ -1093,6 +1167,50 @@ function parseStudioApplyOptions(args: string[]): StudioApplyOptions {
   return options as StudioApplyOptions;
 }
 
+function parseCodegenReviewOptions(args: string[]): CodegenReviewOptions {
+  const options: Partial<CodegenReviewOptions> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+    if (arg === "--artifacts") {
+      if (!next) throw new Error("Missing value for --artifacts.");
+      options.artifacts = next;
+      index += 1;
+    } else if (arg === "--out" || arg === "-o") {
+      if (!next) throw new Error("Missing value for --out.");
+      options.out = next;
+      index += 1;
+    } else if (arg === "--project-path") {
+      if (!next) throw new Error("Missing value for --project-path.");
+      options.projectPath = next;
+      index += 1;
+    } else if (arg === "--previous-manifest") {
+      if (!next) throw new Error("Missing value for --previous-manifest.");
+      options.previousManifest = next;
+      index += 1;
+    } else if (arg === "--project-id") {
+      if (!next) throw new Error("Missing value for --project-id.");
+      options.projectId = next;
+      index += 1;
+    } else if (arg === "--build-id") {
+      if (!next) throw new Error("Missing value for --build-id.");
+      options.buildId = next;
+      index += 1;
+    } else if (arg === "--normalized-ir-id") {
+      if (!next) throw new Error("Missing value for --normalized-ir-id.");
+      options.normalizedIrId = next;
+      index += 1;
+    } else if (arg === "--allow-low-visual-score") {
+      options.allowLowVisualScore = true;
+    } else {
+      throw new Error(`Unknown codegen review option "${arg}".`);
+    }
+  }
+  if (!options.artifacts) throw new Error("Missing required option --artifacts.");
+  if (!options.out) throw new Error("Missing required option --out.");
+  return options as CodegenReviewOptions;
+}
+
 async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionResult): Promise<void> {
   await mkdir(resolve(outDir, "raw_assets"), { recursive: true });
   await writeFile(resolve(outDir, "raw_figma_scene.json"), `${JSON.stringify(extraction.rawFigmaScene, null, 2)}\n`, "utf8");
@@ -1268,6 +1386,78 @@ async function writeJsonFile(path: string, value: unknown): Promise<void> {
   await writeFile(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+async function writeCodegenReviewArtifacts(outDir: string, result: CodegenReviewResult): Promise<void> {
+  await mkdir(outDir, { recursive: true });
+  await Promise.all([
+    writeJsonFile(resolve(outDir, "codegen_review.json"), result.codegenReview),
+    writeJsonFile(resolve(outDir, "flutter_generation_manifest.json"), result.codegenReview),
+    writeJsonFile(resolve(outDir, "files_to_create.json"), result.filesToCreate),
+    writeJsonFile(resolve(outDir, "files_to_modify.json"), result.filesToModify),
+    writeJsonFile(resolve(outDir, "assets_to_add.json"), result.assetsToAdd),
+    writeJsonFile(resolve(outDir, "arb_patch.json"), result.arbPatch),
+    writeFileWithDirs(resolve(outDir, "pubspec.yaml.patch"), result.pubspecPatch.patch),
+    writeJsonFile(resolve(outDir, "pubspec_patch.json"), result.pubspecPatch),
+    writeJsonFile(resolve(outDir, "merge_report.json"), result.mergeReport),
+    writeJsonFile(resolve(outDir, "incremental_sync_report.json"), result.incrementalSyncReport),
+    ...result.generatedFiles.map((file) => writeFileWithDirs(resolve(outDir, "generated", file.path), file.content)),
+    ...result.filePatches.map((patch) => writeFileWithDirs(resolve(outDir, patch.patchPath), patch.patch))
+  ]);
+}
+
+async function readFirstJsonFile<T>(paths: string[]): Promise<T> {
+  const attempted: string[] = [];
+  for (const path of paths) {
+    attempted.push(path);
+    try {
+      return await readJsonFile<T>(path);
+    } catch (error) {
+      const candidate = error as NodeJS.ErrnoException;
+      if (candidate.code !== "ENOENT") throw error;
+    }
+  }
+  throw new Error(`Missing required JSON artifact. Tried: ${attempted.join(", ")}`);
+}
+
+async function readTextFilesRecursively(root: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  const walk = async (dir: string, prefix: string): Promise<void> => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    await Promise.all(
+      entries.map(async (entry) => {
+        const fullPath = resolve(dir, entry.name);
+        const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          await walk(fullPath, relativePath);
+        } else if (entry.isFile()) {
+          files[relativePath] = await readFile(fullPath, "utf8");
+        }
+      })
+    );
+  };
+  await walk(root, "");
+  return files;
+}
+
+async function readExistingProjectFiles(projectRoot: string, paths: string[]): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  await Promise.all(
+    paths.map(async (path) => {
+      try {
+        files[path] = await readFile(resolve(projectRoot, path), "utf8");
+      } catch (error) {
+        const candidate = error as NodeJS.ErrnoException;
+        if (candidate.code !== "ENOENT") throw error;
+      }
+    })
+  );
+  return files;
+}
+
+async function writeFileWithDirs(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, content, "utf8");
+}
+
 async function formatFlutterPreview(previewDir: string): Promise<Record<string, unknown>> {
   try {
     const result = await execFileAsync("dart", ["format", "lib", "test"], {
@@ -1307,6 +1497,7 @@ Usage:
   uxc project init --root .uxcompiler
   uxc tree apply --artifacts <artifacts_dir> --operations <operations.json> --out <draft_dir>
   uxc studio apply --artifacts <artifacts_dir> --operations <operations.json> --out <studio_dir>
+  uxc codegen review --artifacts <artifacts_dir> --out <codegen_dir>
   uxc doctor
 
 Commands:
@@ -1316,6 +1507,7 @@ Commands:
   project   Manage the local Project Store and export/import .uxcproj.zip archives
   tree      Apply headless Normalized Tree Editor operations as overrides
   studio    Apply headless Component/Token/Asset/i18n Studio operations
+  codegen   Generate codegen review manifests and patches before writing Flutter code
   doctor    Check local tools and Figma token configuration
 `);
 }
@@ -1421,6 +1613,35 @@ Outputs:
   arb/app_en.arb
   override_conflict_report.json
   stale_override_report.json
+`);
+}
+
+function printCodegenHelp(): void {
+  console.log(`UXCompiler codegen commands
+
+Usage:
+  uxc codegen review --artifacts <artifacts_dir> --out <codegen_dir>
+
+Options:
+  --project-path             Optional Flutter project root. Existing files are read for conflict detection only.
+  --previous-manifest        Optional prior flutter_generation_manifest.json for incremental sync reports.
+  --project-id               Optional project id written into codegen_review.json.
+  --build-id                 Optional stable build id.
+  --normalized-ir-id         Optional normalized IR id written into codegen_review.json.
+  --allow-low-visual-score   Do not block the write gate for a failing visual diff.
+
+Outputs:
+  codegen_review.json
+  flutter_generation_manifest.json
+  files_to_create.json
+  files_to_modify.json
+  assets_to_add.json
+  arb_patch.json
+  pubspec.yaml.patch
+  merge_report.json
+  incremental_sync_report.json
+  generated/
+  patches/
 `);
 }
 

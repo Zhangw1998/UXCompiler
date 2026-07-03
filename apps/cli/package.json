@@ -13,6 +13,7 @@
     "uxc": "node dist/index.js"
   },
   "dependencies": {
+    "@uxcompiler/codegen-review": "workspace:*",
     "@uxcompiler/figma-extractor": "workspace:*",
     "@uxcompiler/ir-schemas": "workspace:*",
     "@uxcompiler/normalizer": "workspace:*",

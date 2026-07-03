@@ -20,6 +20,7 @@ This repo currently supports:
 - Local Project Store for `.uxcompiler/` project memory, artifact persistence, and `.uxcproj.zip` import/export.
 - Headless Tree Editor operations for reviewed tree drafts and override mutations.
 - Headless Component / Token / Asset / i18n Studios for registries and final reviewed manifests.
+- Headless Codegen Review for generated Flutter files, patches, write gates, and incremental sync reports.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -35,6 +36,7 @@ This repo currently supports:
 - File-backed local project catalog with a SQLite schema contract and pure Node archive import/export.
 - Headless TypeScript tree-edit validation for region, hierarchy, layout, render, and naming operations.
 - Headless TypeScript studio review engine for component, token, asset, and i18n overrides.
+- Headless TypeScript codegen review engine for generated-file manifests, patch review, pubspec/ARB plans, and incremental sync reports.
 
 ## Install And Verify
 
@@ -43,7 +45,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, and studio smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -189,6 +191,22 @@ node apps/cli/dist/index.js studio apply \
 ```
 
 The review directory contains `studio_report.json`, `component_registry.json`, `token_registry.json`, `final_asset_manifest.json`, `final_i18n_manifest.json`, `arb/app_en.arb`, updated `override_set.json`, and override reports.
+
+## Review Generated Flutter Output
+
+Generate codegen review artifacts without writing to a real Flutter project:
+
+```bash
+node apps/cli/dist/index.js codegen review \
+  --artifacts artifacts/sample \
+  --out artifacts/codegen-review \
+  --project-id proj_login \
+  --normalized-ir-id nir_login
+```
+
+To detect conflicts against an existing Flutter checkout, add `--project-path <flutter_project>`. Existing files are read only; UXCompiler writes review artifacts and patches under `--out`.
+
+The review directory contains `codegen_review.json`, `flutter_generation_manifest.json`, `files_to_create.json`, `files_to_modify.json`, `assets_to_add.json`, `arb_patch.json`, `pubspec.yaml.patch`, `merge_report.json`, `incremental_sync_report.json`, `generated/`, and `patches/`.
 
 ## Fetch And Compile A Real Figma Frame
 

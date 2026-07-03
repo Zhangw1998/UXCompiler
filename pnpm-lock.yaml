@@ -17,6 +17,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@uxcompiler/codegen-review':
+        specifier: workspace:*
+        version: link:../../packages/codegen-review
       '@uxcompiler/figma-extractor':
         specifier: workspace:*
         version: link:../../packages/figma-extractor
@@ -70,6 +73,12 @@ importers:
         version: link:../../packages/visual-diff
 
   packages/asset-i18n-normalizer:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/codegen-review:
     dependencies:
       '@uxcompiler/ir-schemas':
         specifier: workspace:*
