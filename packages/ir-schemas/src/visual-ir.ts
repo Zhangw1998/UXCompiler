@@ -90,7 +90,7 @@ export interface NodePixelMapEntry {
 
 export interface FidelityRenderDecision {
   sourceNodeId: string;
-  strategy: "absolute_widget" | "real_text" | "flutter_shape" | "placeholder_asset" | "ignored_wrapper";
+  strategy: "absolute_widget" | "real_text" | "flutter_shape" | "image_asset" | "placeholder_asset" | "ignored_wrapper";
   editable: boolean;
   reason: string;
 }

@@ -5,18 +5,45 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
-import { assertRawFigmaScene, type PipelineArtifacts, type RawFigmaScene } from "@uxcompiler/ir-schemas";
+import { assertRawFigmaScene, type AssetManifestEntry, type PipelineArtifacts, type RawFigmaScene } from "@uxcompiler/ir-schemas";
 import { compileRawScene } from "@uxcompiler/normalizer";
 import { runVisualDiff } from "@uxcompiler/visual-diff";
+
+interface SnapshotAsset {
+  sourceNodeId: string;
+  name?: string;
+  format?: "png";
+  contentType?: string;
+  pngBase64: string;
+  bytes?: number;
+}
 
 interface SnapshotRequest {
   sourceKind?: "figma_plugin" | "local_smoke" | "unknown";
   rawFigmaScene: RawFigmaScene;
   figmaReferencePngBase64?: string;
+  assets?: SnapshotAsset[];
   extractionReport?: unknown;
   projectId?: string;
   runPreview?: boolean;
   runDiff?: boolean;
+}
+
+interface MaterializedAssetReport {
+  version: string;
+  generatedAt: string;
+  requested: number;
+  materialized: Array<{
+    sourceNodeId: string;
+    path: string;
+    bytes: number;
+    format: "png";
+  }>;
+  unmatched: Array<{
+    sourceNodeId?: string;
+    name?: string;
+    reason: string;
+  }>;
 }
 
 interface LocalPipelineRunReport {
@@ -30,7 +57,7 @@ interface LocalPipelineRunReport {
     frameNodeId?: string;
   };
   steps: {
-    snapshot: { status: string; hasReferenceScreenshot: boolean };
+    snapshot: { status: string; hasReferenceScreenshot: boolean; requestedAssets: number; materializedAssets: number };
     compile: { status: string; normalizedConfidence: number };
     flutterCapture: { status: string; output?: string; report?: string; reason?: string };
     visualDiff: {
@@ -117,9 +144,11 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
     await writeFile(resolve(artifactDir, "figma_reference.png"), Buffer.from(body.figmaReferencePngBase64, "base64"));
   }
 
-  const artifacts = compileRawScene(body.rawFigmaScene);
-  await writePipelineArtifacts(artifactDir, artifacts);
-  const pipelineRunReport = await runLocalPipeline(artifactDir, body, artifacts);
+  const snapshotAssets = body.assets ?? [];
+  const materializedAssetSourceNodeIds = Array.from(new Set(snapshotAssets.map((asset) => asset.sourceNodeId).filter(Boolean)));
+  const artifacts = compileRawScene(body.rawFigmaScene, { materializedAssetSourceNodeIds });
+  const materializedAssetReport = await writePipelineArtifacts(artifactDir, artifacts, { assets: snapshotAssets });
+  const pipelineRunReport = await runLocalPipeline(artifactDir, body, artifacts, materializedAssetReport);
   await writeJson(resolve(artifactDir, "local_api_snapshot_report.json"), {
     version: "0.1.0",
     generatedAt: new Date().toISOString(),
@@ -129,6 +158,8 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
     frameNodeId: source.frameNodeId,
     normalizedConfidence: artifacts.normalizedDesignIR.confidence.overall,
     hasReferenceScreenshot: !!body.figmaReferencePngBase64,
+    requestedAssets: materializedAssetReport.requested,
+    materializedAssets: materializedAssetReport.materialized.length,
     pipelineRunReport: resolve(artifactDir, "pipeline_run_report.json")
   });
   await writeJson(resolve(artifactDir, "pipeline_run_report.json"), pipelineRunReport);
@@ -140,7 +171,11 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
   };
 }
 
-async function writePipelineArtifacts(outDir: string, artifacts: PipelineArtifacts): Promise<void> {
+async function writePipelineArtifacts(
+  outDir: string,
+  artifacts: PipelineArtifacts,
+  options: { assets?: SnapshotAsset[] } = {}
+): Promise<MaterializedAssetReport> {
   const files: Array<[string, unknown | string]> = [
     ["canonical_scene.json", artifacts.canonicalScene],
     ["canonicalization_report.json", artifacts.canonicalizationReport],
@@ -179,6 +214,7 @@ async function writePipelineArtifacts(outDir: string, artifacts: PipelineArtifac
           "visual_ir.json",
           "fidelity_generation_manifest.json",
           "node_pixel_map.json",
+          "materialized_assets_report.json",
           "flutter_preview/pubspec.yaml",
           "flutter_preview/lib/main.dart",
           "flutter_preview/lib/generated/fidelity/preview_page.dart",
@@ -211,14 +247,100 @@ async function writePipelineArtifacts(outDir: string, artifacts: PipelineArtifac
       await writeFile(target, content, "utf8");
     })
   );
+  const materializedAssetReport = await materializeSnapshotAssets(outDir, artifacts, options.assets ?? []);
+  await writeJson(resolve(outDir, "materialized_assets_report.json"), materializedAssetReport);
   const formatReport = await formatFlutterPreview(previewDir);
   await writeJson(resolve(outDir, "flutter_preview_format_report.json"), formatReport);
+  return materializedAssetReport;
+}
+
+async function materializeSnapshotAssets(
+  outDir: string,
+  artifacts: PipelineArtifacts,
+  snapshotAssets: SnapshotAsset[]
+): Promise<MaterializedAssetReport> {
+  const report: MaterializedAssetReport = {
+    version: "0.1.0",
+    generatedAt: new Date().toISOString(),
+    requested: snapshotAssets.length,
+    materialized: [],
+    unmatched: []
+  };
+  if (snapshotAssets.length === 0) return report;
+
+  const manifestEntries = new Map<string, AssetManifestEntry>();
+  for (const entry of artifacts.assetManifest.assets) {
+    if (entry.path && isMaterializableAsset(entry)) {
+      manifestEntries.set(entry.sourceNodeId, entry);
+    }
+  }
+
+  for (const asset of snapshotAssets) {
+    if (!asset.sourceNodeId || !asset.pngBase64) {
+      report.unmatched.push({
+        sourceNodeId: asset.sourceNodeId,
+        name: asset.name,
+        reason: "Asset payload is missing sourceNodeId or pngBase64."
+      });
+      continue;
+    }
+
+    const manifestEntry = manifestEntries.get(asset.sourceNodeId);
+    if (!manifestEntry?.path) {
+      report.unmatched.push({
+        sourceNodeId: asset.sourceNodeId,
+        name: asset.name,
+        reason: "No renderable asset manifest entry exists for this source node."
+      });
+      continue;
+    }
+
+    const assetPath = safeAssetPath(manifestEntry.path);
+    const bytes = Buffer.from(asset.pngBase64, "base64");
+    if (bytes.byteLength === 0) {
+      report.unmatched.push({
+        sourceNodeId: asset.sourceNodeId,
+        name: asset.name,
+        reason: "Decoded asset payload is empty."
+      });
+      continue;
+    }
+
+    await writeBinaryAsset(resolve(outDir, assetPath), bytes);
+    await writeBinaryAsset(resolve(outDir, "flutter_preview", assetPath), bytes);
+    report.materialized.push({
+      sourceNodeId: asset.sourceNodeId,
+      path: assetPath,
+      bytes: bytes.byteLength,
+      format: "png"
+    });
+  }
+
+  return report;
+}
+
+function isMaterializableAsset(entry: AssetManifestEntry): boolean {
+  return entry.strategy === "image_asset" || entry.strategy === "decorative_slice";
+}
+
+function safeAssetPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || normalized.includes("..") || !normalized.startsWith("assets/")) {
+    throw new Error(`Unsafe generated asset path: ${path}`);
+  }
+  return normalized;
+}
+
+async function writeBinaryAsset(path: string, bytes: Buffer): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, bytes);
 }
 
 async function runLocalPipeline(
   artifactDir: string,
   body: SnapshotRequest,
-  artifacts: PipelineArtifacts
+  artifacts: PipelineArtifacts,
+  materializedAssetReport: MaterializedAssetReport
 ): Promise<LocalPipelineRunReport> {
   const source = body.rawFigmaScene.source;
   const shouldRunPreview = body.runPreview ?? true;
@@ -302,7 +424,9 @@ async function runLocalPipeline(
     steps: {
       snapshot: {
         status: "success",
-        hasReferenceScreenshot: !!body.figmaReferencePngBase64
+        hasReferenceScreenshot: !!body.figmaReferencePngBase64,
+        requestedAssets: materializedAssetReport.requested,
+        materializedAssets: materializedAssetReport.materialized.length
       },
       compile: {
         status: "success",

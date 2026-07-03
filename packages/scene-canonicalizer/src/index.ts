@@ -211,7 +211,7 @@ function hasVisiblePaints(paints: unknown): boolean {
 }
 
 function toCanonicalType(node: RawFigmaNode): CanonicalType {
-  if (node.imageHash || node.type === "IMAGE") return "image";
+  if (node.imageHash || node.type === "IMAGE" || hasImageFill(node.fills)) return "image";
   switch (node.type) {
     case "FRAME":
     case "SECTION":
@@ -230,6 +230,15 @@ function toCanonicalType(node: RawFigmaNode): CanonicalType {
     default:
       return "vector";
   }
+}
+
+function hasImageFill(fills: unknown): boolean {
+  if (!Array.isArray(fills)) return false;
+  return fills.some((fill) => {
+    if (!fill || typeof fill !== "object") return false;
+    const candidate = fill as { type?: string; visible?: boolean; opacity?: number };
+    return candidate.type === "IMAGE" && candidate.visible !== false && candidate.opacity !== 0;
+  });
 }
 
 function canonicalId(sourceNodeId: string): string {

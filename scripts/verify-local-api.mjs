@@ -21,10 +21,33 @@ const server = spawn("node", ["apps/local-api/dist/index.js"], {
 try {
   await waitForHealth();
   const rawFigmaScene = JSON.parse(readFileSync("examples/fixtures/login_raw_figma_scene.json", "utf8"));
+  const imageSourceNodeId = "smoke:asset:1";
+  rawFigmaScene.root.children.push({
+    id: imageSourceNodeId,
+    name: "Smoke Bitmap",
+    type: "RECTANGLE",
+    visible: true,
+    absoluteBoundingBox: { x: 12, y: 12, width: 8, height: 8 },
+    fills: [{ type: "IMAGE", visible: true, imageHash: "smoke-image" }]
+  });
   const response = await fetch("http://127.0.0.1:8799/api/snapshots", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sourceKind: "local_smoke", rawFigmaScene, projectId: "smoke", figmaReferencePngBase64: referencePngBase64 })
+    body: JSON.stringify({
+      sourceKind: "local_smoke",
+      rawFigmaScene,
+      projectId: "smoke",
+      figmaReferencePngBase64: referencePngBase64,
+      assets: [
+        {
+          sourceNodeId: imageSourceNodeId,
+          name: "Smoke Bitmap",
+          format: "png",
+          contentType: "image/png",
+          pngBase64: referencePngBase64
+        }
+      ]
+    })
   });
   assert.equal(response.ok, true);
   const result = await response.json();
@@ -39,8 +62,19 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "diff/diff_heatmap.png")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "pipeline_run_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "local_api_snapshot_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "materialized_assets_report.json")), true);
+  const materializedAssetReport = JSON.parse(readFileSync(resolve(result.artifactDir, "materialized_assets_report.json"), "utf8"));
+  assert.equal(materializedAssetReport.requested, 1);
+  assert.equal(materializedAssetReport.materialized.length, 1);
+  assert.equal(materializedAssetReport.materialized[0].sourceNodeId, imageSourceNodeId);
+  const materializedPath = materializedAssetReport.materialized[0].path;
+  assert.equal(existsSync(resolve(result.artifactDir, materializedPath)), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "flutter_preview", materializedPath)), true);
+  const previewPage = readFileSync(resolve(result.artifactDir, "flutter_preview/lib/generated/fidelity/preview_page.dart"), "utf8");
+  assert.match(previewPage, /Image\.asset\(/);
   const pipelineRunReport = JSON.parse(readFileSync(resolve(result.artifactDir, "pipeline_run_report.json"), "utf8"));
   assert.equal(pipelineRunReport.source.sourceKind, "local_smoke");
+  assert.equal(pipelineRunReport.steps.snapshot.materializedAssets, 1);
   assert.equal(pipelineRunReport.steps.flutterCapture.status, "success");
   assert.equal(pipelineRunReport.steps.visualDiff.status, "success");
   console.log("local api verification passed");

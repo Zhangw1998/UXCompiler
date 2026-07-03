@@ -1,4 +1,6 @@
 import type {
+  AssetManifest,
+  AssetManifestEntry,
   CanonicalNode,
   CanonicalScene,
   FidelityGenerationManifest,
@@ -10,6 +12,7 @@ import type {
   RawPaint,
   VisualIR,
   VisualNode,
+  VisualImageNode,
   VisualPositionedNode,
   VisualRectNode,
   VisualShadow,
@@ -22,13 +25,19 @@ interface Renderable {
   decision: FidelityRenderDecision;
 }
 
-export function generateFlutterFidelity(canonicalScene: CanonicalScene): FlutterFidelityResult {
+export interface FlutterFidelityOptions {
+  assetManifest?: AssetManifest;
+  materializedAssetSourceNodeIds?: readonly string[];
+}
+
+export function generateFlutterFidelity(canonicalScene: CanonicalScene, options: FlutterFidelityOptions = {}): FlutterFidelityResult {
   const renderables: Renderable[] = [];
   const decisions: FidelityRenderDecision[] = [];
   const warnings: FidelityGenerationManifest["warnings"] = [];
+  const materializedAssetPaths = buildMaterializedAssetPathMap(options.assetManifest, options.materializedAssetSourceNodeIds);
 
   for (const child of canonicalScene.root.children) {
-    collectRenderables(child, renderables, decisions, warnings);
+    collectRenderables(child, renderables, decisions, warnings, materializedAssetPaths);
   }
 
   const positionedChildren = renderables.map<VisualPositionedNode>(({ node, visual }) => ({
@@ -82,7 +91,8 @@ function collectRenderables(
   node: CanonicalNode,
   renderables: Renderable[],
   decisions: FidelityRenderDecision[],
-  warnings: FidelityGenerationManifest["warnings"]
+  warnings: FidelityGenerationManifest["warnings"],
+  materializedAssetPaths: ReadonlyMap<string, string>
 ): void {
   if (node.flags.isInvisible || node.flags.isZeroSize) {
     decisions.push({
@@ -94,7 +104,7 @@ function collectRenderables(
     return;
   }
 
-  const visual = toVisualNode(node, warnings);
+  const visual = toVisualNode(node, warnings, materializedAssetPaths);
   if (visual) {
     const decision = decisionFor(node, visual);
     renderables.push({ node, visual, decision });
@@ -109,16 +119,31 @@ function collectRenderables(
   }
 
   for (const child of node.children) {
-    collectRenderables(child, renderables, decisions, warnings);
+    collectRenderables(child, renderables, decisions, warnings, materializedAssetPaths);
   }
 }
 
-function toVisualNode(node: CanonicalNode, warnings: FidelityGenerationManifest["warnings"]): VisualNode | undefined {
+function toVisualNode(
+  node: CanonicalNode,
+  warnings: FidelityGenerationManifest["warnings"],
+  materializedAssetPaths: ReadonlyMap<string, string>
+): VisualNode | undefined {
   if (node.canonicalType === "text") {
     return toVisualText(node);
   }
 
   if (node.canonicalType === "image" || node.flags.recommendAssetSlice) {
+    const assetPath = materializedAssetPaths.get(node.sourceNodeId);
+    if (assetPath) {
+      return {
+        type: "image",
+        sourceNodeId: node.sourceNodeId,
+        w: node.bounds.w,
+        h: node.bounds.h,
+        mode: "asset",
+        assetPath
+      };
+    }
     warnings.push({
       sourceNodeId: node.sourceNodeId,
       type: "placeholder_asset",
@@ -150,6 +175,14 @@ function decisionFor(node: CanonicalNode, visual: VisualNode): FidelityRenderDec
     };
   }
   if (visual.type === "image") {
+    if (visual.mode === "asset") {
+      return {
+        sourceNodeId: node.sourceNodeId,
+        strategy: "image_asset",
+        editable: false,
+        reason: "Exported bitmap asset is rendered with Flutter Image.asset for fidelity."
+      };
+    }
     return {
       sourceNodeId: node.sourceNodeId,
       strategy: "placeholder_asset",
@@ -224,9 +257,10 @@ function toVisualShadow(effect: RawEffect): VisualShadow | undefined {
 }
 
 function renderFlutterPreviewProject(visualIR: VisualIR): FlutterPreviewProject {
+  const assetPaths = collectVisualAssetPaths(visualIR);
   return {
     files: {
-      "pubspec.yaml": renderPubspec(),
+      "pubspec.yaml": renderPubspec(assetPaths),
       "analysis_options.yaml": renderAnalysisOptions(),
       "lib/main.dart": renderMainDart(),
       "lib/generated/fidelity/preview_page.dart": renderPreviewPage(visualIR),
@@ -236,8 +270,8 @@ function renderFlutterPreviewProject(visualIR: VisualIR): FlutterPreviewProject 
   };
 }
 
-function renderPubspec(): string {
-  return [
+function renderPubspec(assetPaths: readonly string[]): string {
+  const lines = [
     "name: uxc_preview",
     "description: Generated UXCompiler Flutter fidelity preview.",
     "publish_to: none",
@@ -255,9 +289,13 @@ function renderPubspec(): string {
     "    sdk: flutter",
     "",
     "flutter:",
-    "  uses-material-design: true",
-    ""
-  ].join("\n");
+    "  uses-material-design: true"
+  ];
+  if (assetPaths.length > 0) {
+    lines.push("  assets:", ...assetPaths.map((assetPath) => `    - ${assetPath}`));
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
 function renderPreviewTest(): string {
@@ -276,7 +314,7 @@ function renderPreviewTest(): string {
 }
 
 function renderGoldenPreviewTest(visualIR: VisualIR): string {
-  return [
+  const lines = [
     "import 'package:flutter/material.dart';",
     "import 'package:flutter_test/flutter_test.dart';",
     "import 'package:uxc_preview/generated/fidelity/preview_page.dart';",
@@ -288,6 +326,9 @@ function renderGoldenPreviewTest(visualIR: VisualIR): string {
     "      await tester.binding.setSurfaceSize(null);",
     "    });",
     "    await tester.pumpWidget(const MaterialApp(home: UxcPreviewPage()));",
+    "    await tester.runAsync(() async {",
+    "      await Future<void>.delayed(const Duration(seconds: 2));",
+    "    });",
     "    await tester.pump();",
     "    await expectLater(",
     "      find.byType(UxcPreviewPage),",
@@ -296,7 +337,8 @@ function renderGoldenPreviewTest(visualIR: VisualIR): string {
     "  });",
     "}",
     ""
-  ].join("\n");
+  ];
+  return lines.join("\n");
 }
 
 function renderAnalysisOptions(): string {
@@ -377,7 +419,7 @@ function renderVisualNode(node: VisualNode, key: string, indentLevel: number): s
     case "text":
       return renderText(node, indentLevel);
     case "image":
-      return renderImagePlaceholder(node, indentLevel);
+      return renderImage(node, indentLevel);
     case "stack":
       return [
         `${indent}Stack(`,
@@ -390,6 +432,21 @@ function renderVisualNode(node: VisualNode, key: string, indentLevel: number): s
     case "scene":
       return "const SizedBox.shrink()";
   }
+}
+
+function renderImage(node: VisualImageNode, indentLevel: number): string {
+  if (node.mode === "asset" && node.assetPath) {
+    const indent = "  ".repeat(indentLevel);
+    return [
+      `${indent}Image.asset(`,
+      `${indent}  ${dartString(node.assetPath)},`,
+      `${indent}  fit: BoxFit.fill,`,
+      `${indent}  width: ${dartNumber(node.w)},`,
+      `${indent}  height: ${dartNumber(node.h)},`,
+      `${indent})`
+    ].join("\n");
+  }
+  return renderImagePlaceholder(indentLevel);
 }
 
 function renderRect(node: VisualRectNode, indentLevel: number): string {
@@ -427,7 +484,7 @@ function renderText(node: VisualTextNode, indentLevel: number): string {
   ].join("\n");
 }
 
-function renderImagePlaceholder(node: { w: number; h: number }, indentLevel: number): string {
+function renderImagePlaceholder(indentLevel: number): string {
   const indent = "  ".repeat(indentLevel);
   return [
     `${indent}DecoratedBox(`,
@@ -440,6 +497,40 @@ function renderImagePlaceholder(node: { w: number; h: number }, indentLevel: num
     `${indent}  ),`,
     `${indent})`
   ].join("\n");
+}
+
+function buildMaterializedAssetPathMap(
+  assetManifest: AssetManifest | undefined,
+  materializedAssetSourceNodeIds: readonly string[] | undefined
+): Map<string, string> {
+  if (!assetManifest || !materializedAssetSourceNodeIds || materializedAssetSourceNodeIds.length === 0) {
+    return new Map();
+  }
+  const materialized = new Set(materializedAssetSourceNodeIds);
+  const paths = new Map<string, string>();
+  for (const asset of assetManifest.assets) {
+    if (isRenderableAsset(asset) && materialized.has(asset.sourceNodeId) && asset.path) {
+      paths.set(asset.sourceNodeId, asset.path);
+    }
+  }
+  return paths;
+}
+
+function isRenderableAsset(asset: AssetManifestEntry): boolean {
+  return asset.strategy === "image_asset" || asset.strategy === "decorative_slice";
+}
+
+function collectVisualAssetPaths(visualIR: VisualIR): string[] {
+  const paths = new Set<string>();
+  const walk = (node: VisualNode): void => {
+    if (node.type === "image" && node.mode === "asset" && node.assetPath) paths.add(node.assetPath);
+    if (node.type === "positioned") walk(node.child);
+    if (node.type === "stack" || node.type === "scene") {
+      for (const child of node.children) walk(child);
+    }
+  };
+  walk(visualIR.root);
+  return Array.from(paths).sort();
 }
 
 function renderShadow(shadow: VisualShadow): string {

@@ -5,11 +5,18 @@ import { canonicalizeRawScene } from "@uxcompiler/scene-canonicalizer";
 import { inferLayout } from "@uxcompiler/layout-inferencer";
 import { mineTokens } from "@uxcompiler/token-miner";
 
-export function compileRawScene(rawFigmaScene: RawFigmaScene): PipelineArtifacts {
+export interface CompileRawSceneOptions {
+  materializedAssetSourceNodeIds?: readonly string[];
+}
+
+export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRawSceneOptions = {}): PipelineArtifacts {
   const canonicalResult = canonicalizeRawScene(rawFigmaScene);
   const tokenResult = mineTokens(canonicalResult.canonicalScene);
   const assetI18nResult = normalizeAssetsAndI18n(canonicalResult.canonicalScene);
-  const fidelityResult = generateFlutterFidelity(canonicalResult.canonicalScene);
+  const fidelityResult = generateFlutterFidelity(canonicalResult.canonicalScene, {
+    assetManifest: assetI18nResult.assetManifest,
+    materializedAssetSourceNodeIds: options.materializedAssetSourceNodeIds
+  });
   const layoutResult = inferLayout(canonicalResult.canonicalScene, tokenResult.inferredTokens);
 
   return {

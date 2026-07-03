@@ -7,6 +7,17 @@ type SerializableNode = Record<string, unknown> & {
   children?: SerializableNode[];
 };
 
+type ExportedAsset = {
+  sourceNodeId: string;
+  name: string;
+  format: "png";
+  contentType: "image/png";
+  pngBase64: string;
+  bytes: number;
+  width?: number;
+  height?: number;
+};
+
 figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
   if (message.type === "check-health") {
     await checkLocalApi(message.endpoint || "http://localhost:8787/api/snapshots");
@@ -17,7 +28,10 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
     const endpoint = message.endpoint || "http://localhost:8787/api/snapshots";
     const root = resolveSelectedRoot();
     const rawFigmaScene = buildRawFigmaScene(root);
-    const png = await root.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } });
+    const [png, assets] = await Promise.all([
+      root.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } }),
+      exportImageAssets(root)
+    ]);
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -25,6 +39,7 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
         sourceKind: "figma_plugin",
         rawFigmaScene,
         figmaReferencePngBase64: uint8ToBase64(png),
+        assets,
         extractionReport: {
           source: {
             fileKey: figma.fileKey ?? "plugin_file",
@@ -39,6 +54,11 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
             format: "png",
             scale: 1,
             bytes: png.byteLength
+          },
+          assets: {
+            requested: assets.length,
+            format: "png",
+            bytes: assets.reduce((sum, asset) => sum + asset.bytes, 0)
           },
           warnings: []
         }
@@ -163,6 +183,50 @@ function serializeNode(node: SceneNode): SerializableNode {
   return serialized;
 }
 
+async function exportImageAssets(root: SceneNode): Promise<ExportedAsset[]> {
+  const nodes: SceneNode[] = [];
+  walkSceneNode(root, (node) => {
+    if (hasNodeImageAsset(node)) nodes.push(node);
+  });
+
+  const assets: ExportedAsset[] = [];
+  for (const node of nodes) {
+    const png = await node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } });
+    const bounds = readBounds(node);
+    assets.push({
+      sourceNodeId: node.id,
+      name: node.name,
+      format: "png",
+      contentType: "image/png",
+      pngBase64: uint8ToBase64(png),
+      bytes: png.byteLength,
+      width: bounds?.width,
+      height: bounds?.height
+    });
+  }
+  return assets;
+}
+
+function walkSceneNode(node: SceneNode, visit: (node: SceneNode) => void): void {
+  visit(node);
+  if ("children" in node) {
+    for (const child of node.children) walkSceneNode(child, visit);
+  }
+}
+
+function hasNodeImageAsset(node: SceneNode): boolean {
+  return typeof read(node, "imageHash") === "string" || hasImageFill(read(node, "fills"));
+}
+
+function hasImageFill(fills: unknown): boolean {
+  if (!Array.isArray(fills)) return false;
+  return fills.some((fill) => {
+    if (!fill || typeof fill !== "object") return false;
+    const candidate = fill as { type?: string; visible?: boolean; opacity?: number };
+    return candidate.type === "IMAGE" && candidate.visible !== false && candidate.opacity !== 0;
+  });
+}
+
 function readBounds(node: SceneNode): Rect | undefined {
   return "absoluteBoundingBox" in node ? node.absoluteBoundingBox ?? undefined : undefined;
 }
@@ -192,6 +256,7 @@ function countNodes(root: SerializableNode) {
     stats.nodes += 1;
     if (node.type === "TEXT") stats.textNodes += 1;
     if (["VECTOR", "BOOLEAN_OPERATION", "STAR", "LINE", "POLYGON", "ELLIPSE"].includes(node.type)) stats.vectorNodes += 1;
+    if (typeof node.imageHash === "string" || hasImageFill(node.fills)) stats.imageNodes += 1;
     if (node.type === "INSTANCE") stats.componentInstances += 1;
   });
   return stats;
@@ -204,6 +269,9 @@ function walk(node: SerializableNode, visit: (node: SerializableNode) => void): 
 
 function uint8ToBase64(bytes: Uint8Array): string {
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(index, index + chunkSize));
+  }
   return btoa(binary);
 }

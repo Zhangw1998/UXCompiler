@@ -29,10 +29,16 @@ assertIncludes(ui, "type: \"sync-selection\"", "UI sync message");
 assertIncludes(main, "message.type === \"check-health\"", "main health handler");
 assertIncludes(main, "message.type !== \"sync-selection\"", "main sync handler");
 assertIncludes(main, "/health", "main health URL derivation");
+assertIncludes(main, "exportImageAssets(root)", "main exports image assets");
+assertIncludes(main, "assets,", "main sends exported assets");
+assertIncludes(main, "hasImageFill", "main detects image fills");
 assertNotIncludes(main, "new URL(", "main should avoid URL global unavailable in Figma plugin runtime");
 assertNotIncludes(main, "figma.root", "main should avoid document root access");
 assertIncludes(builtMain, "message.type === \"check-health\"", "built main health handler");
 assertIncludes(builtMain, "message.type !== \"sync-selection\"", "built main sync handler");
+assertIncludes(builtMain, "exportImageAssets(root)", "built main exports image assets");
+assertIncludes(builtMain, "assets,", "built main sends exported assets");
+assertIncludes(builtMain, "hasImageFill", "built main detects image fills");
 assertNotIncludes(builtMain, "new URL(", "built main should avoid URL global unavailable in Figma plugin runtime");
 assertNotIncludes(builtMain, "figma.root", "built main should avoid document root access");
 
