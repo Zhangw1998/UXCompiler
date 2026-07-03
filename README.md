@@ -281,6 +281,8 @@ http://127.0.0.1:8788/apps/workbench-web/?artifacts=/artifacts/sample
 
 The Workbench can also load another local artifact folder from the `Open Artifacts` button. It expects the same files produced by `compile`, `studio apply`, `codegen review`, or `sync remap`, such as `reviewed_normalized_design_ir.json`, `visual_ir.json`, `review_tasks.json`, `override_set.json`, `codegen_review.json`, and `node_remap_report.json`.
 
+When opened through `pnpm workbench:web`, Review Task action buttons can write back to artifact folders under `/artifacts/*`. A task action appends or updates a structured override in `override_set.json`, rebuilds reviewed IR/token/asset/i18n artifacts, refreshes `review_tasks.json` and `task_status_report.json`, and writes `review_task_action_report.json` for traceability. Directly loaded browser folders remain read-only.
+
 ## Fetch And Compile A Real Figma Frame
 
 Create a Figma personal access token with file read access, then export it:

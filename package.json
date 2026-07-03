@@ -46,7 +46,7 @@
     "figma:plugin-stop": "node scripts/figma-plugin-stop.mjs",
     "local-api": "pnpm build && node apps/local-api/dist/index.js",
     "local-api:health": "node scripts/local-api-health.mjs",
-    "workbench:web": "pnpm --filter @uxcompiler/workbench-web build && node scripts/workbench-web-server.mjs",
+    "workbench:web": "pnpm build && node scripts/workbench-web-server.mjs",
     "clean": "rm -rf apps/*/dist packages/*/dist artifacts/sample artifacts/figma-mock artifacts/figma-smoke artifacts/figma-smoke-mock artifacts/figma-bridge-smoke artifacts/figma-readiness artifacts/figma-access-audit artifacts/local-api-smoke artifacts/workbench-web-smoke"
   },
   "devDependencies": {

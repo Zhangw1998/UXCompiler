@@ -80,6 +80,36 @@ try {
     assert.equal(previewPng.ok, true);
     assert.equal(previewPng.headers.get("content-type"), "image/png");
   }
+
+  const firstTaskId = artifacts.reviewTasks[0].id;
+  const actionResponse = await fetch(`${base}/api/workbench/task-action`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      taskId: firstTaskId,
+      actionIndex: 0
+    })
+  });
+  assert.equal(actionResponse.ok, true);
+  const actionResult = await actionResponse.json();
+  assert.equal(actionResult.ok, true);
+  assert.equal(actionResult.report.taskId, firstTaskId);
+  assert.match(actionResult.report.overrideId, /^ovr_/);
+  assert.equal(actionResult.report.beforeOpenTasks, artifacts.reviewTasks.length);
+  assert.equal(actionResult.report.afterOpenTasks, artifacts.reviewTasks.length - 1);
+
+  const updatedTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
+  const updatedOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  const actionReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_task_action_report.json`);
+  const updatedTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_inferred_tokens.json`);
+  assert.equal(updatedTasks.length, artifacts.reviewTasks.length - 1);
+  assert.equal(updatedTasks.some((task) => task.id === firstTaskId), false);
+  assert.equal(updatedOverrideSet.overrides.length, 1);
+  assert.match(updatedOverrideSet.hash, /^sha256_[a-f0-9]{64}$/);
+  assert.equal(actionReport.afterOpenTasks, artifacts.reviewTasks.length - 1);
+  assert.equal(findTokenConfidence(updatedTokens, "radius_18"), 1);
+
   console.log("workbench-web verification passed");
 } finally {
   server.kill("SIGTERM");
@@ -125,4 +155,12 @@ async function streamText(stream) {
     });
     setTimeout(() => resolveText(text), 50);
   });
+}
+
+function findTokenConfidence(tokens, name) {
+  for (const group of ["colors", "spacing", "typography", "radii", "shadows"]) {
+    const token = tokens[group]?.find((entry) => entry.name === name);
+    if (token) return token.confidence;
+  }
+  return undefined;
 }

@@ -27,6 +27,8 @@ interface AppState {
   error?: string;
   selectedSourceNodeId?: string;
   previewMode: PreviewMode;
+  actionMessage?: { tone: "good" | "warn" | "bad"; text: string };
+  pendingAction?: string;
 }
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
@@ -331,6 +333,7 @@ function renderDashboard(model: WorkbenchModel): string {
 
 function renderTasks(_model: WorkbenchModel): string {
   const tasks = asArray(state.artifacts.reviewTasks).map(asRecord);
+  const canApplyActions = state.artifactRoot !== "selected directory";
   return `
     <section class="view-header">
       <div>
@@ -338,6 +341,7 @@ function renderTasks(_model: WorkbenchModel): string {
         <p>${tasks.length} tasks loaded</p>
       </div>
     </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="task-list">
       ${
         tasks.length === 0
@@ -347,10 +351,12 @@ function renderTasks(_model: WorkbenchModel): string {
                 const priority = stringFrom(task.priority) ?? "P?";
                 const title = stringFrom(task.title) ?? stringFrom(task.id) ?? "Review task";
                 const description = stringFrom(task.description) ?? "";
+                const taskId = stringFrom(task.id) ?? "";
                 const target = asRecord(task.target);
                 const sourceNodeIds = asArray(target.sourceNodeIds)
                   .map((entry) => stringFrom(entry))
                   .filter((entry): entry is string => Boolean(entry));
+                const actions = asArray(task.suggestedActions).map(asRecord);
                 return `
                   <article class="task-item">
                     <div class="task-priority ${priority.toLowerCase()}">${escapeHtml(priority)}</div>
@@ -364,7 +370,29 @@ function renderTasks(_model: WorkbenchModel): string {
                         ${sourceNodeIds.map((id) => `<button class="mini-link" data-node-id="${escapeAttr(id)}">${escapeHtml(id)}</button>`).join("")}
                       </div>
                     </div>
-                    <div class="task-actions">${asArray(task.suggestedActions).length} actions</div>
+                    <div class="task-actions">
+                      ${
+                        actions.length === 0
+                          ? `<span>No action</span>`
+                          : actions
+                              .map((action, index) => {
+                                const actionKey = `${taskId}:${index}`;
+                                const isPending = state.pendingAction === actionKey;
+                                const label = stringFrom(action.label) ?? `Action ${index + 1}`;
+                                return `
+                                  <button
+                                    class="action-button"
+                                    data-task-action="${escapeAttr(taskId)}"
+                                    data-action-index="${index}"
+                                    ${canApplyActions && !isPending ? "" : "disabled"}
+                                  >
+                                    ${escapeHtml(isPending ? "Applying..." : label)}
+                                  </button>
+                                `;
+                              })
+                              .join("")
+                      }
+                    </div>
                   </article>
                 `;
               })
@@ -878,6 +906,13 @@ function onAppClick(event: MouseEvent): void {
     }
   }
 
+  const taskActionButton = target.closest<HTMLButtonElement>("[data-task-action]");
+  if (taskActionButton?.dataset.taskAction) {
+    const actionIndex = Number(taskActionButton.dataset.actionIndex);
+    void applyTaskAction(taskActionButton.dataset.taskAction, actionIndex);
+    return;
+  }
+
   const modeButton = target.closest<HTMLElement>("[data-preview-mode]");
   if (modeButton?.dataset.previewMode) {
     state.previewMode = modeButton.dataset.previewMode as PreviewMode;
@@ -890,6 +925,46 @@ function onAppClick(event: MouseEvent): void {
   if (nodeId) {
     state.selectedSourceNodeId = nodeId;
     if (state.activeView !== "preview" && target.closest(".task-list")) state.activeView = "preview";
+    render();
+  }
+}
+
+async function applyTaskAction(taskId: string, actionIndex: number): Promise<void> {
+  const actionKey = `${taskId}:${actionIndex}`;
+  state.pendingAction = actionKey;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const response = await fetch("/api/workbench/task-action", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        artifactRoot: state.artifactRoot,
+        taskId,
+        actionIndex,
+        actor: "user"
+      })
+    });
+    const result = (await response.json()) as { ok?: boolean; error?: string; report?: { afterOpenTasks?: number; overrideId?: string } };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Task action failed with ${response.status}`);
+    }
+    state.actionMessage = {
+      tone: "good",
+      text: `Applied ${result.report?.overrideId ?? "override"}; ${result.report?.afterOpenTasks ?? "updated"} tasks remain.`
+    };
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.actionMessage = {
+      tone: "good",
+      text: `Applied ${result.report?.overrideId ?? "override"}; ${result.report?.afterOpenTasks ?? state.model?.reviewSummary.open ?? 0} tasks remain.`
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingAction = undefined;
     render();
   }
 }
