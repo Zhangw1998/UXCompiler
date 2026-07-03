@@ -2,6 +2,7 @@ export type AssetStrategy =
   | "real_text"
   | "svg_icon"
   | "image_asset"
+  | "frame_screenshot"
   | "decorative_slice"
   | "custom_painter"
   | "flutter_shape"

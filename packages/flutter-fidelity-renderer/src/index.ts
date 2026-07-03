@@ -28,9 +28,14 @@ interface Renderable {
 export interface FlutterFidelityOptions {
   assetManifest?: AssetManifest;
   materializedAssetSourceNodeIds?: readonly string[];
+  frameScreenshotAssetPath?: string;
 }
 
 export function generateFlutterFidelity(canonicalScene: CanonicalScene, options: FlutterFidelityOptions = {}): FlutterFidelityResult {
+  if (options.frameScreenshotAssetPath) {
+    return generateFrameScreenshotFidelity(canonicalScene, options.frameScreenshotAssetPath);
+  }
+
   const renderables: Renderable[] = [];
   const decisions: FidelityRenderDecision[] = [];
   const warnings: FidelityGenerationManifest["warnings"] = [];
@@ -85,6 +90,94 @@ export function generateFlutterFidelity(canonicalScene: CanonicalScene, options:
     nodePixelMap,
     flutterPreviewProject
   };
+}
+
+function generateFrameScreenshotFidelity(canonicalScene: CanonicalScene, frameScreenshotAssetPath: string): FlutterFidelityResult {
+  const frameNodeId = canonicalScene.root.sourceNodeId;
+  const viewport = canonicalScene.source.viewport;
+  const positionedFrame: VisualPositionedNode = {
+    type: "positioned",
+    sourceNodeId: frameNodeId,
+    x: 0,
+    y: 0,
+    w: viewport.width,
+    h: viewport.height,
+    child: {
+      type: "image",
+      sourceNodeId: frameNodeId,
+      w: viewport.width,
+      h: viewport.height,
+      mode: "asset",
+      assetPath: frameScreenshotAssetPath
+    }
+  };
+  const visualIR: VisualIR = {
+    version: "2.0",
+    source: canonicalScene.source,
+    root: {
+      type: "scene",
+      size: {
+        w: viewport.width,
+        h: viewport.height
+      },
+      children: [positionedFrame]
+    }
+  };
+  const coveredNodes = collectVisibleCoverageNodes(canonicalScene.root);
+  const nodePixelMap = coveredNodes.map<NodePixelMapEntry>((node, index) => ({
+    sourceNodeId: node.sourceNodeId,
+    widgetPath: index === 0 ? "UxcPreviewPage/FrameScreenshot" : `UxcPreviewPage/FrameScreenshot/Covered_${index}`,
+    bounds: node === canonicalScene.root ? { x: 0, y: 0, w: viewport.width, h: viewport.height } : node.bounds
+  }));
+  const decisions: FidelityRenderDecision[] = coveredNodes.map((node, index) =>
+    index === 0
+      ? {
+          sourceNodeId: node.sourceNodeId,
+          strategy: "frame_screenshot_asset",
+          editable: false,
+          reason: "Full-frame reference screenshot is rendered as a fidelity fallback asset."
+        }
+      : {
+          sourceNodeId: node.sourceNodeId,
+          strategy: "covered_by_frame_screenshot",
+          editable: false,
+          reason: "Node is visually covered by the full-frame screenshot fidelity fallback."
+        }
+  );
+  const warnings: FidelityGenerationManifest["warnings"] = [
+    {
+      sourceNodeId: frameNodeId,
+      type: "frame_screenshot_fallback",
+      message: "The preview uses the exported Figma frame screenshot as an exact non-editable fidelity fallback."
+    }
+  ];
+  const flutterPreviewProject = renderFlutterPreviewProject(visualIR);
+  const files = Object.keys(flutterPreviewProject.files).sort();
+
+  return {
+    visualIR,
+    fidelityGenerationManifest: {
+      version: "2.0",
+      generatedAt: new Date().toISOString(),
+      viewport,
+      files,
+      renderDecisions: decisions,
+      warnings
+    },
+    nodePixelMap,
+    flutterPreviewProject
+  };
+}
+
+function collectVisibleCoverageNodes(root: CanonicalNode): CanonicalNode[] {
+  const nodes: CanonicalNode[] = [];
+  const walkCoverage = (node: CanonicalNode): void => {
+    if (node.flags.isInvisible || node.flags.isZeroSize) return;
+    nodes.push(node);
+    for (const child of node.children) walkCoverage(child);
+  };
+  walkCoverage(root);
+  return nodes;
 }
 
 function collectRenderables(

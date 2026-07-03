@@ -30,7 +30,7 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
     const rawFigmaScene = buildRawFigmaScene(root);
     const [png, assets] = await Promise.all([
       root.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } }),
-      exportImageAssets(root)
+      exportNodeAssets(root)
     ]);
     const response = await fetch(endpoint, {
       method: "POST",
@@ -39,6 +39,7 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
         sourceKind: "figma_plugin",
         rawFigmaScene,
         figmaReferencePngBase64: uint8ToBase64(png),
+        preferFrameScreenshotFallback: true,
         assets,
         extractionReport: {
           source: {
@@ -183,10 +184,10 @@ function serializeNode(node: SceneNode): SerializableNode {
   return serialized;
 }
 
-async function exportImageAssets(root: SceneNode): Promise<ExportedAsset[]> {
+async function exportNodeAssets(root: SceneNode): Promise<ExportedAsset[]> {
   const nodes: SceneNode[] = [];
   walkSceneNode(root, (node) => {
-    if (hasNodeImageAsset(node)) nodes.push(node);
+    if (hasNodeExportableAsset(node)) nodes.push(node);
   });
 
   const assets: ExportedAsset[] = [];
@@ -216,6 +217,28 @@ function walkSceneNode(node: SceneNode, visit: (node: SceneNode) => void): void 
 
 function hasNodeImageAsset(node: SceneNode): boolean {
   return typeof read(node, "imageHash") === "string" || hasImageFill(read(node, "fills"));
+}
+
+function hasNodeExportableAsset(node: SceneNode): boolean {
+  return hasNodeImageAsset(node) || hasNodeSliceAsset(node);
+}
+
+function hasNodeSliceAsset(node: SceneNode): boolean {
+  return hasBlurEffect(read(node, "effects")) || read(node, "isMask") === true || isComplexVectorNode(node);
+}
+
+function hasBlurEffect(effects: unknown): boolean {
+  if (!Array.isArray(effects)) return false;
+  return effects.some((effect) => {
+    if (!effect || typeof effect !== "object") return false;
+    const candidate = effect as { type?: string; visible?: boolean };
+    return candidate.visible !== false && String(candidate.type ?? "").includes("BLUR");
+  });
+}
+
+function isComplexVectorNode(node: SceneNode): boolean {
+  const vectorLikeTypes = ["VECTOR", "BOOLEAN_OPERATION", "STAR", "LINE", "POLYGON", "ELLIPSE"];
+  return vectorLikeTypes.includes(node.type) && (read(node, "vectorNetwork") !== undefined || ("children" in node && node.children.length > 0));
 }
 
 function hasImageFill(fills: unknown): boolean {

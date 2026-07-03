@@ -7,6 +7,7 @@ import { mineTokens } from "@uxcompiler/token-miner";
 
 export interface CompileRawSceneOptions {
   materializedAssetSourceNodeIds?: readonly string[];
+  frameScreenshotAssetPath?: string;
 }
 
 export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRawSceneOptions = {}): PipelineArtifacts {
@@ -15,7 +16,8 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
   const assetI18nResult = normalizeAssetsAndI18n(canonicalResult.canonicalScene);
   const fidelityResult = generateFlutterFidelity(canonicalResult.canonicalScene, {
     assetManifest: assetI18nResult.assetManifest,
-    materializedAssetSourceNodeIds: options.materializedAssetSourceNodeIds
+    materializedAssetSourceNodeIds: options.materializedAssetSourceNodeIds,
+    frameScreenshotAssetPath: options.frameScreenshotAssetPath
   });
   const layoutResult = inferLayout(canonicalResult.canonicalScene, tokenResult.inferredTokens);
 

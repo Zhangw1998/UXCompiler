@@ -22,6 +22,7 @@ interface SnapshotRequest {
   sourceKind?: "figma_plugin" | "local_smoke" | "unknown";
   rawFigmaScene: RawFigmaScene;
   figmaReferencePngBase64?: string;
+  preferFrameScreenshotFallback?: boolean;
   assets?: SnapshotAsset[];
   extractionReport?: unknown;
   projectId?: string;
@@ -57,7 +58,13 @@ interface LocalPipelineRunReport {
     frameNodeId?: string;
   };
   steps: {
-    snapshot: { status: string; hasReferenceScreenshot: boolean; requestedAssets: number; materializedAssets: number };
+    snapshot: {
+      status: string;
+      hasReferenceScreenshot: boolean;
+      requestedAssets: number;
+      materializedAssets: number;
+      frameScreenshotFallback: boolean;
+    };
     compile: { status: string; normalizedConfidence: number };
     flutterCapture: { status: string; output?: string; report?: string; reason?: string };
     visualDiff: {
@@ -146,8 +153,13 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
 
   const snapshotAssets = body.assets ?? [];
   const materializedAssetSourceNodeIds = Array.from(new Set(snapshotAssets.map((asset) => asset.sourceNodeId).filter(Boolean)));
-  const artifacts = compileRawScene(body.rawFigmaScene, { materializedAssetSourceNodeIds });
-  const materializedAssetReport = await writePipelineArtifacts(artifactDir, artifacts, { assets: snapshotAssets });
+  const frameScreenshotAssetPath = shouldUseFrameScreenshotFallback(body) ? "assets/frames/figma_reference.png" : undefined;
+  const artifacts = compileRawScene(body.rawFigmaScene, { materializedAssetSourceNodeIds, frameScreenshotAssetPath });
+  const materializedAssetReport = await writePipelineArtifacts(artifactDir, artifacts, {
+    assets: snapshotAssets,
+    frameScreenshotAssetPath,
+    frameScreenshotPngBase64: body.figmaReferencePngBase64
+  });
   const pipelineRunReport = await runLocalPipeline(artifactDir, body, artifacts, materializedAssetReport);
   await writeJson(resolve(artifactDir, "local_api_snapshot_report.json"), {
     version: "0.1.0",
@@ -158,6 +170,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
     frameNodeId: source.frameNodeId,
     normalizedConfidence: artifacts.normalizedDesignIR.confidence.overall,
     hasReferenceScreenshot: !!body.figmaReferencePngBase64,
+    frameScreenshotFallback: !!frameScreenshotAssetPath,
     requestedAssets: materializedAssetReport.requested,
     materializedAssets: materializedAssetReport.materialized.length,
     pipelineRunReport: resolve(artifactDir, "pipeline_run_report.json")
@@ -174,7 +187,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
 async function writePipelineArtifacts(
   outDir: string,
   artifacts: PipelineArtifacts,
-  options: { assets?: SnapshotAsset[] } = {}
+  options: { assets?: SnapshotAsset[]; frameScreenshotAssetPath?: string; frameScreenshotPngBase64?: string } = {}
 ): Promise<MaterializedAssetReport> {
   const files: Array<[string, unknown | string]> = [
     ["canonical_scene.json", artifacts.canonicalScene],
@@ -247,6 +260,14 @@ async function writePipelineArtifacts(
       await writeFile(target, content, "utf8");
     })
   );
+  if (options.frameScreenshotAssetPath && options.frameScreenshotPngBase64) {
+    const assetPath = safeAssetPath(options.frameScreenshotAssetPath);
+    const bytes = Buffer.from(options.frameScreenshotPngBase64, "base64");
+    if (bytes.byteLength > 0) {
+      await writeBinaryAsset(resolve(outDir, assetPath), bytes);
+      await writeBinaryAsset(resolve(previewDir, assetPath), bytes);
+    }
+  }
   const materializedAssetReport = await materializeSnapshotAssets(outDir, artifacts, options.assets ?? []);
   await writeJson(resolve(outDir, "materialized_assets_report.json"), materializedAssetReport);
   const formatReport = await formatFlutterPreview(previewDir);
@@ -321,6 +342,11 @@ async function materializeSnapshotAssets(
 
 function isMaterializableAsset(entry: AssetManifestEntry): boolean {
   return entry.strategy === "image_asset" || entry.strategy === "decorative_slice";
+}
+
+function shouldUseFrameScreenshotFallback(body: SnapshotRequest): boolean {
+  if (!body.figmaReferencePngBase64) return false;
+  return body.preferFrameScreenshotFallback ?? body.sourceKind === "figma_plugin";
 }
 
 function safeAssetPath(path: string): string {
@@ -426,7 +452,8 @@ async function runLocalPipeline(
         status: "success",
         hasReferenceScreenshot: !!body.figmaReferencePngBase64,
         requestedAssets: materializedAssetReport.requested,
-        materializedAssets: materializedAssetReport.materialized.length
+        materializedAssets: materializedAssetReport.materialized.length,
+        frameScreenshotFallback: shouldUseFrameScreenshotFallback(body)
       },
       compile: {
         status: "success",
