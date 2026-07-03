@@ -63,6 +63,12 @@ Ask for the next concrete action across REST, plugin bridge, and Codex connector
 pnpm figma:next
 ```
 
+Discover the currently open Figma desktop file and print its file key, node id, and URL:
+
+```bash
+pnpm figma:desktop-discover
+```
+
 Inspect a Figma link without using a token:
 
 ```bash

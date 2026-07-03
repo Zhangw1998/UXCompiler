@@ -10,9 +10,14 @@ const auditPath = resolve(
   process.cwd(),
   process.env.UXCOMPILER_ACCESS_AUDIT_REPORT ?? "artifacts/figma-access-audit/figma_access_audit_report.json"
 );
+const desktopPath = resolve(
+  process.cwd(),
+  process.env.UXCOMPILER_FIGMA_DESKTOP_REPORT ?? "artifacts/figma-desktop/figma_desktop_discovery_report.json"
+);
 
 const readiness = await readJsonIfExists(readinessPath);
 const audit = await readJsonIfExists(auditPath);
+const desktop = await readJsonIfExists(desktopPath);
 
 console.log("UXCompiler Figma next step");
 console.log("");
@@ -27,6 +32,18 @@ if (audit?.status === "verified") {
 
 console.log("Status: real Figma access not verified yet");
 console.log("");
+
+if (desktop?.status === "found" && desktop.current) {
+  console.log("0. Figma desktop currently has a target open:");
+  console.log(`   ${desktop.current.title}`);
+  console.log(`   fileKey=${desktop.current.fileKey}${desktop.current.nodeId ? ` nodeId=${desktop.current.nodeId}` : ""}`);
+  console.log(`   ${desktop.current.url}`);
+  console.log("");
+} else {
+  console.log("0. Detect the currently open Figma desktop file:");
+  console.log("   pnpm figma:desktop-discover");
+  console.log("");
+}
 
 if (!readiness) {
   console.log("1. Run readiness and audit checks:");
