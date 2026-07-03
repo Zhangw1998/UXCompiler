@@ -26,6 +26,9 @@ importers:
       '@uxcompiler/normalizer':
         specifier: workspace:*
         version: link:../../packages/normalizer
+      '@uxcompiler/override-engine':
+        specifier: workspace:*
+        version: link:../../packages/override-engine
       '@uxcompiler/review-task-engine':
         specifier: workspace:*
         version: link:../../packages/review-task-engine
@@ -47,6 +50,9 @@ importers:
       '@uxcompiler/normalizer':
         specifier: workspace:*
         version: link:../../packages/normalizer
+      '@uxcompiler/override-engine':
+        specifier: workspace:*
+        version: link:../../packages/override-engine
       '@uxcompiler/review-task-engine':
         specifier: workspace:*
         version: link:../../packages/review-task-engine
@@ -94,6 +100,9 @@ importers:
       '@uxcompiler/layout-inferencer':
         specifier: workspace:*
         version: link:../layout-inferencer
+      '@uxcompiler/override-engine':
+        specifier: workspace:*
+        version: link:../override-engine
       '@uxcompiler/review-task-engine':
         specifier: workspace:*
         version: link:../review-task-engine
@@ -103,6 +112,12 @@ importers:
       '@uxcompiler/token-miner':
         specifier: workspace:*
         version: link:../token-miner
+
+  packages/override-engine:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
 
   packages/review-task-engine:
     dependencies:

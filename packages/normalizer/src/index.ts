@@ -1,14 +1,16 @@
-import type { PipelineArtifacts, RawFigmaScene } from "@uxcompiler/ir-schemas";
+import type { OverrideSet, PipelineArtifacts, RawFigmaScene } from "@uxcompiler/ir-schemas";
 import { normalizeAssetsAndI18n } from "@uxcompiler/asset-i18n-normalizer";
 import { generateFlutterFidelity } from "@uxcompiler/flutter-fidelity-renderer";
 import { canonicalizeRawScene } from "@uxcompiler/scene-canonicalizer";
 import { inferLayout } from "@uxcompiler/layout-inferencer";
 import { mineTokens } from "@uxcompiler/token-miner";
 import { generateReviewTasks } from "@uxcompiler/review-task-engine";
+import { applyOverrides } from "@uxcompiler/override-engine";
 
 export interface CompileRawSceneOptions {
   materializedAssetSourceNodeIds?: readonly string[];
   frameScreenshotAssetPath?: string;
+  overrideSet?: OverrideSet;
 }
 
 export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRawSceneOptions = {}): PipelineArtifacts {
@@ -21,14 +23,22 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     frameScreenshotAssetPath: options.frameScreenshotAssetPath
   });
   const layoutResult = inferLayout(canonicalResult.canonicalScene, tokenResult.inferredTokens);
-  const reviewTaskResult = generateReviewTasks({
+  const overrideResult = applyOverrides({
     normalizedDesignIR: layoutResult.normalizedDesignIR,
-    layoutCandidates: layoutResult.layoutCandidates,
-    layoutDecisions: layoutResult.layoutDecisions,
-    inferredTokens: tokenResult.inferredTokens,
     assetManifest: assetI18nResult.assetManifest,
     i18nManifest: assetI18nResult.i18nManifest,
-    fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest
+    inferredTokens: tokenResult.inferredTokens,
+    overrideSet: options.overrideSet
+  });
+  const reviewTaskResult = generateReviewTasks({
+    normalizedDesignIR: overrideResult.reviewedNormalizedDesignIR,
+    layoutCandidates: layoutResult.layoutCandidates,
+    layoutDecisions: layoutResult.layoutDecisions,
+    inferredTokens: overrideResult.reviewedInferredTokens,
+    assetManifest: overrideResult.reviewedAssetManifest,
+    i18nManifest: overrideResult.reviewedI18nManifest,
+    fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest,
+    staleOverrideReport: overrideResult.staleOverrideReport
   });
 
   return {
@@ -43,6 +53,14 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     assetManifest: assetI18nResult.assetManifest,
     i18nManifest: assetI18nResult.i18nManifest,
     arbFile: assetI18nResult.arbFile,
+    overrideSet: overrideResult.overrideSet,
+    reviewedNormalizedDesignIR: overrideResult.reviewedNormalizedDesignIR,
+    reviewedAssetManifest: overrideResult.reviewedAssetManifest,
+    reviewedI18nManifest: overrideResult.reviewedI18nManifest,
+    reviewedInferredTokens: overrideResult.reviewedInferredTokens,
+    reviewedArbFile: overrideResult.reviewedArbFile,
+    overrideConflictReport: overrideResult.overrideConflictReport,
+    staleOverrideReport: overrideResult.staleOverrideReport,
     visualIR: fidelityResult.visualIR,
     fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest,
     nodePixelMap: fidelityResult.nodePixelMap,

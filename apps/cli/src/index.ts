@@ -5,8 +5,9 @@ import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "@uxcompiler/figma-extractor";
-import { assertRawFigmaScene, type PipelineArtifacts, type VisualDiffReport } from "@uxcompiler/ir-schemas";
+import { assertRawFigmaScene, type OverrideSet, type PipelineArtifacts, type VisualDiffReport } from "@uxcompiler/ir-schemas";
 import { compileRawScene } from "@uxcompiler/normalizer";
+import { applyOverrides } from "@uxcompiler/override-engine";
 import { generateReviewTasks } from "@uxcompiler/review-task-engine";
 import { runVisualDiff } from "@uxcompiler/visual-diff";
 
@@ -15,6 +16,7 @@ const execFileAsync = promisify(execFile);
 interface CompileOptions {
   input: string;
   out: string;
+  overrideSet?: string;
 }
 
 interface FigmaOptions {
@@ -25,6 +27,7 @@ interface FigmaOptions {
   scale?: number;
   format?: "png" | "jpg" | "svg" | "pdf";
   apiBaseUrl?: string;
+  overrideSet?: string;
 }
 
 interface FigmaRunReport {
@@ -133,7 +136,8 @@ async function main(): Promise<void> {
   const raw = JSON.parse(await readFile(inputPath, "utf8")) as unknown;
   assertRawFigmaScene(raw);
 
-  const artifacts = compileRawScene(raw);
+  const overrideSet = options.overrideSet ? await readOverrideSet(options.overrideSet) : undefined;
+  const artifacts = compileRawScene(raw, { overrideSet });
   await writeArtifacts(outDir, artifacts, inputPath);
 
   console.log(`UXCompiler compile completed.`);
@@ -339,7 +343,8 @@ async function runFigmaCommand(args: string[]): Promise<void> {
   await writeFigmaSnapshot(outDir, extraction);
 
   if (subcommand === "compile" || subcommand === "run") {
-    const artifacts = compileRawScene(extraction.rawFigmaScene);
+    const overrideSet = options.overrideSet ? await readOverrideSet(options.overrideSet) : undefined;
+    const artifacts = compileRawScene(extraction.rawFigmaScene, { overrideSet });
     await writeArtifacts(outDir, artifacts, resolve(outDir, "raw_figma_scene.json"));
     await writeFigmaSnapshot(outDir, extraction);
     if (subcommand === "run") {
@@ -451,6 +456,10 @@ function parseCompileOptions(args: string[]): CompileOptions {
       if (!next) throw new Error("Missing value for --out.");
       options.out = next;
       index += 1;
+    } else if (arg === "--override-set") {
+      if (!next) throw new Error("Missing value for --override-set.");
+      options.overrideSet = next;
+      index += 1;
     } else {
       throw new Error(`Unknown compile option "${arg}".`);
     }
@@ -499,6 +508,10 @@ function parseFigmaOptions(args: string[]): FigmaOptions {
     } else if (arg === "--api-base-url") {
       if (!next) throw new Error("Missing value for --api-base-url.");
       options.apiBaseUrl = next;
+      index += 1;
+    } else if (arg === "--override-set") {
+      if (!next) throw new Error("Missing value for --override-set.");
+      options.overrideSet = next;
       index += 1;
     } else {
       throw new Error(`Unknown figma option "${arg}".`);
@@ -674,6 +687,14 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
     ["asset_manifest.json", artifacts.assetManifest],
     ["i18n_manifest.json", artifacts.i18nManifest],
     ["arb/app_en.arb", artifacts.arbFile],
+    ["override_set.json", artifacts.overrideSet],
+    ["reviewed_normalized_design_ir.json", artifacts.reviewedNormalizedDesignIR],
+    ["reviewed_asset_manifest.json", artifacts.reviewedAssetManifest],
+    ["reviewed_i18n_manifest.json", artifacts.reviewedI18nManifest],
+    ["reviewed_inferred_tokens.json", artifacts.reviewedInferredTokens],
+    ["reviewed_arb/app_en.arb", artifacts.reviewedArbFile],
+    ["override_conflict_report.json", artifacts.overrideConflictReport],
+    ["stale_override_report.json", artifacts.staleOverrideReport],
     ["visual_ir.json", artifacts.visualIR],
     ["fidelity_generation_manifest.json", artifacts.fidelityGenerationManifest],
     ["node_pixel_map.json", artifacts.nodePixelMap],
@@ -701,6 +722,14 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
           "asset_manifest.json",
           "i18n_manifest.json",
           "arb/app_en.arb",
+          "override_set.json",
+          "reviewed_normalized_design_ir.json",
+          "reviewed_asset_manifest.json",
+          "reviewed_i18n_manifest.json",
+          "reviewed_inferred_tokens.json",
+          "reviewed_arb/app_en.arb",
+          "override_conflict_report.json",
+          "stale_override_report.json",
           "visual_ir.json",
           "fidelity_generation_manifest.json",
           "node_pixel_map.json",
@@ -745,14 +774,22 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
 
 async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: PipelineArtifacts, runReport: FigmaRunReport): Promise<void> {
   const visualDiffReport = await readVisualDiffReport(runReport.steps.visualDiff.report);
-  const result = generateReviewTasks({
+  const overrideResult = applyOverrides({
     normalizedDesignIR: artifacts.normalizedDesignIR,
-    layoutCandidates: artifacts.layoutCandidates,
-    layoutDecisions: artifacts.layoutDecisions,
-    inferredTokens: artifacts.inferredTokens,
     assetManifest: artifacts.assetManifest,
     i18nManifest: artifacts.i18nManifest,
+    inferredTokens: artifacts.inferredTokens,
+    overrideSet: artifacts.overrideSet
+  });
+  const result = generateReviewTasks({
+    normalizedDesignIR: overrideResult.reviewedNormalizedDesignIR,
+    layoutCandidates: artifacts.layoutCandidates,
+    layoutDecisions: artifacts.layoutDecisions,
+    inferredTokens: overrideResult.reviewedInferredTokens,
+    assetManifest: overrideResult.reviewedAssetManifest,
+    i18nManifest: overrideResult.reviewedI18nManifest,
     fidelityGenerationManifest: artifacts.fidelityGenerationManifest,
+    staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
     flutterCapture: {
       status: runReport.steps.flutterCapture.status
@@ -760,6 +797,14 @@ async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: Pipeli
   });
   await writeFile(resolve(outDir, "review_tasks.json"), `${JSON.stringify(result.reviewTasks, null, 2)}\n`, "utf8");
   await writeFile(resolve(outDir, "task_status_report.json"), `${JSON.stringify(result.taskStatusReport, null, 2)}\n`, "utf8");
+  await writeFile(resolve(outDir, "reviewed_normalized_design_ir.json"), `${JSON.stringify(overrideResult.reviewedNormalizedDesignIR, null, 2)}\n`, "utf8");
+  await writeFile(resolve(outDir, "reviewed_asset_manifest.json"), `${JSON.stringify(overrideResult.reviewedAssetManifest, null, 2)}\n`, "utf8");
+  await writeFile(resolve(outDir, "reviewed_i18n_manifest.json"), `${JSON.stringify(overrideResult.reviewedI18nManifest, null, 2)}\n`, "utf8");
+  await writeFile(resolve(outDir, "reviewed_inferred_tokens.json"), `${JSON.stringify(overrideResult.reviewedInferredTokens, null, 2)}\n`, "utf8");
+  await mkdir(resolve(outDir, "reviewed_arb"), { recursive: true });
+  await writeFile(resolve(outDir, "reviewed_arb/app_en.arb"), `${JSON.stringify(overrideResult.reviewedArbFile, null, 2)}\n`, "utf8");
+  await writeFile(resolve(outDir, "override_conflict_report.json"), `${JSON.stringify(overrideResult.overrideConflictReport, null, 2)}\n`, "utf8");
+  await writeFile(resolve(outDir, "stale_override_report.json"), `${JSON.stringify(overrideResult.staleOverrideReport, null, 2)}\n`, "utf8");
 }
 
 async function readVisualDiffReport(path: string | undefined): Promise<VisualDiffReport | undefined> {
@@ -769,6 +814,10 @@ async function readVisualDiffReport(path: string | undefined): Promise<VisualDif
   } catch {
     return undefined;
   }
+}
+
+async function readOverrideSet(path: string): Promise<OverrideSet> {
+  return JSON.parse(await readFile(resolve(process.cwd(), path), "utf8")) as OverrideSet;
 }
 
 async function formatFlutterPreview(previewDir: string): Promise<Record<string, unknown>> {

@@ -12,6 +12,7 @@ import type {
   ReviewTaskStatusReport,
   ReviewTaskSuggestedAction,
   ReviewTaskType,
+  StaleOverrideReport,
   VisualDiffReport
 } from "@uxcompiler/ir-schemas";
 
@@ -23,6 +24,7 @@ export interface GenerateReviewTasksInput {
   assetManifest: AssetManifest;
   i18nManifest: I18nManifest;
   fidelityGenerationManifest: FidelityGenerationManifest;
+  staleOverrideReport?: StaleOverrideReport;
   visualDiffReport?: VisualDiffReport;
   flutterCapture?: { status: string; reason?: string };
 }
@@ -34,6 +36,7 @@ export function generateReviewTasks(input: GenerateReviewTasksInput): ReviewTask
     ...fidelityTasks(input),
     ...tokenTasks(input),
     ...i18nTasks(input),
+    ...staleOverrideTasks(input),
     ...visualDiffTasks(input),
     ...flutterCaptureTasks(input)
   ];
@@ -313,6 +316,45 @@ function i18nTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         ]
       })
     );
+}
+
+function staleOverrideTasks(input: GenerateReviewTasksInput): ReviewTask[] {
+  return (input.staleOverrideReport?.staleOverrides ?? []).map((entry) =>
+    makeTask({
+      id: taskId("stale_override", entry.overrideId),
+      type: "stale_override",
+      priority: "P1",
+      target: {
+        normalizedNodeId: entry.target.normalizedNodeId,
+        sourceNodeIds: entry.target.sourceNodeId ? [entry.target.sourceNodeId] : undefined,
+        assetId: entry.target.assetId,
+        tokenName: entry.target.tokenName,
+        messageKey: entry.target.messageKey
+      },
+      title: "Review stale override",
+      description: `${entry.overrideId} no longer applies: ${entry.reason}`,
+      confidence: 0.2,
+      evidence: {
+        overrideId: entry.overrideId,
+        overrideType: entry.type,
+        target: entry.target,
+        reason: entry.reason
+      },
+      suggestedActions: [
+        {
+          label: "Disable stale override",
+          override: {
+            type: entry.type,
+            payload: {
+              overrideId: entry.overrideId,
+              action: "disable_stale_override"
+            },
+            reason: "The override target could not be found in the current snapshot."
+          }
+        }
+      ]
+    })
+  );
 }
 
 function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {

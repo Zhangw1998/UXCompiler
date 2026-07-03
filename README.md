@@ -16,6 +16,7 @@ This repo currently supports:
 - Flutter golden capture to `flutter_preview.png`.
 - PNG visual diff with page and node-level reports.
 - Review Task Engine for low-confidence, fallback, resource, and diff issues.
+- Override Engine for deterministic reviewed IR, conflict reports, and stale override reports.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -27,6 +28,7 @@ This repo currently supports:
 - Flutter and Dart for generated fidelity previews and golden screenshot capture.
 - `pixelmatch` and `pngjs` for visual diff heatmaps and reports.
 - Deterministic TypeScript review-task generation for Workbench decisions and codegen gates.
+- Deterministic TypeScript override application for local-first human review decisions.
 
 ## Install And Verify
 
@@ -35,7 +37,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, a mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine smoke test, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -85,6 +87,17 @@ node apps/cli/dist/index.js compile \
   --input examples/fixtures/login_raw_figma_scene.json \
   --out artifacts/sample
 ```
+
+Apply a saved OverrideSet while compiling:
+
+```bash
+node apps/cli/dist/index.js compile \
+  --input examples/fixtures/login_raw_figma_scene.json \
+  --out artifacts/sample-reviewed \
+  --override-set artifacts/my-overrides/override_set.json
+```
+
+The same `--override-set` option is supported by `figma compile` and `figma run`.
 
 ## Fetch And Compile A Real Figma Frame
 
@@ -187,6 +200,14 @@ Outputs include:
 - `asset_manifest.json`
 - `i18n_manifest.json`
 - `arb/app_en.arb`
+- `override_set.json`
+- `reviewed_normalized_design_ir.json`
+- `reviewed_asset_manifest.json`
+- `reviewed_i18n_manifest.json`
+- `reviewed_inferred_tokens.json`
+- `reviewed_arb/app_en.arb`
+- `override_conflict_report.json`
+- `stale_override_report.json`
 - `regions.json`
 - `layout_decisions.json`
 - `normalized_design_ir.json`

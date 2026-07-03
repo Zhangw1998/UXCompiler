@@ -82,6 +82,10 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "materialized_assets_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "review_tasks.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "task_status_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "override_set.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "reviewed_normalized_design_ir.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "override_conflict_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "stale_override_report.json")), true);
   const materializedAssetReport = JSON.parse(readFileSync(resolve(result.artifactDir, "materialized_assets_report.json"), "utf8"));
   assert.equal(materializedAssetReport.requested, 2);
   assert.equal(materializedAssetReport.materialized.length, 2);
@@ -106,6 +110,8 @@ try {
   assert.equal(pipelineRunReport.steps.visualDiff.status, "success");
   const reviewTasks = JSON.parse(readFileSync(resolve(result.artifactDir, "review_tasks.json"), "utf8"));
   const taskStatusReport = JSON.parse(readFileSync(resolve(result.artifactDir, "task_status_report.json"), "utf8"));
+  const overrideSet = JSON.parse(readFileSync(resolve(result.artifactDir, "override_set.json"), "utf8"));
+  assert.match(overrideSet.hash, /^sha256_[a-f0-9]{64}$/);
   assert.ok(reviewTasks.some((task) => task.type === "visual_diff_failed"));
   assert.ok(taskStatusReport.codegenWriteBlocked);
   assert.ok(taskStatusReport.byPriority.P0 > 0);

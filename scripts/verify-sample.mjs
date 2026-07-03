@@ -16,6 +16,14 @@ const requiredFiles = [
   "asset_manifest.json",
   "i18n_manifest.json",
   "arb/app_en.arb",
+  "override_set.json",
+  "reviewed_normalized_design_ir.json",
+  "reviewed_asset_manifest.json",
+  "reviewed_i18n_manifest.json",
+  "reviewed_inferred_tokens.json",
+  "reviewed_arb/app_en.arb",
+  "override_conflict_report.json",
+  "stale_override_report.json",
   "visual_ir.json",
   "fidelity_generation_manifest.json",
   "node_pixel_map.json",
@@ -45,6 +53,9 @@ const tokens = readJson("inferred_tokens.json");
 const assetManifest = readJson("asset_manifest.json");
 const i18nManifest = readJson("i18n_manifest.json");
 const arb = readJson("arb/app_en.arb");
+const overrideSet = readJson("override_set.json");
+const reviewedNormalized = readJson("reviewed_normalized_design_ir.json");
+const staleOverrideReport = readJson("stale_override_report.json");
 const visualIR = readJson("visual_ir.json");
 const nodePixelMap = readJson("node_pixel_map.json");
 const reviewTasks = readJson("review_tasks.json");
@@ -64,6 +75,9 @@ assert.ok(assetManifest.assets.length >= 8, "Expected asset strategy entries");
 assert.ok(i18nManifest.messages.length >= 6, "Expected extracted text messages");
 assert.equal(arb["@@locale"], "en");
 assert.equal(arb.title, "Welcome back");
+assert.match(overrideSet.hash, /^sha256_[a-f0-9]{64}$/);
+assert.equal(reviewedNormalized.tree.id, normalized.tree.id);
+assert.equal(staleOverrideReport.staleOverrides.length, 0);
 assert.equal(visualIR.root.type, "scene");
 assert.ok(visualIR.root.children.length >= 10, "Expected VisualIR positioned children");
 assert.ok(nodePixelMap.length >= 10, "Expected node pixel map entries");

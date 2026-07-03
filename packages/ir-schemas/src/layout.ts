@@ -32,8 +32,10 @@ export interface NormalizedNode {
   type: "page" | "region" | "container" | "text" | "rect" | "image" | "vector";
   name: string;
   layout: { type: LayoutType; gap?: string | number };
+  render?: { strategy?: string; locked?: boolean };
   bounds: Bounds;
   tokenRefs?: Record<string, string>;
+  overrideRefs?: string[];
   children: NormalizedNode[];
   confidence: number;
 }

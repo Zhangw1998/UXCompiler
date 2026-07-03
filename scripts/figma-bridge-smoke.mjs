@@ -69,6 +69,9 @@ try {
   assertArtifact(result.artifactDir, "diff/visual_diff_report.json");
   assertArtifact(result.artifactDir, "review_tasks.json");
   assertArtifact(result.artifactDir, "task_status_report.json");
+  assertArtifact(result.artifactDir, "override_set.json");
+  assertArtifact(result.artifactDir, "reviewed_normalized_design_ir.json");
+  assertArtifact(result.artifactDir, "stale_override_report.json");
   assertArtifact(result.artifactDir, "pipeline_run_report.json");
   const pipelineRunReport = JSON.parse(readFileSync(resolve(result.artifactDir, "pipeline_run_report.json"), "utf8"));
   assert.equal(pipelineRunReport.source.sourceKind, "local_smoke");

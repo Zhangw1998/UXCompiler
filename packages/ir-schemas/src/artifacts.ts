@@ -10,6 +10,7 @@ import type {
   VisualIR
 } from "./visual-ir.js";
 import type { ReviewTask, ReviewTaskStatusReport } from "./review-task.js";
+import type { OverrideConflictReport, OverrideSet, StaleOverrideReport } from "./override.js";
 
 export interface PipelineArtifacts {
   rawFigmaScene: RawFigmaScene;
@@ -23,6 +24,14 @@ export interface PipelineArtifacts {
   assetManifest: AssetManifest;
   i18nManifest: I18nManifest;
   arbFile: Record<string, unknown>;
+  overrideSet: OverrideSet;
+  reviewedNormalizedDesignIR: NormalizedDesignIR;
+  reviewedAssetManifest: AssetManifest;
+  reviewedI18nManifest: I18nManifest;
+  reviewedInferredTokens: InferredTokens;
+  reviewedArbFile: Record<string, unknown>;
+  overrideConflictReport: OverrideConflictReport;
+  staleOverrideReport: StaleOverrideReport;
   visualIR: VisualIR;
   fidelityGenerationManifest: FidelityGenerationManifest;
   nodePixelMap: NodePixelMapEntry[];

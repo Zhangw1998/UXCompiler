@@ -135,6 +135,14 @@ try {
     "asset_manifest.json",
     "i18n_manifest.json",
     "arb/app_en.arb",
+    "override_set.json",
+    "reviewed_normalized_design_ir.json",
+    "reviewed_asset_manifest.json",
+    "reviewed_i18n_manifest.json",
+    "reviewed_inferred_tokens.json",
+    "reviewed_arb/app_en.arb",
+    "override_conflict_report.json",
+    "stale_override_report.json",
     "visual_ir.json",
     "fidelity_generation_manifest.json",
     "node_pixel_map.json",
@@ -181,6 +189,8 @@ try {
   assert.equal(typeof diffReport.page.score.pixelDiffRatio, "number");
   const reviewTasks = JSON.parse(readFileSync(resolve(outDir, "review_tasks.json"), "utf8"));
   const taskStatusReport = JSON.parse(readFileSync(resolve(outDir, "task_status_report.json"), "utf8"));
+  const overrideSet = JSON.parse(readFileSync(resolve(outDir, "override_set.json"), "utf8"));
+  assert.match(overrideSet.hash, /^sha256_[a-f0-9]{64}$/);
   assert.ok(reviewTasks.length > 0, "Expected review tasks");
   assert.equal(taskStatusReport.total, reviewTasks.length);
   assert.equal(typeof taskStatusReport.codegenWriteBlocked, "boolean");
