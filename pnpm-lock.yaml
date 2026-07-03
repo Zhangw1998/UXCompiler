@@ -81,6 +81,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/visual-diff
 
+  apps/workbench-web: {}
+
   packages/asset-i18n-normalizer:
     dependencies:
       '@uxcompiler/ir-schemas':

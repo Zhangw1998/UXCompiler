@@ -1,0 +1,10 @@
+{
+  "name": "@uxcompiler/workbench-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
+    "test": "node -e \"console.log('workbench-web: smoke tests live in scripts/verify-workbench-web.mjs')\""
+  }
+}

@@ -24,6 +24,7 @@ This repo currently supports:
 - Headless Project Writer for safe Flutter project writes with generated-marker checks, backups, ARB/pubspec updates, and reports.
 - Headless Generated Widget Promotion for moving generated widgets into the Component Registry with future codegen skip rules.
 - Headless Incremental Sync remap for reusing overrides across Figma snapshots and surfacing low-confidence remaps.
+- Local Workbench Web shell for reviewing project status, review tasks, normalized tree, studios, preview/diff, codegen, and sync artifacts.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -43,6 +44,7 @@ This repo currently supports:
 - Headless TypeScript project writer for gated generated-file writes, asset copy, ARB merge, pubspec asset declaration, and backups.
 - Headless TypeScript component promotion engine for generated widget promotion, Component Registry updates, and future codegen rules.
 - Headless TypeScript incremental sync engine for source node remap, stale override detection, and remap review tasks.
+- Vanilla TypeScript Workbench Web app served from local static files, with no frontend framework dependency.
 
 ## Install And Verify
 
@@ -51,7 +53,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review, project-writer, component-promoter, incremental-sync smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review, project-writer, component-promoter, incremental-sync, Workbench Web smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -256,6 +258,28 @@ node apps/cli/dist/index.js sync remap \
 ```
 
 The sync directory contains `override_set.json`, `node_remap_report.json`, `reapplied_overrides.json`, `stale_overrides.json`, and `incremental_review_tasks.json`. Exact node id matches are reused automatically; stable-key matches are reused when confident; lower-confidence remaps are preserved but produce review tasks; unmatched nodes disable stale overrides.
+
+## Open The Local Workbench
+
+Generate or refresh sample artifacts:
+
+```bash
+pnpm compile:sample
+```
+
+Start the local Workbench:
+
+```bash
+pnpm workbench:web
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8788/apps/workbench-web/?artifacts=/artifacts/sample
+```
+
+The Workbench can also load another local artifact folder from the `Open Artifacts` button. It expects the same files produced by `compile`, `studio apply`, `codegen review`, or `sync remap`, such as `reviewed_normalized_design_ir.json`, `visual_ir.json`, `review_tasks.json`, `override_set.json`, `codegen_review.json`, and `node_remap_report.json`.
 
 ## Fetch And Compile A Real Figma Frame
 
