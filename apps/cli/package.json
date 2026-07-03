@@ -17,6 +17,7 @@
     "@uxcompiler/ir-schemas": "workspace:*",
     "@uxcompiler/normalizer": "workspace:*",
     "@uxcompiler/override-engine": "workspace:*",
+    "@uxcompiler/project-store": "workspace:*",
     "@uxcompiler/review-task-engine": "workspace:*",
     "@uxcompiler/visual-diff": "workspace:*"
   }

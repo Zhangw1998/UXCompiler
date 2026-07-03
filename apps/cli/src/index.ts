@@ -8,6 +8,7 @@ import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "
 import { assertRawFigmaScene, type OverrideSet, type PipelineArtifacts, type VisualDiffReport } from "@uxcompiler/ir-schemas";
 import { compileRawScene } from "@uxcompiler/normalizer";
 import { applyOverrides } from "@uxcompiler/override-engine";
+import { createProjectStore } from "@uxcompiler/project-store";
 import { generateReviewTasks } from "@uxcompiler/review-task-engine";
 import { runVisualDiff } from "@uxcompiler/visual-diff";
 
@@ -104,6 +105,27 @@ interface WriteVisualDiffOptions {
   dpr?: number;
 }
 
+interface ProjectCliOptions {
+  root?: string;
+  id?: string;
+  name?: string;
+  project?: string;
+  artifacts?: string;
+  snapshotId?: string;
+  out?: string;
+  input?: string;
+  figmaFileKey?: string;
+  figmaPageId?: string;
+  figmaFrameId?: string;
+  figmaFrameName?: string;
+  flutterProjectPath?: string;
+  packageName?: string;
+  status?: "draft" | "reviewing" | "ready" | "invalid" | "archived";
+  newProjectId?: string;
+  replace?: boolean;
+  json?: boolean;
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") {
@@ -118,6 +140,11 @@ async function main(): Promise<void> {
 
   if (command === "preview") {
     await runPreviewCommand(args);
+    return;
+  }
+
+  if (command === "project") {
+    await runProjectCommand(args);
     return;
   }
 
@@ -237,6 +264,119 @@ async function writeVisualDiffArtifacts(options: WriteVisualDiffOptions): Promis
   await writeFile(resolve(options.outDir, "node_diff_report.json"), `${JSON.stringify(result.nodeDiffReport, null, 2)}\n`, "utf8");
   await writeFile(heatmapPath, result.heatmapPng);
   return result.visualDiffReport;
+}
+
+async function runProjectCommand(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args;
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    printProjectHelp();
+    return;
+  }
+  if (!["init", "create", "list", "show", "save-artifacts", "export", "import"].includes(subcommand)) {
+    throw new Error(`Unknown project subcommand "${subcommand}".`);
+  }
+
+  const options = parseProjectOptions(rest);
+  const rootDir = resolve(process.cwd(), options.root ?? ".uxcompiler");
+  const store = createProjectStore({ rootDir });
+
+  if (subcommand === "init") {
+    const workspace = await store.init();
+    console.log(`UXCompiler project store initialized.`);
+    console.log(`Root: ${rootDir}`);
+    console.log(`Projects: ${workspace.projects.length}`);
+    return;
+  }
+
+  if (subcommand === "create") {
+    if (!options.name) throw new Error("Missing required option --name.");
+    const project = await store.createProject({
+      id: options.id,
+      name: options.name,
+      status: options.status,
+      figma: {
+        fileKey: options.figmaFileKey,
+        pageId: options.figmaPageId,
+        frameId: options.figmaFrameId,
+        frameName: options.figmaFrameName
+      },
+      flutter: {
+        projectPath: options.flutterProjectPath,
+        packageName: options.packageName
+      }
+    });
+    console.log(`UXCompiler project created.`);
+    console.log(`Project: ${project.id}`);
+    console.log(`Root: ${rootDir}`);
+    return;
+  }
+
+  if (subcommand === "list") {
+    const projects = await store.listProjects();
+    if (options.json) {
+      console.log(JSON.stringify(projects, null, 2));
+      return;
+    }
+    console.log(`UXCompiler projects`);
+    for (const project of projects) {
+      console.log(`${project.id}\t${project.status}\t${project.name}`);
+    }
+    return;
+  }
+
+  if (subcommand === "show") {
+    const projectId = requiredProject(options);
+    const project = await store.readProject(projectId);
+    const index = await store.readProjectIndex(projectId);
+    console.log(
+      JSON.stringify(
+        {
+          project,
+          index
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  if (subcommand === "save-artifacts") {
+    const projectId = requiredProject(options);
+    if (!options.artifacts) throw new Error("Missing required option --artifacts.");
+    const result = await store.saveArtifactDirectory(projectId, {
+      artifactDir: resolve(process.cwd(), options.artifacts),
+      snapshotId: options.snapshotId
+    });
+    console.log(`UXCompiler project artifacts saved.`);
+    console.log(`Project: ${projectId}`);
+    console.log(`Snapshot: ${result.snapshot.id}`);
+    console.log(`OverrideSet: ${result.overrideSet.id}`);
+    console.log(`ReviewTasks: ${result.reviewTaskSet.id}`);
+    return;
+  }
+
+  if (subcommand === "export") {
+    const projectId = requiredProject(options);
+    if (!options.out) throw new Error("Missing required option --out.");
+    const result = await store.exportProject(projectId, resolve(process.cwd(), options.out));
+    console.log(`UXCompiler project exported.`);
+    console.log(`Project: ${result.projectId}`);
+    console.log(`Archive: ${result.archivePath}`);
+    console.log(`Entries: ${result.entries}`);
+    return;
+  }
+
+  const input = options.input ?? options.out;
+  if (!input) throw new Error("Missing required option --input.");
+  const result = await store.importProject(resolve(process.cwd(), input), {
+    newProjectId: options.newProjectId,
+    replace: options.replace
+  });
+  console.log(`UXCompiler project imported.`);
+  console.log(`Project: ${result.projectId}`);
+  console.log(`Directory: ${result.projectDir}`);
+  console.log(`Entries: ${result.entries}`);
 }
 
 async function captureFlutterPreview(projectDir: string, outPath: string): Promise<Record<string, unknown>> {
@@ -665,6 +805,94 @@ function parsePreviewCaptureOptions(args: string[]): PreviewCaptureOptions {
   return options as PreviewCaptureOptions;
 }
 
+function parseProjectOptions(args: string[]): ProjectCliOptions {
+  const options: ProjectCliOptions = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+    if (arg === "--root") {
+      if (!next) throw new Error("Missing value for --root.");
+      options.root = next;
+      index += 1;
+    } else if (arg === "--id") {
+      if (!next) throw new Error("Missing value for --id.");
+      options.id = next;
+      index += 1;
+    } else if (arg === "--name") {
+      if (!next) throw new Error("Missing value for --name.");
+      options.name = next;
+      index += 1;
+    } else if (arg === "--project" || arg === "--project-id") {
+      if (!next) throw new Error(`Missing value for ${arg}.`);
+      options.project = next;
+      index += 1;
+    } else if (arg === "--artifacts") {
+      if (!next) throw new Error("Missing value for --artifacts.");
+      options.artifacts = next;
+      index += 1;
+    } else if (arg === "--snapshot-id") {
+      if (!next) throw new Error("Missing value for --snapshot-id.");
+      options.snapshotId = next;
+      index += 1;
+    } else if (arg === "--out" || arg === "-o") {
+      if (!next) throw new Error("Missing value for --out.");
+      options.out = next;
+      index += 1;
+    } else if (arg === "--input" || arg === "-i") {
+      if (!next) throw new Error("Missing value for --input.");
+      options.input = next;
+      index += 1;
+    } else if (arg === "--figma-file-key") {
+      if (!next) throw new Error("Missing value for --figma-file-key.");
+      options.figmaFileKey = next;
+      index += 1;
+    } else if (arg === "--figma-page-id") {
+      if (!next) throw new Error("Missing value for --figma-page-id.");
+      options.figmaPageId = next;
+      index += 1;
+    } else if (arg === "--figma-frame-id") {
+      if (!next) throw new Error("Missing value for --figma-frame-id.");
+      options.figmaFrameId = next;
+      index += 1;
+    } else if (arg === "--figma-frame-name") {
+      if (!next) throw new Error("Missing value for --figma-frame-name.");
+      options.figmaFrameName = next;
+      index += 1;
+    } else if (arg === "--flutter-project-path") {
+      if (!next) throw new Error("Missing value for --flutter-project-path.");
+      options.flutterProjectPath = next;
+      index += 1;
+    } else if (arg === "--package-name") {
+      if (!next) throw new Error("Missing value for --package-name.");
+      options.packageName = next;
+      index += 1;
+    } else if (arg === "--status") {
+      if (!next) throw new Error("Missing value for --status.");
+      if (!["draft", "reviewing", "ready", "invalid", "archived"].includes(next)) {
+        throw new Error("--status must be one of draft, reviewing, ready, invalid, archived.");
+      }
+      options.status = next as ProjectCliOptions["status"];
+      index += 1;
+    } else if (arg === "--new-project-id") {
+      if (!next) throw new Error("Missing value for --new-project-id.");
+      options.newProjectId = next;
+      index += 1;
+    } else if (arg === "--replace") {
+      options.replace = true;
+    } else if (arg === "--json") {
+      options.json = true;
+    } else {
+      throw new Error(`Unknown project option "${arg}".`);
+    }
+  }
+  return options;
+}
+
+function requiredProject(options: ProjectCliOptions): string {
+  if (!options.project) throw new Error("Missing required option --project.");
+  return options.project;
+}
+
 async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionResult): Promise<void> {
   await mkdir(resolve(outDir, "raw_assets"), { recursive: true });
   await writeFile(resolve(outDir, "raw_figma_scene.json"), `${JSON.stringify(extraction.rawFigmaScene, null, 2)}\n`, "utf8");
@@ -856,12 +1084,14 @@ Usage:
   uxc figma run --file <figma_url_or_file_key> --out <artifacts_dir>
   uxc preview capture --project <flutter_preview_dir> --out <flutter_preview.png>
   uxc preview diff --reference <figma_reference.png> --candidate <flutter_preview.png> --out <diff_dir>
+  uxc project init --root .uxcompiler
   uxc doctor
 
 Commands:
   compile   Run RawFigmaScene -> CanonicalScene -> Tokens -> Layout -> NormalizedDesignIR
   figma     Fetch a Figma frame through the REST API, optionally compiling it
   preview   Build preview-related artifacts such as visual diff reports
+  project   Manage the local Project Store and export/import .uxcproj.zip archives
   doctor    Check local tools and Figma token configuration
 `);
 }
@@ -899,6 +1129,30 @@ Options:
   --node-pixel-map  Optional node_pixel_map.json for node-level attribution.
   --viewport        Optional WIDTHxHEIGHT metadata, for example 390x844.
   --dpr             Optional device pixel ratio metadata.
+`);
+}
+
+function printProjectHelp(): void {
+  console.log(`UXCompiler project commands
+
+Usage:
+  uxc project init --root .uxcompiler
+  uxc project create --root .uxcompiler --id <project_id> --name <name>
+  uxc project save-artifacts --root .uxcompiler --project <project_id> --artifacts <artifacts_dir>
+  uxc project export --root .uxcompiler --project <project_id> --out <project.uxcproj.zip>
+  uxc project import --root .uxcompiler --input <project.uxcproj.zip> [--new-project-id <project_id>]
+  uxc project list --root .uxcompiler [--json]
+  uxc project show --root .uxcompiler --project <project_id>
+
+Options:
+  --snapshot-id            Optional stable snapshot id when saving artifacts.
+  --figma-file-key         Optional Figma file key for project metadata.
+  --figma-page-id          Optional Figma page id for project metadata.
+  --figma-frame-id         Optional Figma frame id for project metadata.
+  --figma-frame-name       Optional Figma frame name for project metadata.
+  --flutter-project-path   Optional linked Flutter project path.
+  --package-name           Optional Flutter package name.
+  --replace                Allow import to replace an existing project id.
 `);
 }
 

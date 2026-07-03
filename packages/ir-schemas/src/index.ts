@@ -7,4 +7,5 @@ export * from "./visual-ir.js";
 export * from "./visual-diff.js";
 export * from "./review-task.js";
 export * from "./override.js";
+export * from "./project-store.js";
 export * from "./artifacts.js";

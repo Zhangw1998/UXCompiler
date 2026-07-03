@@ -17,6 +17,7 @@ This repo currently supports:
 - PNG visual diff with page and node-level reports.
 - Review Task Engine for low-confidence, fallback, resource, and diff issues.
 - Override Engine for deterministic reviewed IR, conflict reports, and stale override reports.
+- Local Project Store for `.uxcompiler/` project memory, artifact persistence, and `.uxcproj.zip` import/export.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -29,6 +30,7 @@ This repo currently supports:
 - `pixelmatch` and `pngjs` for visual diff heatmaps and reports.
 - Deterministic TypeScript review-task generation for Workbench decisions and codegen gates.
 - Deterministic TypeScript override application for local-first human review decisions.
+- File-backed local project catalog with a SQLite schema contract and pure Node archive import/export.
 
 ## Install And Verify
 
@@ -37,7 +39,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, override-engine smoke test, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine and project-store smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -98,6 +100,34 @@ node apps/cli/dist/index.js compile \
 ```
 
 The same `--override-set` option is supported by `figma compile` and `figma run`.
+
+## Save Artifacts In A Local Project Store
+
+```bash
+node apps/cli/dist/index.js project init --root .uxcompiler
+node apps/cli/dist/index.js project create \
+  --root .uxcompiler \
+  --id proj_login \
+  --name "Login Page"
+node apps/cli/dist/index.js project save-artifacts \
+  --root .uxcompiler \
+  --project proj_login \
+  --artifacts artifacts/sample \
+  --snapshot-id snap_login
+```
+
+Export or import a portable project archive:
+
+```bash
+node apps/cli/dist/index.js project export \
+  --root .uxcompiler \
+  --project proj_login \
+  --out login_page.uxcproj.zip
+node apps/cli/dist/index.js project import \
+  --root .uxcompiler \
+  --input login_page.uxcproj.zip \
+  --new-project-id proj_login_copy
+```
 
 ## Fetch And Compile A Real Figma Frame
 
