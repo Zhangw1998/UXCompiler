@@ -26,6 +26,9 @@ importers:
       '@uxcompiler/figma-extractor':
         specifier: workspace:*
         version: link:../../packages/figma-extractor
+      '@uxcompiler/incremental-sync':
+        specifier: workspace:*
+        version: link:../../packages/incremental-sync
       '@uxcompiler/ir-schemas':
         specifier: workspace:*
         version: link:../../packages/ir-schemas
@@ -103,6 +106,12 @@ importers:
         version: link:../ir-schemas
 
   packages/flutter-fidelity-renderer:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/incremental-sync:
     dependencies:
       '@uxcompiler/ir-schemas':
         specifier: workspace:*

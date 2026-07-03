@@ -13,4 +13,5 @@ export * from "./studios.js";
 export * from "./codegen-review.js";
 export * from "./project-writer.js";
 export * from "./component-promotion.js";
+export * from "./incremental-sync.js";
 export * from "./artifacts.js";

@@ -23,6 +23,7 @@ This repo currently supports:
 - Headless Codegen Review for generated Flutter files, patches, write gates, and incremental sync reports.
 - Headless Project Writer for safe Flutter project writes with generated-marker checks, backups, ARB/pubspec updates, and reports.
 - Headless Generated Widget Promotion for moving generated widgets into the Component Registry with future codegen skip rules.
+- Headless Incremental Sync remap for reusing overrides across Figma snapshots and surfacing low-confidence remaps.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -41,6 +42,7 @@ This repo currently supports:
 - Headless TypeScript codegen review engine for generated-file manifests, patch review, pubspec/ARB plans, and incremental sync reports.
 - Headless TypeScript project writer for gated generated-file writes, asset copy, ARB merge, pubspec asset declaration, and backups.
 - Headless TypeScript component promotion engine for generated widget promotion, Component Registry updates, and future codegen rules.
+- Headless TypeScript incremental sync engine for source node remap, stale override detection, and remap review tasks.
 
 ## Install And Verify
 
@@ -49,7 +51,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review, project-writer, component-promoter smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review, project-writer, component-promoter, incremental-sync smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -238,6 +240,22 @@ node apps/cli/dist/index.js codegen promote \
 ```
 
 This writes `promote_report.json`, `component_registry.json`, and `codegen_promotion_rules.json`. The promotion rule tells future codegen to skip rewriting that generated region and update call sites only.
+
+## Remap Overrides For Incremental Sync
+
+When a Figma snapshot changes, remap existing overrides onto the new raw scene:
+
+```bash
+node apps/cli/dist/index.js sync remap \
+  --old-raw artifacts/old/raw_figma_scene.json \
+  --new-raw artifacts/new/raw_figma_scene.json \
+  --override-set artifacts/old/override_set.json \
+  --old-snapshot-id snap_old \
+  --new-snapshot-id snap_new \
+  --out artifacts/incremental-sync
+```
+
+The sync directory contains `override_set.json`, `node_remap_report.json`, `reapplied_overrides.json`, `stale_overrides.json`, and `incremental_review_tasks.json`. Exact node id matches are reused automatically; stable-key matches are reused when confident; lower-confidence remaps are preserved but produce review tasks; unmatched nodes disable stale overrides.
 
 ## Fetch And Compile A Real Figma Frame
 

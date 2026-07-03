@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { createCodegenReview } from "@uxcompiler/codegen-review";
 import { promoteGeneratedWidget } from "@uxcompiler/component-promoter";
 import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "@uxcompiler/figma-extractor";
+import { runIncrementalSync } from "@uxcompiler/incremental-sync";
 import {
   assertRawFigmaScene,
   type ComponentPromotionRule,
@@ -18,6 +19,7 @@ import {
   type CodegenReviewManifest,
   type OverrideSet,
   type PipelineArtifacts,
+  type RawFigmaScene,
   type StudioOperation,
   type TreeEditOperation,
   type VisualDiffReport
@@ -195,6 +197,15 @@ interface CodegenPromoteOptions {
   allowManualFile?: boolean;
 }
 
+interface SyncRemapOptions {
+  oldRaw: string;
+  newRaw: string;
+  overrideSet: string;
+  out: string;
+  oldSnapshotId?: string;
+  newSnapshotId?: string;
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") {
@@ -229,6 +240,11 @@ async function main(): Promise<void> {
 
   if (command === "codegen") {
     await runCodegenCommand(args);
+    return;
+  }
+
+  if (command === "sync") {
+    await runSyncCommand(args);
     return;
   }
 
@@ -444,6 +460,43 @@ async function runCodegenPromoteCommand(args: string[]): Promise<void> {
   console.log(`UXCompiler generated widget promotion completed.`);
   console.log(`Component: ${options.name}`);
   console.log(`Generated file: ${generatedFilePath}`);
+  console.log(`Artifacts: ${outDir}`);
+}
+
+async function runSyncCommand(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args;
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    printSyncHelp();
+    return;
+  }
+  if (subcommand !== "remap") throw new Error(`Unknown sync subcommand "${subcommand}".`);
+  const options = parseSyncRemapOptions(rest);
+  const outDir = resolve(process.cwd(), options.out);
+  const oldRaw = await readJsonFile<RawFigmaScene>(options.oldRaw);
+  const newRaw = await readJsonFile<RawFigmaScene>(options.newRaw);
+  assertRawFigmaScene(oldRaw);
+  assertRawFigmaScene(newRaw);
+  const result = runIncrementalSync({
+    oldRawScene: oldRaw,
+    newRawScene: newRaw,
+    overrideSet: await readJsonFile<OverrideSet>(options.overrideSet),
+    oldSnapshotId: options.oldSnapshotId,
+    newSnapshotId: options.newSnapshotId
+  });
+
+  await mkdir(outDir, { recursive: true });
+  await Promise.all([
+    writeJsonFile(resolve(outDir, "override_set.json"), result.overrideSet),
+    writeJsonFile(resolve(outDir, "node_remap_report.json"), result.nodeRemapReport),
+    writeJsonFile(resolve(outDir, "reapplied_overrides.json"), result.reappliedOverrides),
+    writeJsonFile(resolve(outDir, "stale_overrides.json"), result.staleOverrides),
+    writeJsonFile(resolve(outDir, "incremental_review_tasks.json"), result.incrementalReviewTasks)
+  ]);
+
+  console.log(`UXCompiler incremental sync remap completed.`);
+  console.log(`Reapplied overrides: ${result.reappliedOverrides.length}`);
+  console.log(`Stale overrides: ${result.staleOverrides.length}`);
+  console.log(`Review tasks: ${result.incrementalReviewTasks.length}`);
   console.log(`Artifacts: ${outDir}`);
 }
 
@@ -1427,6 +1480,46 @@ function parseCodegenPromoteOptions(args: string[]): CodegenPromoteOptions {
   return options as CodegenPromoteOptions;
 }
 
+function parseSyncRemapOptions(args: string[]): SyncRemapOptions {
+  const options: Partial<SyncRemapOptions> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+    if (arg === "--old-raw") {
+      if (!next) throw new Error("Missing value for --old-raw.");
+      options.oldRaw = next;
+      index += 1;
+    } else if (arg === "--new-raw") {
+      if (!next) throw new Error("Missing value for --new-raw.");
+      options.newRaw = next;
+      index += 1;
+    } else if (arg === "--override-set") {
+      if (!next) throw new Error("Missing value for --override-set.");
+      options.overrideSet = next;
+      index += 1;
+    } else if (arg === "--out" || arg === "-o") {
+      if (!next) throw new Error("Missing value for --out.");
+      options.out = next;
+      index += 1;
+    } else if (arg === "--old-snapshot-id") {
+      if (!next) throw new Error("Missing value for --old-snapshot-id.");
+      options.oldSnapshotId = next;
+      index += 1;
+    } else if (arg === "--new-snapshot-id") {
+      if (!next) throw new Error("Missing value for --new-snapshot-id.");
+      options.newSnapshotId = next;
+      index += 1;
+    } else {
+      throw new Error(`Unknown sync remap option "${arg}".`);
+    }
+  }
+  if (!options.oldRaw) throw new Error("Missing required option --old-raw.");
+  if (!options.newRaw) throw new Error("Missing required option --new-raw.");
+  if (!options.overrideSet) throw new Error("Missing required option --override-set.");
+  if (!options.out) throw new Error("Missing required option --out.");
+  return options as SyncRemapOptions;
+}
+
 async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionResult): Promise<void> {
   await mkdir(resolve(outDir, "raw_assets"), { recursive: true });
   await writeFile(resolve(outDir, "raw_figma_scene.json"), `${JSON.stringify(extraction.rawFigmaScene, null, 2)}\n`, "utf8");
@@ -1727,6 +1820,7 @@ Usage:
   uxc codegen review --artifacts <artifacts_dir> --out <codegen_dir>
   uxc codegen write --review <codegen_dir> --project-path <flutter_project>
   uxc codegen promote --review <codegen_dir> --file <generated_dart> --component-id <id> --name <PascalCase>
+  uxc sync remap --old-raw <old_raw.json> --new-raw <new_raw.json> --override-set <override_set.json> --out <sync_dir>
   uxc doctor
 
 Commands:
@@ -1737,6 +1831,7 @@ Commands:
   tree      Apply headless Normalized Tree Editor operations as overrides
   studio    Apply headless Component/Token/Asset/i18n Studio operations
   codegen   Generate codegen review manifests and patches before writing Flutter code
+  sync      Remap overrides between Figma snapshots for incremental sync
   doctor    Check local tools and Figma token configuration
 `);
 }
@@ -1892,6 +1987,25 @@ Outputs:
   promote_report.json
   component_registry.json
   codegen_promotion_rules.json
+`);
+}
+
+function printSyncHelp(): void {
+  console.log(`UXCompiler sync commands
+
+Usage:
+  uxc sync remap --old-raw <old_raw.json> --new-raw <new_raw.json> --override-set <override_set.json> --out <sync_dir>
+
+Options:
+  --old-snapshot-id   Optional id for the previous source snapshot.
+  --new-snapshot-id   Optional id for the new source snapshot.
+
+Outputs:
+  override_set.json
+  node_remap_report.json
+  reapplied_overrides.json
+  stale_overrides.json
+  incremental_review_tasks.json
 `);
 }
 

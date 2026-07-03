@@ -16,6 +16,7 @@
     "@uxcompiler/codegen-review": "workspace:*",
     "@uxcompiler/component-promoter": "workspace:*",
     "@uxcompiler/figma-extractor": "workspace:*",
+    "@uxcompiler/incremental-sync": "workspace:*",
     "@uxcompiler/ir-schemas": "workspace:*",
     "@uxcompiler/normalizer": "workspace:*",
     "@uxcompiler/override-engine": "workspace:*",
