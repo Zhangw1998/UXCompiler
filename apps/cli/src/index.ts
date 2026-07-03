@@ -8,6 +8,9 @@ import { createCodegenReview } from "@uxcompiler/codegen-review";
 import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "@uxcompiler/figma-extractor";
 import {
   assertRawFigmaScene,
+  type CodegenArbPatch,
+  type CodegenGeneratedFile,
+  type CodegenPubspecPatch,
   type CodegenReviewResult,
   type CodegenReviewManifest,
   type OverrideSet,
@@ -19,6 +22,7 @@ import {
 import { compileRawScene } from "@uxcompiler/normalizer";
 import { applyOverrides } from "@uxcompiler/override-engine";
 import { createProjectStore } from "@uxcompiler/project-store";
+import { writeCodegenToProject } from "@uxcompiler/project-writer";
 import { generateReviewTasks } from "@uxcompiler/review-task-engine";
 import { applyStudioOperations } from "@uxcompiler/studios";
 import { applyTreeEdits } from "@uxcompiler/tree-editor";
@@ -163,6 +167,16 @@ interface CodegenReviewOptions {
   allowLowVisualScore?: boolean;
 }
 
+interface CodegenWriteOptions {
+  review: string;
+  projectPath: string;
+  out?: string;
+  assetRoots: string[];
+  backupRoot?: string;
+  dryRun?: boolean;
+  allowBlocked?: boolean;
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") {
@@ -285,7 +299,11 @@ async function runCodegenCommand(args: string[]): Promise<void> {
     printCodegenHelp();
     return;
   }
-  if (subcommand !== "review") throw new Error(`Unknown codegen subcommand "${subcommand}".`);
+  if (subcommand !== "review" && subcommand !== "write") throw new Error(`Unknown codegen subcommand "${subcommand}".`);
+  if (subcommand === "write") {
+    await runCodegenWriteCommand(rest);
+    return;
+  }
   const options = parseCodegenReviewOptions(rest);
   const artifactDir = resolve(process.cwd(), options.artifacts);
   const outDir = resolve(process.cwd(), options.out);
@@ -332,6 +350,31 @@ async function runCodegenCommand(args: string[]): Promise<void> {
   console.log(`Files to create: ${result.filesToCreate.length}`);
   console.log(`Files to modify: ${result.filesToModify.length}`);
   console.log(`Artifacts: ${outDir}`);
+}
+
+async function runCodegenWriteCommand(args: string[]): Promise<void> {
+  const options = parseCodegenWriteOptions(args);
+  const reviewDir = resolve(process.cwd(), options.review);
+  const projectPath = resolve(process.cwd(), options.projectPath);
+  const result = await writeCodegenToProject({
+    projectPath,
+    codegenReview: await readJsonFile(resolve(reviewDir, "codegen_review.json")),
+    generatedFiles: await readGeneratedFiles(resolve(reviewDir, "generated")),
+    arbPatch: await readOptionalJsonFile<CodegenArbPatch>(resolve(reviewDir, "arb_patch.json")),
+    pubspecPatch: await readOptionalJsonFile<CodegenPubspecPatch>(resolve(reviewDir, "pubspec_patch.json")),
+    assetRoots: [resolve(reviewDir, "assets"), ...options.assetRoots.map((root) => resolve(process.cwd(), root))],
+    dryRun: options.dryRun,
+    allowBlocked: options.allowBlocked,
+    backupRoot: options.backupRoot ? resolve(process.cwd(), options.backupRoot) : undefined
+  });
+  const reportPath = resolve(process.cwd(), options.out ?? resolve(reviewDir, "project_write_report.json"));
+  await writeJsonFile(reportPath, result.report);
+
+  console.log(`UXCompiler codegen write completed.`);
+  console.log(`Mode: ${result.report.mode}`);
+  console.log(`Wrote: ${result.report.wrote}`);
+  console.log(`Files written: ${result.report.files.filter((file) => file.status === "created" || file.status === "updated").length}`);
+  console.log(`Report: ${reportPath}`);
 }
 
 async function runTreeCommand(args: string[]): Promise<void> {
@@ -1211,6 +1254,44 @@ function parseCodegenReviewOptions(args: string[]): CodegenReviewOptions {
   return options as CodegenReviewOptions;
 }
 
+function parseCodegenWriteOptions(args: string[]): CodegenWriteOptions {
+  const options: Partial<CodegenWriteOptions> & { assetRoots: string[] } = { assetRoots: [] };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+    if (arg === "--review") {
+      if (!next) throw new Error("Missing value for --review.");
+      options.review = next;
+      index += 1;
+    } else if (arg === "--project-path") {
+      if (!next) throw new Error("Missing value for --project-path.");
+      options.projectPath = next;
+      index += 1;
+    } else if (arg === "--out" || arg === "-o") {
+      if (!next) throw new Error("Missing value for --out.");
+      options.out = next;
+      index += 1;
+    } else if (arg === "--asset-root") {
+      if (!next) throw new Error("Missing value for --asset-root.");
+      options.assetRoots.push(next);
+      index += 1;
+    } else if (arg === "--backup-root") {
+      if (!next) throw new Error("Missing value for --backup-root.");
+      options.backupRoot = next;
+      index += 1;
+    } else if (arg === "--dry-run") {
+      options.dryRun = true;
+    } else if (arg === "--allow-blocked") {
+      options.allowBlocked = true;
+    } else {
+      throw new Error(`Unknown codegen write option "${arg}".`);
+    }
+  }
+  if (!options.review) throw new Error("Missing required option --review.");
+  if (!options.projectPath) throw new Error("Missing required option --project-path.");
+  return options as CodegenWriteOptions;
+}
+
 async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionResult): Promise<void> {
   await mkdir(resolve(outDir, "raw_assets"), { recursive: true });
   await writeFile(resolve(outDir, "raw_figma_scene.json"), `${JSON.stringify(extraction.rawFigmaScene, null, 2)}\n`, "utf8");
@@ -1453,6 +1534,13 @@ async function readExistingProjectFiles(projectRoot: string, paths: string[]): P
   return files;
 }
 
+async function readGeneratedFiles(root: string): Promise<CodegenGeneratedFile[]> {
+  const files = await readTextFilesRecursively(root);
+  return Object.entries(files)
+    .map(([path, content]) => ({ path, content }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+}
+
 async function writeFileWithDirs(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content, "utf8");
@@ -1498,6 +1586,7 @@ Usage:
   uxc tree apply --artifacts <artifacts_dir> --operations <operations.json> --out <draft_dir>
   uxc studio apply --artifacts <artifacts_dir> --operations <operations.json> --out <studio_dir>
   uxc codegen review --artifacts <artifacts_dir> --out <codegen_dir>
+  uxc codegen write --review <codegen_dir> --project-path <flutter_project>
   uxc doctor
 
 Commands:
@@ -1621,14 +1710,21 @@ function printCodegenHelp(): void {
 
 Usage:
   uxc codegen review --artifacts <artifacts_dir> --out <codegen_dir>
+  uxc codegen write --review <codegen_dir> --project-path <flutter_project>
 
-Options:
+Review options:
   --project-path             Optional Flutter project root. Existing files are read for conflict detection only.
   --previous-manifest        Optional prior flutter_generation_manifest.json for incremental sync reports.
   --project-id               Optional project id written into codegen_review.json.
   --build-id                 Optional stable build id.
   --normalized-ir-id         Optional normalized IR id written into codegen_review.json.
   --allow-low-visual-score   Do not block the write gate for a failing visual diff.
+
+Write options:
+  --asset-root               Optional asset source root. May be repeated.
+  --backup-root              Optional backup root for modified project files.
+  --dry-run                  Produce project_write_report.json without writing files.
+  --allow-blocked            Attempt safe writes even when non-file review gates are blocked; manual conflicts remain blocked.
 
 Outputs:
   codegen_review.json
@@ -1642,6 +1738,7 @@ Outputs:
   incremental_sync_report.json
   generated/
   patches/
+  project_write_report.json
 `);
 }
 

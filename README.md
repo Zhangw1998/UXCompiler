@@ -21,6 +21,7 @@ This repo currently supports:
 - Headless Tree Editor operations for reviewed tree drafts and override mutations.
 - Headless Component / Token / Asset / i18n Studios for registries and final reviewed manifests.
 - Headless Codegen Review for generated Flutter files, patches, write gates, and incremental sync reports.
+- Headless Project Writer for safe Flutter project writes with generated-marker checks, backups, ARB/pubspec updates, and reports.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -37,6 +38,7 @@ This repo currently supports:
 - Headless TypeScript tree-edit validation for region, hierarchy, layout, render, and naming operations.
 - Headless TypeScript studio review engine for component, token, asset, and i18n overrides.
 - Headless TypeScript codegen review engine for generated-file manifests, patch review, pubspec/ARB plans, and incremental sync reports.
+- Headless TypeScript project writer for gated generated-file writes, asset copy, ARB merge, pubspec asset declaration, and backups.
 
 ## Install And Verify
 
@@ -45,7 +47,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, studio, codegen-review, project-writer smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -207,6 +209,17 @@ node apps/cli/dist/index.js codegen review \
 To detect conflicts against an existing Flutter checkout, add `--project-path <flutter_project>`. Existing files are read only; UXCompiler writes review artifacts and patches under `--out`.
 
 The review directory contains `codegen_review.json`, `flutter_generation_manifest.json`, `files_to_create.json`, `files_to_modify.json`, `assets_to_add.json`, `arb_patch.json`, `pubspec.yaml.patch`, `merge_report.json`, `incremental_sync_report.json`, `generated/`, and `patches/`.
+
+Write an approved review into a Flutter project:
+
+```bash
+node apps/cli/dist/index.js codegen write \
+  --review artifacts/codegen-review \
+  --project-path /path/to/flutter_project \
+  --asset-root artifacts/codegen-review/assets
+```
+
+Use `--dry-run` to produce `project_write_report.json` without writing files. Project Writer does not overwrite manual conflicts; generated updates are backed up under the project `.uxcompiler/backups/` directory unless `--backup-root` is provided.
 
 ## Fetch And Compile A Real Figma Frame
 

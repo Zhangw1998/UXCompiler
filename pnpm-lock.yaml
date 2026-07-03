@@ -35,6 +35,9 @@ importers:
       '@uxcompiler/project-store':
         specifier: workspace:*
         version: link:../../packages/project-store
+      '@uxcompiler/project-writer':
+        specifier: workspace:*
+        version: link:../../packages/project-writer
       '@uxcompiler/review-task-engine':
         specifier: workspace:*
         version: link:../../packages/review-task-engine
@@ -138,6 +141,12 @@ importers:
         version: link:../ir-schemas
 
   packages/project-store:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+
+  packages/project-writer:
     dependencies:
       '@uxcompiler/ir-schemas':
         specifier: workspace:*

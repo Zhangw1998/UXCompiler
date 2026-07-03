@@ -19,6 +19,7 @@
     "@uxcompiler/normalizer": "workspace:*",
     "@uxcompiler/override-engine": "workspace:*",
     "@uxcompiler/project-store": "workspace:*",
+    "@uxcompiler/project-writer": "workspace:*",
     "@uxcompiler/review-task-engine": "workspace:*",
     "@uxcompiler/studios": "workspace:*",
     "@uxcompiler/tree-editor": "workspace:*",
