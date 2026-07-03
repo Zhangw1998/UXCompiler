@@ -18,6 +18,7 @@ This repo currently supports:
 - Review Task Engine for low-confidence, fallback, resource, and diff issues.
 - Override Engine for deterministic reviewed IR, conflict reports, and stale override reports.
 - Local Project Store for `.uxcompiler/` project memory, artifact persistence, and `.uxcproj.zip` import/export.
+- Headless Tree Editor operations for reviewed tree drafts and override mutations.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -31,6 +32,7 @@ This repo currently supports:
 - Deterministic TypeScript review-task generation for Workbench decisions and codegen gates.
 - Deterministic TypeScript override application for local-first human review decisions.
 - File-backed local project catalog with a SQLite schema contract and pure Node archive import/export.
+- Headless TypeScript tree-edit validation for region, hierarchy, layout, render, and naming operations.
 
 ## Install And Verify
 
@@ -39,7 +41,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, override-engine and project-store smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine, project-store, and tree-editor smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -128,6 +130,34 @@ node apps/cli/dist/index.js project import \
   --input login_page.uxcproj.zip \
   --new-project-id proj_login_copy
 ```
+
+## Preview Normalized Tree Edits
+
+Create a JSON operations file:
+
+```json
+[
+  {
+    "id": "force_footer_stack",
+    "kind": "force_layout",
+    "sourceNodeId": "1:15",
+    "strategy": "stack",
+    "reason": "Lock footer layout for manual review."
+  }
+]
+```
+
+Apply it as a Tree Editor draft:
+
+```bash
+node apps/cli/dist/index.js tree apply \
+  --artifacts artifacts/sample \
+  --operations tree_operations.json \
+  --out artifacts/tree-draft \
+  --actor user
+```
+
+The draft directory contains `tree_edit_report.json`, updated `override_set.json`, `reviewed_normalized_design_ir.json`, `override_conflict_report.json`, and `stale_override_report.json`.
 
 ## Fetch And Compile A Real Figma Frame
 

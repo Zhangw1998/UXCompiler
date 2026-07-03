@@ -31,6 +31,7 @@ export interface NormalizedNode {
   sourceNodeIds: string[];
   type: "page" | "region" | "container" | "text" | "rect" | "image" | "vector";
   name: string;
+  role?: "header" | "content" | "footer" | "overlay" | "section" | "list" | "decoration";
   layout: { type: LayoutType; gap?: string | number };
   render?: { strategy?: string; locked?: boolean };
   bounds: Bounds;

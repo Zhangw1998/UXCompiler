@@ -5,11 +5,18 @@ import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "@uxcompiler/figma-extractor";
-import { assertRawFigmaScene, type OverrideSet, type PipelineArtifacts, type VisualDiffReport } from "@uxcompiler/ir-schemas";
+import {
+  assertRawFigmaScene,
+  type OverrideSet,
+  type PipelineArtifacts,
+  type TreeEditOperation,
+  type VisualDiffReport
+} from "@uxcompiler/ir-schemas";
 import { compileRawScene } from "@uxcompiler/normalizer";
 import { applyOverrides } from "@uxcompiler/override-engine";
 import { createProjectStore } from "@uxcompiler/project-store";
 import { generateReviewTasks } from "@uxcompiler/review-task-engine";
+import { applyTreeEdits } from "@uxcompiler/tree-editor";
 import { runVisualDiff } from "@uxcompiler/visual-diff";
 
 const execFileAsync = promisify(execFile);
@@ -126,6 +133,13 @@ interface ProjectCliOptions {
   json?: boolean;
 }
 
+interface TreeApplyOptions {
+  artifacts: string;
+  operations: string;
+  out: string;
+  actor?: "user" | "agent" | "system";
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") {
@@ -145,6 +159,11 @@ async function main(): Promise<void> {
 
   if (command === "project") {
     await runProjectCommand(args);
+    return;
+  }
+
+  if (command === "tree") {
+    await runTreeCommand(args);
     return;
   }
 
@@ -171,6 +190,55 @@ async function main(): Promise<void> {
   console.log(`Input: ${inputPath}`);
   console.log(`Artifacts: ${outDir}`);
   console.log(`Normalized confidence: ${artifacts.normalizedDesignIR.confidence.overall}`);
+}
+
+async function runTreeCommand(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args;
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    printTreeHelp();
+    return;
+  }
+  if (subcommand !== "apply") throw new Error(`Unknown tree subcommand "${subcommand}".`);
+  const options = parseTreeApplyOptions(rest);
+  const artifactDir = resolve(process.cwd(), options.artifacts);
+  const outDir = resolve(process.cwd(), options.out);
+  const operations = await readJsonFile<TreeEditOperation[]>(options.operations);
+  const result = applyTreeEdits({
+    normalizedDesignIR: await readJsonFile(resolve(artifactDir, "normalized_design_ir.json")),
+    assetManifest: await readJsonFile(resolve(artifactDir, "asset_manifest.json")),
+    i18nManifest: await readJsonFile(resolve(artifactDir, "i18n_manifest.json")),
+    inferredTokens: await readJsonFile(resolve(artifactDir, "inferred_tokens.json")),
+    overrideSet: (await readOptionalJsonFile(resolve(artifactDir, "override_set.json"))) as OverrideSet | undefined,
+    operations,
+    actor: options.actor ?? "user"
+  });
+
+  await mkdir(outDir, { recursive: true });
+  await Promise.all([
+    writeJsonFile(resolve(outDir, "tree_edit_report.json"), {
+      version: result.version,
+      operations: result.operations,
+      validationReport: result.validationReport,
+      overrideMutations: result.overrideMutations
+    }),
+    writeJsonFile(resolve(outDir, "override_set.json"), result.overrideSet),
+    writeJsonFile(resolve(outDir, "reviewed_normalized_design_ir.json"), result.draftNormalizedDesignIR),
+    writeJsonFile(resolve(outDir, "override_conflict_report.json"), result.overrideConflictReport),
+    writeJsonFile(resolve(outDir, "stale_override_report.json"), result.staleOverrideReport)
+  ]);
+
+  if (result.validationReport.rejectedOperationIds.length > 0) {
+    throw new Error(
+      `Tree edit validation rejected ${result.validationReport.rejectedOperationIds.length} operation(s). See ${resolve(
+        outDir,
+        "tree_edit_report.json"
+      )}.`
+    );
+  }
+  console.log(`UXCompiler tree edit preview completed.`);
+  console.log(`Operations: ${result.validationReport.validOperationIds.length}`);
+  console.log(`Artifacts: ${outDir}`);
+  console.log(`OverrideSet: ${result.overrideSet.id}`);
 }
 
 async function runDoctorCommand(): Promise<void> {
@@ -893,6 +961,38 @@ function requiredProject(options: ProjectCliOptions): string {
   return options.project;
 }
 
+function parseTreeApplyOptions(args: string[]): TreeApplyOptions {
+  const options: Partial<TreeApplyOptions> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+    if (arg === "--artifacts") {
+      if (!next) throw new Error("Missing value for --artifacts.");
+      options.artifacts = next;
+      index += 1;
+    } else if (arg === "--operations") {
+      if (!next) throw new Error("Missing value for --operations.");
+      options.operations = next;
+      index += 1;
+    } else if (arg === "--out" || arg === "-o") {
+      if (!next) throw new Error("Missing value for --out.");
+      options.out = next;
+      index += 1;
+    } else if (arg === "--actor") {
+      if (!next) throw new Error("Missing value for --actor.");
+      if (!["user", "agent", "system"].includes(next)) throw new Error("--actor must be one of user, agent, system.");
+      options.actor = next as TreeApplyOptions["actor"];
+      index += 1;
+    } else {
+      throw new Error(`Unknown tree apply option "${arg}".`);
+    }
+  }
+  if (!options.artifacts) throw new Error("Missing required option --artifacts.");
+  if (!options.operations) throw new Error("Missing required option --operations.");
+  if (!options.out) throw new Error("Missing required option --out.");
+  return options as TreeApplyOptions;
+}
+
 async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionResult): Promise<void> {
   await mkdir(resolve(outDir, "raw_assets"), { recursive: true });
   await writeFile(resolve(outDir, "raw_figma_scene.json"), `${JSON.stringify(extraction.rawFigmaScene, null, 2)}\n`, "utf8");
@@ -1048,6 +1148,26 @@ async function readOverrideSet(path: string): Promise<OverrideSet> {
   return JSON.parse(await readFile(resolve(process.cwd(), path), "utf8")) as OverrideSet;
 }
 
+async function readJsonFile<T>(path: string): Promise<T> {
+  return JSON.parse(await readFile(resolve(process.cwd(), path), "utf8")) as T;
+}
+
+async function readOptionalJsonFile<T>(path: string): Promise<T | undefined> {
+  try {
+    return await readJsonFile<T>(path);
+  } catch (error) {
+    const candidate = error as NodeJS.ErrnoException;
+    if (candidate.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function writeJsonFile(path: string, value: unknown): Promise<void> {
+  const target = resolve(process.cwd(), path);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
 async function formatFlutterPreview(previewDir: string): Promise<Record<string, unknown>> {
   try {
     const result = await execFileAsync("dart", ["format", "lib", "test"], {
@@ -1085,6 +1205,7 @@ Usage:
   uxc preview capture --project <flutter_preview_dir> --out <flutter_preview.png>
   uxc preview diff --reference <figma_reference.png> --candidate <flutter_preview.png> --out <diff_dir>
   uxc project init --root .uxcompiler
+  uxc tree apply --artifacts <artifacts_dir> --operations <operations.json> --out <draft_dir>
   uxc doctor
 
 Commands:
@@ -1092,6 +1213,7 @@ Commands:
   figma     Fetch a Figma frame through the REST API, optionally compiling it
   preview   Build preview-related artifacts such as visual diff reports
   project   Manage the local Project Store and export/import .uxcproj.zip archives
+  tree      Apply headless Normalized Tree Editor operations as overrides
   doctor    Check local tools and Figma token configuration
 `);
 }
@@ -1153,6 +1275,25 @@ Options:
   --flutter-project-path   Optional linked Flutter project path.
   --package-name           Optional Flutter package name.
   --replace                Allow import to replace an existing project id.
+`);
+}
+
+function printTreeHelp(): void {
+  console.log(`UXCompiler tree commands
+
+Usage:
+  uxc tree apply --artifacts <artifacts_dir> --operations <operations.json> --out <draft_dir>
+
+Operation kinds:
+  create_region, merge_regions, split_region, move_node, rename_node,
+  force_layout, force_render, ignore_node
+
+Outputs:
+  tree_edit_report.json
+  override_set.json
+  reviewed_normalized_design_ir.json
+  override_conflict_report.json
+  stale_override_report.json
 `);
 }
 

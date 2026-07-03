@@ -150,6 +150,12 @@ function applyOne(context: {
     case "region_create_override":
       applyRegionCreate(context);
       return;
+    case "region_merge_override":
+      applyRegionMerge(context);
+      return;
+    case "region_split_override":
+      applyRegionSplit(context);
+      return;
     case "node_parent_override":
       applyNodeParent(context);
       return;
@@ -173,8 +179,6 @@ function applyOne(context: {
       return;
     case "token_merge_override":
     case "token_split_override":
-    case "region_merge_override":
-    case "region_split_override":
     case "component_candidate_override":
     case "component_prop_override":
     case "component_variant_override":
@@ -223,6 +227,7 @@ function applyRegionCreate(context: ApplyContext): void {
     sourceNodeIds,
     type: "region",
     name,
+    role: normalizeRole(stringValue(payload.role)),
     layout: { type: normalizeLayout(stringValue(payload.layout)) ?? "absolute" },
     bounds: unionBounds(nodes),
     overrideRefs: [context.override.id],
@@ -230,6 +235,98 @@ function applyRegionCreate(context: ApplyContext): void {
     confidence: 1
   };
   context.normalizedDesignIR.tree.children.push(region);
+  context.appliedOverrideIds.push(context.override.id);
+}
+
+function applyRegionMerge(context: ApplyContext): void {
+  const payload = context.override.payload;
+  const sourceRegionIds = stringArray(payload.sourceRegionIds);
+  const targetRegionId = stringValue(payload.targetRegionId) ?? stringValue(payload.regionId) ?? `region_${safeId(context.override.id)}`;
+  const name = stringValue(payload.name) ?? "MergedRegion";
+  if (sourceRegionIds.length < 2) {
+    addConflict(context, "invalid_payload", "region_merge_override requires at least two sourceRegionIds.");
+    return;
+  }
+  const existing = findNode(context.normalizedDesignIR.tree, { kind: "normalized_node", normalizedNodeId: targetRegionId });
+  if (existing && !sourceRegionIds.includes(existing.id)) {
+    addConflict(context, "invalid_payload", `Target region id ${targetRegionId} already exists.`);
+    return;
+  }
+  const regions = sourceRegionIds
+    .map((id) => findNode(context.normalizedDesignIR.tree, { kind: "normalized_node", normalizedNodeId: id }))
+    .filter((node): node is NormalizedNode => !!node && node !== context.normalizedDesignIR.tree);
+  if (regions.length !== sourceRegionIds.length) {
+    addStale(context, "One or more source regions no longer exist.");
+    return;
+  }
+  const parent = findParent(context.normalizedDesignIR.tree, regions[0].id);
+  if (!parent || !regions.every((region) => findParent(context.normalizedDesignIR.tree, region.id) === parent)) {
+    addConflict(context, "invalid_payload", "region_merge_override requires sibling source regions.");
+    return;
+  }
+  const mergedChildren = regions.flatMap((region) => region.children);
+  const mergedSourceNodeIds = Array.from(new Set(regions.flatMap((region) => region.sourceNodeIds)));
+  for (const region of regions) removeNode(context.normalizedDesignIR.tree, region.id);
+  const merged: NormalizedNode = {
+    id: targetRegionId,
+    sourceNodeIds: mergedSourceNodeIds,
+    type: "region",
+    name,
+    role: normalizeRole(stringValue(payload.role)),
+    layout: { type: normalizeLayout(stringValue(payload.layout)) ?? "stack" },
+    bounds: unionBounds(regions),
+    overrideRefs: [context.override.id],
+    children: mergedChildren,
+    confidence: 1
+  };
+  parent.children.push(merged);
+  context.appliedOverrideIds.push(context.override.id);
+}
+
+function applyRegionSplit(context: ApplyContext): void {
+  const payload = context.override.payload;
+  const sourceRegionId = stringValue(payload.sourceRegionId);
+  const sourceNodeIds = stringArray(payload.sourceNodeIds);
+  const regionId = stringValue(payload.regionId) ?? `region_${safeId(context.override.id)}`;
+  const name = stringValue(payload.name) ?? "SplitRegion";
+  if (!sourceRegionId || sourceNodeIds.length === 0) {
+    addConflict(context, "invalid_payload", "region_split_override requires sourceRegionId and sourceNodeIds.");
+    return;
+  }
+  const sourceRegion = findNode(context.normalizedDesignIR.tree, { kind: "normalized_node", normalizedNodeId: sourceRegionId });
+  const parent = sourceRegion ? findParent(context.normalizedDesignIR.tree, sourceRegion.id) : undefined;
+  const existing = findNode(context.normalizedDesignIR.tree, { kind: "normalized_node", normalizedNodeId: regionId });
+  if (!sourceRegion || !parent || sourceRegion === context.normalizedDesignIR.tree) {
+    addStale(context, "Source region no longer exists.");
+    return;
+  }
+  if (existing) {
+    addConflict(context, "invalid_payload", `Region id ${regionId} already exists.`);
+    return;
+  }
+  const nodes = sourceNodeIds
+    .map((sourceNodeId) => findNode(sourceRegion, { kind: "source_node", sourceNodeId }))
+    .filter((node): node is NormalizedNode => !!node && node !== sourceRegion);
+  if (nodes.length !== sourceNodeIds.length) {
+    addStale(context, "One or more split source nodes no longer exist in the source region.");
+    return;
+  }
+  for (const node of nodes) removeNode(sourceRegion, node.id);
+  sourceRegion.sourceNodeIds = sourceRegion.sourceNodeIds.filter((sourceNodeId) => !sourceNodeIds.includes(sourceNodeId));
+  const split: NormalizedNode = {
+    id: regionId,
+    sourceNodeIds,
+    type: "region",
+    name,
+    role: normalizeRole(stringValue(payload.role)),
+    layout: { type: normalizeLayout(stringValue(payload.layout)) ?? "stack" },
+    bounds: unionBounds(nodes),
+    overrideRefs: [context.override.id],
+    children: nodes,
+    confidence: 1
+  };
+  const sourceIndex = parent.children.findIndex((child) => child.id === sourceRegion.id);
+  parent.children.splice(sourceIndex + 1, 0, split);
   context.appliedOverrideIds.push(context.override.id);
 }
 
@@ -376,13 +473,26 @@ function detectDuplicateConflicts(overrides: UxOverride[], conflicts: OverrideCo
 
 function findNode(root: NormalizedNode, target: OverrideTarget): NormalizedNode | undefined {
   if (target.kind === "page") return root;
+  if (target.normalizedNodeId) return findByNormalizedNodeId(root, target.normalizedNodeId);
+  if (target.sourceNodeId) return findBySourceNodeId(root, target.sourceNodeId);
+  return undefined;
+}
+
+function findByNormalizedNodeId(root: NormalizedNode, normalizedNodeId: string): NormalizedNode | undefined {
   let found: NormalizedNode | undefined;
   walk(root, (node) => {
     if (found) return;
-    if (target.normalizedNodeId && node.id === target.normalizedNodeId) found = node;
-    if (target.sourceNodeId && node.sourceNodeIds.includes(target.sourceNodeId)) found = node;
+    if (node.id === normalizedNodeId) found = node;
   });
   return found;
+}
+
+function findBySourceNodeId(root: NormalizedNode, sourceNodeId: string): NormalizedNode | undefined {
+  for (const child of root.children) {
+    const found = findBySourceNodeId(child, sourceNodeId);
+    if (found) return found;
+  }
+  return root.sourceNodeIds.includes(sourceNodeId) ? root : undefined;
 }
 
 function findAsset(manifest: AssetManifest, target: OverrideTarget): AssetManifestEntry | undefined {
@@ -418,6 +528,15 @@ function containsNode(root: NormalizedNode, nodeId: string): boolean {
     if (node.id === nodeId) found = true;
   });
   return found;
+}
+
+function findParent(root: NormalizedNode, nodeId: string): NormalizedNode | undefined {
+  for (const child of root.children) {
+    if (child.id === nodeId) return root;
+    const nested = findParent(child, nodeId);
+    if (nested) return nested;
+  }
+  return undefined;
 }
 
 function markOverride(root: NormalizedNode, override: UxOverride): void {
@@ -491,6 +610,11 @@ function orderOf(type: OverrideType): number {
 
 function normalizeLayout(value: string | undefined): LayoutType | undefined {
   return value && layoutTypes.has(value as LayoutType) ? (value as LayoutType) : undefined;
+}
+
+function normalizeRole(value: string | undefined): NormalizedNode["role"] | undefined {
+  const roles = new Set<NonNullable<NormalizedNode["role"]>>(["header", "content", "footer", "overlay", "section", "list", "decoration"]);
+  return value && roles.has(value as NonNullable<NormalizedNode["role"]>) ? (value as NonNullable<NormalizedNode["role"]>) : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {
