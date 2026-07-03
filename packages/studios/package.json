@@ -1,0 +1,15 @@
+{
+  "name": "@uxcompiler/studios",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node -e \"console.log('studios: no tests yet')\""
+  },
+  "dependencies": {
+    "@uxcompiler/ir-schemas": "workspace:*",
+    "@uxcompiler/override-engine": "workspace:*"
+  }
+}

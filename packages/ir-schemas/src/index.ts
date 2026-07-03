@@ -9,4 +9,5 @@ export * from "./review-task.js";
 export * from "./override.js";
 export * from "./project-store.js";
 export * from "./tree-editor.js";
+export * from "./studios.js";
 export * from "./artifacts.js";

@@ -19,6 +19,7 @@
     "@uxcompiler/override-engine": "workspace:*",
     "@uxcompiler/project-store": "workspace:*",
     "@uxcompiler/review-task-engine": "workspace:*",
+    "@uxcompiler/studios": "workspace:*",
     "@uxcompiler/tree-editor": "workspace:*",
     "@uxcompiler/visual-diff": "workspace:*"
   }

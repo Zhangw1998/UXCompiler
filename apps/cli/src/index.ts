@@ -9,6 +9,7 @@ import {
   assertRawFigmaScene,
   type OverrideSet,
   type PipelineArtifacts,
+  type StudioOperation,
   type TreeEditOperation,
   type VisualDiffReport
 } from "@uxcompiler/ir-schemas";
@@ -16,6 +17,7 @@ import { compileRawScene } from "@uxcompiler/normalizer";
 import { applyOverrides } from "@uxcompiler/override-engine";
 import { createProjectStore } from "@uxcompiler/project-store";
 import { generateReviewTasks } from "@uxcompiler/review-task-engine";
+import { applyStudioOperations } from "@uxcompiler/studios";
 import { applyTreeEdits } from "@uxcompiler/tree-editor";
 import { runVisualDiff } from "@uxcompiler/visual-diff";
 
@@ -140,6 +142,13 @@ interface TreeApplyOptions {
   actor?: "user" | "agent" | "system";
 }
 
+interface StudioApplyOptions {
+  artifacts: string;
+  operations: string;
+  out: string;
+  actor?: "user" | "agent" | "system";
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h") {
@@ -167,6 +176,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "studio") {
+    await runStudioCommand(args);
+    return;
+  }
+
   if (command === "doctor") {
     await runDoctorCommand();
     return;
@@ -190,6 +204,60 @@ async function main(): Promise<void> {
   console.log(`Input: ${inputPath}`);
   console.log(`Artifacts: ${outDir}`);
   console.log(`Normalized confidence: ${artifacts.normalizedDesignIR.confidence.overall}`);
+}
+
+async function runStudioCommand(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args;
+  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
+    printStudioHelp();
+    return;
+  }
+  if (subcommand !== "apply") throw new Error(`Unknown studio subcommand "${subcommand}".`);
+  const options = parseStudioApplyOptions(rest);
+  const artifactDir = resolve(process.cwd(), options.artifacts);
+  const outDir = resolve(process.cwd(), options.out);
+  const operations = await readJsonFile<StudioOperation[]>(options.operations);
+  const result = applyStudioOperations({
+    normalizedDesignIR: await readJsonFile(resolve(artifactDir, "normalized_design_ir.json")),
+    assetManifest: await readJsonFile(resolve(artifactDir, "asset_manifest.json")),
+    i18nManifest: await readJsonFile(resolve(artifactDir, "i18n_manifest.json")),
+    inferredTokens: await readJsonFile(resolve(artifactDir, "inferred_tokens.json")),
+    overrideSet: (await readOptionalJsonFile(resolve(artifactDir, "override_set.json"))) as OverrideSet | undefined,
+    operations,
+    actor: options.actor ?? "user"
+  });
+
+  await mkdir(outDir, { recursive: true });
+  await Promise.all([
+    writeJsonFile(resolve(outDir, "studio_report.json"), {
+      version: result.version,
+      operations: result.operations,
+      validationReport: result.validationReport,
+      overrideMutations: result.overrideMutations
+    }),
+    writeJsonFile(resolve(outDir, "override_set.json"), result.overrideSet),
+    writeJsonFile(resolve(outDir, "component_registry.json"), result.componentRegistry),
+    writeJsonFile(resolve(outDir, "token_registry.json"), result.tokenRegistry),
+    writeJsonFile(resolve(outDir, "final_asset_manifest.json"), result.finalAssetManifest),
+    writeJsonFile(resolve(outDir, "final_i18n_manifest.json"), result.finalI18nManifest),
+    writeJsonFile(resolve(outDir, "arb/app_en.arb"), result.finalArbFile),
+    writeJsonFile(resolve(outDir, "override_conflict_report.json"), result.overrideConflictReport),
+    writeJsonFile(resolve(outDir, "stale_override_report.json"), result.staleOverrideReport)
+  ]);
+
+  if (result.validationReport.rejectedOperationIds.length > 0) {
+    throw new Error(
+      `Studio validation rejected ${result.validationReport.rejectedOperationIds.length} operation(s). See ${resolve(
+        outDir,
+        "studio_report.json"
+      )}.`
+    );
+  }
+  console.log(`UXCompiler studio review completed.`);
+  console.log(`Operations: ${result.validationReport.validOperationIds.length}`);
+  console.log(`Artifacts: ${outDir}`);
+  console.log(`Components: ${result.componentRegistry.components.length}`);
+  console.log(`Tokens: ${result.tokenRegistry.tokens.length}`);
 }
 
 async function runTreeCommand(args: string[]): Promise<void> {
@@ -993,6 +1061,38 @@ function parseTreeApplyOptions(args: string[]): TreeApplyOptions {
   return options as TreeApplyOptions;
 }
 
+function parseStudioApplyOptions(args: string[]): StudioApplyOptions {
+  const options: Partial<StudioApplyOptions> = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+    if (arg === "--artifacts") {
+      if (!next) throw new Error("Missing value for --artifacts.");
+      options.artifacts = next;
+      index += 1;
+    } else if (arg === "--operations") {
+      if (!next) throw new Error("Missing value for --operations.");
+      options.operations = next;
+      index += 1;
+    } else if (arg === "--out" || arg === "-o") {
+      if (!next) throw new Error("Missing value for --out.");
+      options.out = next;
+      index += 1;
+    } else if (arg === "--actor") {
+      if (!next) throw new Error("Missing value for --actor.");
+      if (!["user", "agent", "system"].includes(next)) throw new Error("--actor must be one of user, agent, system.");
+      options.actor = next as StudioApplyOptions["actor"];
+      index += 1;
+    } else {
+      throw new Error(`Unknown studio apply option "${arg}".`);
+    }
+  }
+  if (!options.artifacts) throw new Error("Missing required option --artifacts.");
+  if (!options.operations) throw new Error("Missing required option --operations.");
+  if (!options.out) throw new Error("Missing required option --out.");
+  return options as StudioApplyOptions;
+}
+
 async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionResult): Promise<void> {
   await mkdir(resolve(outDir, "raw_assets"), { recursive: true });
   await writeFile(resolve(outDir, "raw_figma_scene.json"), `${JSON.stringify(extraction.rawFigmaScene, null, 2)}\n`, "utf8");
@@ -1206,6 +1306,7 @@ Usage:
   uxc preview diff --reference <figma_reference.png> --candidate <flutter_preview.png> --out <diff_dir>
   uxc project init --root .uxcompiler
   uxc tree apply --artifacts <artifacts_dir> --operations <operations.json> --out <draft_dir>
+  uxc studio apply --artifacts <artifacts_dir> --operations <operations.json> --out <studio_dir>
   uxc doctor
 
 Commands:
@@ -1214,6 +1315,7 @@ Commands:
   preview   Build preview-related artifacts such as visual diff reports
   project   Manage the local Project Store and export/import .uxcproj.zip archives
   tree      Apply headless Normalized Tree Editor operations as overrides
+  studio    Apply headless Component/Token/Asset/i18n Studio operations
   doctor    Check local tools and Figma token configuration
 `);
 }
@@ -1292,6 +1394,31 @@ Outputs:
   tree_edit_report.json
   override_set.json
   reviewed_normalized_design_ir.json
+  override_conflict_report.json
+  stale_override_report.json
+`);
+}
+
+function printStudioHelp(): void {
+  console.log(`UXCompiler studio commands
+
+Usage:
+  uxc studio apply --artifacts <artifacts_dir> --operations <operations.json> --out <studio_dir>
+
+Operation kinds:
+  approve_component, reject_component, define_component_prop,
+  define_component_variant, map_flutter_component, rename_token,
+  merge_tokens, split_token, set_asset_strategy, rename_i18n_key,
+  mark_non_i18n
+
+Outputs:
+  studio_report.json
+  override_set.json
+  component_registry.json
+  token_registry.json
+  final_asset_manifest.json
+  final_i18n_manifest.json
+  arb/app_en.arb
   override_conflict_report.json
   stale_override_report.json
 `);

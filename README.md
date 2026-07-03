@@ -19,6 +19,7 @@ This repo currently supports:
 - Override Engine for deterministic reviewed IR, conflict reports, and stale override reports.
 - Local Project Store for `.uxcompiler/` project memory, artifact persistence, and `.uxcproj.zip` import/export.
 - Headless Tree Editor operations for reviewed tree drafts and override mutations.
+- Headless Component / Token / Asset / i18n Studios for registries and final reviewed manifests.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -33,6 +34,7 @@ This repo currently supports:
 - Deterministic TypeScript override application for local-first human review decisions.
 - File-backed local project catalog with a SQLite schema contract and pure Node archive import/export.
 - Headless TypeScript tree-edit validation for region, hierarchy, layout, render, and naming operations.
+- Headless TypeScript studio review engine for component, token, asset, and i18n overrides.
 
 ## Install And Verify
 
@@ -41,7 +43,7 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` runs the local fixture pipeline, override-engine, project-store, and tree-editor smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
+`pnpm verify` runs the local fixture pipeline, override-engine, project-store, tree-editor, and studio smoke tests, mock Figma REST API pipeline, and the local Figma Plugin Bridge API smoke test.
 
 Check local tools and token setup:
 
@@ -158,6 +160,35 @@ node apps/cli/dist/index.js tree apply \
 ```
 
 The draft directory contains `tree_edit_report.json`, updated `override_set.json`, `reviewed_normalized_design_ir.json`, `override_conflict_report.json`, and `stale_override_report.json`.
+
+## Apply Studio Reviews
+
+Create a JSON operations file:
+
+```json
+[
+  {
+    "id": "rename_button_label_key",
+    "kind": "rename_i18n_key",
+    "messageKey": "button_label",
+    "key": "loginSubmitLabel",
+    "description": "Primary login form submit button label.",
+    "reason": "Use project i18n key naming."
+  }
+]
+```
+
+Apply it as a Studio review:
+
+```bash
+node apps/cli/dist/index.js studio apply \
+  --artifacts artifacts/sample \
+  --operations studio_operations.json \
+  --out artifacts/studio-review \
+  --actor user
+```
+
+The review directory contains `studio_report.json`, `component_registry.json`, `token_registry.json`, `final_asset_manifest.json`, `final_i18n_manifest.json`, `arb/app_en.arb`, updated `override_set.json`, and override reports.
 
 ## Fetch And Compile A Real Figma Frame
 

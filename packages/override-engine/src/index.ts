@@ -178,7 +178,11 @@ function applyOne(context: {
       applyTokenRename(context);
       return;
     case "token_merge_override":
+      applyTokenMerge(context);
+      return;
     case "token_split_override":
+      applyTokenSplit(context);
+      return;
     case "component_candidate_override":
     case "component_prop_override":
     case "component_variant_override":
@@ -441,6 +445,77 @@ function applyTokenRename(context: ApplyContext): void {
   context.appliedOverrideIds.push(context.override.id);
 }
 
+function applyTokenMerge(context: ApplyContext): void {
+  const tokenType = stringValue(context.override.payload.tokenType);
+  const sourceNames = stringArray(context.override.payload.sourceTokenNames);
+  const canonicalName = stringValue(context.override.payload.canonicalTokenName) ?? stringValue(context.override.payload.name);
+  if (!tokenType || sourceNames.length < 2 || !canonicalName) {
+    addStale(context, "Token merge override is missing tokenType, sourceTokenNames, or canonicalTokenName.");
+    return;
+  }
+  const group = tokenGroup(context.inferredTokens, tokenType);
+  if (!group) {
+    addStale(context, `Token type ${tokenType} is not supported.`);
+    return;
+  }
+  const tokens = sourceNames.map((name) => group.find((candidate) => candidate.name === name));
+  if (tokens.some((token) => !token)) {
+    addStale(context, "One or more token_merge_override sources do not exist.");
+    return;
+  }
+  const existingCanonical = group.find((token) => token.name === canonicalName);
+  const [firstToken] = tokens as Array<Record<string, unknown>>;
+  const merged = existingCanonical ?? clone(firstToken);
+  merged.name = canonicalName;
+  merged.confidence = 1;
+  merged.usageCount = tokens.reduce((sum, token) => sum + numberValue(token?.usageCount), 0);
+  merged.sourceNodeIds = Array.from(new Set(tokens.flatMap((token) => stringArray(token?.sourceNodeIds))));
+  merged.aliases = Array.from(new Set(tokens.flatMap((token) => arrayValue(token?.aliases))));
+  const nextGroup = group.filter((token) => {
+    const name = stringValue(token.name);
+    return !name || (!sourceNames.includes(name) && name !== canonicalName);
+  });
+  nextGroup.push(merged);
+  replaceTokenGroup(context.inferredTokens, tokenType, nextGroup);
+  context.appliedOverrideIds.push(context.override.id);
+}
+
+function applyTokenSplit(context: ApplyContext): void {
+  const tokenType = stringValue(context.override.payload.tokenType);
+  const sourceName = stringValue(context.override.payload.sourceTokenName) ?? context.override.target.tokenName;
+  const outputs = Array.isArray(context.override.payload.tokens) ? context.override.payload.tokens : [];
+  if (!tokenType || !sourceName || outputs.length === 0) {
+    addStale(context, "Token split override is missing tokenType, sourceTokenName, or tokens.");
+    return;
+  }
+  const group = tokenGroup(context.inferredTokens, tokenType);
+  if (!group) {
+    addStale(context, `Token type ${tokenType} is not supported.`);
+    return;
+  }
+  const source = group.find((token) => token.name === sourceName);
+  if (!source) {
+    addStale(context, `Token ${sourceName} does not exist.`);
+    return;
+  }
+  const nextGroup = group.filter((token) => token.name !== sourceName);
+  for (const output of outputs) {
+    if (!output || typeof output !== "object") continue;
+    const patch = output as Record<string, unknown>;
+    const name = stringValue(patch.name);
+    if (!name) continue;
+    nextGroup.push({
+      ...clone(source),
+      ...patch,
+      name,
+      confidence: 1,
+      sourceNodeIds: stringArray(patch.sourceNodeIds).length > 0 ? stringArray(patch.sourceNodeIds) : source.sourceNodeIds
+    });
+  }
+  replaceTokenGroup(context.inferredTokens, tokenType, nextGroup);
+  context.appliedOverrideIds.push(context.override.id);
+}
+
 type ApplyContext = {
   override: UxOverride;
   normalizedDesignIR: NormalizedDesignIR;
@@ -623,6 +698,31 @@ function stringValue(value: unknown): string | undefined {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0) : [];
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function tokenGroup(tokens: InferredTokens, tokenType: string): Array<Record<string, unknown>> | undefined {
+  if (tokenType === "color" || tokenType === "colors") return tokens.colors as unknown as Array<Record<string, unknown>>;
+  if (tokenType === "spacing") return tokens.spacing as unknown as Array<Record<string, unknown>>;
+  if (tokenType === "typography") return tokens.typography as unknown as Array<Record<string, unknown>>;
+  if (tokenType === "radius" || tokenType === "radii") return tokens.radii as unknown as Array<Record<string, unknown>>;
+  if (tokenType === "shadow" || tokenType === "shadows") return tokens.shadows as unknown as Array<Record<string, unknown>>;
+  return undefined;
+}
+
+function replaceTokenGroup(tokens: InferredTokens, tokenType: string, group: Array<Record<string, unknown>>): void {
+  if (tokenType === "color" || tokenType === "colors") tokens.colors = group as unknown as InferredTokens["colors"];
+  if (tokenType === "spacing") tokens.spacing = group as unknown as InferredTokens["spacing"];
+  if (tokenType === "typography") tokens.typography = group as unknown as InferredTokens["typography"];
+  if (tokenType === "radius" || tokenType === "radii") tokens.radii = group as unknown as InferredTokens["radii"];
+  if (tokenType === "shadow" || tokenType === "shadows") tokens.shadows = group as unknown as InferredTokens["shadows"];
 }
 
 function targetKey(target: OverrideTarget): string {

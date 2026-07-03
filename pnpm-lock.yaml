@@ -35,6 +35,9 @@ importers:
       '@uxcompiler/review-task-engine':
         specifier: workspace:*
         version: link:../../packages/review-task-engine
+      '@uxcompiler/studios':
+        specifier: workspace:*
+        version: link:../../packages/studios
       '@uxcompiler/tree-editor':
         specifier: workspace:*
         version: link:../../packages/tree-editor
@@ -142,6 +145,15 @@ importers:
       '@uxcompiler/ir-schemas':
         specifier: workspace:*
         version: link:../ir-schemas
+
+  packages/studios:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
+      '@uxcompiler/override-engine':
+        specifier: workspace:*
+        version: link:../override-engine
 
   packages/token-miner:
     dependencies:
