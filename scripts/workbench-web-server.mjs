@@ -5,6 +5,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import { applyOverrides } from "../packages/override-engine/dist/index.js";
 import { generateReviewTasks } from "../packages/review-task-engine/dist/index.js";
+import { applyTreeEdits } from "../packages/tree-editor/dist/index.js";
 
 const args = parseArgs(process.argv.slice(2));
 const port = Number(args.port ?? process.env.UXCOMPILER_WORKBENCH_PORT ?? 8788);
@@ -60,6 +61,20 @@ const server = createServer(async (request, response) => {
       }
       const body = await readJsonBody(request);
       const result = await applyReviewTaskAction(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workbench/tree-edit") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyWorkbenchTreeEdit(body);
       sendJson(response, 200, {
         ok: true,
         ...result
@@ -245,6 +260,110 @@ async function applyReviewTaskAction(body) {
     taskStatusReport: reviewResult.taskStatusReport,
     reviewTasks: reviewResult.reviewTasks
   };
+}
+
+async function applyWorkbenchTreeEdit(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const operation = body.operation;
+  const actor = stringValue(body.actor) ?? "user";
+  if (!operation || typeof operation !== "object" || Array.isArray(operation)) {
+    throw new Error("Missing tree edit operation.");
+  }
+  const nowValue = new Date();
+  const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
+  const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
+  const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
+  const inferredTokens = await readJson(resolve(artifactDir, "inferred_tokens.json"));
+  const overrideSet = await readJson(resolve(artifactDir, "override_set.json"));
+  const result = applyTreeEdits({
+    normalizedDesignIR,
+    assetManifest,
+    i18nManifest,
+    inferredTokens,
+    overrideSet,
+    operations: [operation],
+    actor: actor === "agent" || actor === "system" ? actor : "user",
+    now: () => nowValue
+  });
+  if (result.validationReport.rejectedOperationIds.length > 0 || result.overrideMutations.length === 0) {
+    const message = result.validationReport.issues.map((issue) => issue.message).join("; ") || "Tree edit operation was rejected.";
+    throw new Error(message);
+  }
+
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, result.overrideSet, nowValue.toISOString());
+  const report = {
+    version: "0.1.0",
+    generatedAt: nowValue.toISOString(),
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    operation,
+    overrideIds: result.overrideMutations.map((override) => override.id),
+    validationReport: result.validationReport,
+    afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
+    overrideHash: rebuilt.overrideResult.overrideSet.hash
+  };
+  await writeJson(resolve(artifactDir, "tree_edit_report.json"), {
+    ...result,
+    savedAt: nowValue.toISOString()
+  });
+  await writeJson(resolve(artifactDir, "workbench_tree_edit_action_report.json"), report);
+
+  return {
+    report,
+    overrideSet: rebuilt.overrideResult.overrideSet,
+    taskStatusReport: rebuilt.reviewResult.taskStatusReport,
+    reviewTasks: rebuilt.reviewResult.reviewTasks
+  };
+}
+
+async function rebuildReviewedArtifacts(artifactDir, overrideSet, now) {
+  const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
+  const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
+  const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
+  const inferredTokens = await readJson(resolve(artifactDir, "inferred_tokens.json"));
+  const layoutCandidates = await readOptionalJson(resolve(artifactDir, "layout_candidates.json"), []);
+  const layoutDecisions = await readOptionalJson(resolve(artifactDir, "layout_decisions.json"), []);
+  const fidelityGenerationManifest = await readOptionalJson(resolve(artifactDir, "fidelity_generation_manifest.json"), {
+    version: "2.0",
+    generatedAt: now,
+    viewport: normalizedDesignIR.source?.viewport ?? { width: 0, height: 0 },
+    files: [],
+    renderDecisions: [],
+    warnings: []
+  });
+  const visualDiffReport =
+    (await readOptionalJson(resolve(artifactDir, "visual_diff_report.json"), undefined)) ??
+    (await readOptionalJson(resolve(artifactDir, "diff/visual_diff_report.json"), undefined));
+  const flutterCapture = await readOptionalJson(resolve(artifactDir, "flutter_preview_capture_report.json"), undefined);
+  const overrideResult = applyOverrides({
+    normalizedDesignIR,
+    assetManifest,
+    i18nManifest,
+    inferredTokens,
+    overrideSet
+  });
+  const reviewResult = generateReviewTasks({
+    normalizedDesignIR: overrideResult.reviewedNormalizedDesignIR,
+    layoutCandidates,
+    layoutDecisions,
+    inferredTokens: overrideResult.reviewedInferredTokens,
+    assetManifest: overrideResult.reviewedAssetManifest,
+    i18nManifest: overrideResult.reviewedI18nManifest,
+    fidelityGenerationManifest,
+    staleOverrideReport: overrideResult.staleOverrideReport,
+    visualDiffReport,
+    flutterCapture: flutterCapture ? { status: flutterCapture.status, reason: flutterCapture.reason } : undefined
+  });
+  await writeJson(resolve(artifactDir, "override_set.json"), overrideResult.overrideSet);
+  await writeJson(resolve(artifactDir, "reviewed_normalized_design_ir.json"), overrideResult.reviewedNormalizedDesignIR);
+  await writeJson(resolve(artifactDir, "reviewed_asset_manifest.json"), overrideResult.reviewedAssetManifest);
+  await writeJson(resolve(artifactDir, "reviewed_i18n_manifest.json"), overrideResult.reviewedI18nManifest);
+  await writeJson(resolve(artifactDir, "reviewed_inferred_tokens.json"), overrideResult.reviewedInferredTokens);
+  await writeJson(resolve(artifactDir, "reviewed_arb/app_en.arb"), overrideResult.reviewedArbFile);
+  await writeJson(resolve(artifactDir, "override_conflict_report.json"), overrideResult.overrideConflictReport);
+  await writeJson(resolve(artifactDir, "stale_override_report.json"), overrideResult.staleOverrideReport);
+  await writeJson(resolve(artifactDir, "review_tasks.json"), reviewResult.reviewTasks);
+  await writeJson(resolve(artifactDir, "task_status_report.json"), reviewResult.taskStatusReport);
+  return { overrideResult, reviewResult };
 }
 
 function buildOverrideFromAction({ task, action, actionIndex, actor, now }) {

@@ -283,6 +283,8 @@ The Workbench can also load another local artifact folder from the `Open Artifac
 
 When opened through `pnpm workbench:web`, Review Task action buttons can write back to artifact folders under `/artifacts/*`. A task action appends or updates a structured override in `override_set.json`, rebuilds reviewed IR/token/asset/i18n artifacts, refreshes `review_tasks.json` and `task_status_report.json`, and writes `review_task_action_report.json` for traceability. Directly loaded browser folders remain read-only.
 
+The Tree view also supports local Tree Editor writeback for selected non-root nodes: save a reviewed name, force layout, force render strategy, or ignore the node. These operations run through the headless Tree Editor validator, append structured overrides, rebuild reviewed artifacts, and write `tree_edit_report.json` plus `workbench_tree_edit_action_report.json`.
+
 ## Fetch And Compile A Real Figma Frame
 
 Create a Figma personal access token with file read access, then export it:

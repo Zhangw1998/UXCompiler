@@ -110,6 +110,33 @@ try {
   assert.equal(actionReport.afterOpenTasks, artifacts.reviewTasks.length - 1);
   assert.equal(findTokenConfidence(updatedTokens, "radius_18"), 1);
 
+  const treeEditResponse = await fetch(`${base}/api/workbench/tree-edit`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_rename_title",
+        kind: "rename_node",
+        sourceNodeId: "1:3",
+        name: "LoginTitleReviewed",
+        reason: "Verify Workbench Tree Editor rename writeback."
+      }
+    })
+  });
+  assert.equal(treeEditResponse.ok, true);
+  const treeEditResult = await treeEditResponse.json();
+  assert.equal(treeEditResult.ok, true);
+  assert.deepEqual(treeEditResult.report.overrideIds, ["ovr_tree_verify_rename_title"]);
+  const treeEditReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/tree_edit_report.json`);
+  const treeActionReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_tree_edit_action_report.json`);
+  const treeEditedOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  const reviewedTree = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_normalized_design_ir.json`);
+  assert.equal(treeEditReport.validationReport.validOperationIds.includes("verify_rename_title"), true);
+  assert.equal(treeActionReport.overrideIds.includes("ovr_tree_verify_rename_title"), true);
+  assert.equal(treeEditedOverrideSet.overrides.length, 2);
+  assert.equal(findNodeNameBySource(reviewedTree.tree, "1:3"), "LoginTitleReviewed");
+
   console.log("workbench-web verification passed");
 } finally {
   server.kill("SIGTERM");
@@ -161,6 +188,15 @@ function findTokenConfidence(tokens, name) {
   for (const group of ["colors", "spacing", "typography", "radii", "shadows"]) {
     const token = tokens[group]?.find((entry) => entry.name === name);
     if (token) return token.confidence;
+  }
+  return undefined;
+}
+
+function findNodeNameBySource(node, sourceNodeId) {
+  if (node.sourceNodeIds?.includes(sourceNodeId)) return node.name;
+  for (const child of node.children ?? []) {
+    const found = findNodeNameBySource(child, sourceNodeId);
+    if (found) return found;
   }
   return undefined;
 }

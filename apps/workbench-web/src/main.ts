@@ -26,9 +26,11 @@ interface AppState {
   loading: boolean;
   error?: string;
   selectedSourceNodeId?: string;
+  selectedNormalizedNodeId?: string;
   previewMode: PreviewMode;
   actionMessage?: { tone: "good" | "warn" | "bad"; text: string };
   pendingAction?: string;
+  pendingTreeOperation?: string;
 }
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
@@ -75,6 +77,9 @@ const navItems: Array<{ id: ViewId; label: string }> = [
   { id: "codegen", label: "Codegen" },
   { id: "settings", label: "Settings" }
 ];
+
+const layoutOptions = ["column", "row", "grid", "stack", "absolute", "leaf"];
+const renderOptions = ["semantic_widget", "semantic_layout", "absolute_widget", "custom_painter", "asset_slice", "hybrid_region", "ignore"];
 
 let objectUrls: string[] = [];
 const initialArtifactRoot = new URLSearchParams(window.location.search).get("artifacts") ?? "/artifacts/sample";
@@ -404,6 +409,7 @@ function renderTasks(_model: WorkbenchModel): string {
 
 function renderTree(model: WorkbenchModel): string {
   const selected = selectedTreeRow(model);
+  const canApplyTreeEdit = state.artifactRoot !== "selected directory" && !!selected && selected.depth > 0;
   return `
     <section class="view-header">
       <div>
@@ -411,6 +417,7 @@ function renderTree(model: WorkbenchModel): string {
         <p>${model.treeRows.length} nodes · ${model.reviewSummary.open} open tasks</p>
       </div>
     </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="split-view">
       <div class="panel table-panel">
         <table class="data-table tree-table">
@@ -427,7 +434,11 @@ function renderTree(model: WorkbenchModel): string {
             ${model.treeRows
               .map(
                 (row) => `
-                  <tr class="${selected?.id === row.id ? "is-selected" : ""}" data-node-id="${escapeAttr(row.sourceNodeIds[0] ?? row.id)}">
+                  <tr
+                    class="${selected?.id === row.id ? "is-selected" : ""}"
+                    data-node-id="${escapeAttr(row.sourceNodeIds[0] ?? "")}"
+                    data-normalized-id="${escapeAttr(row.id)}"
+                  >
                     <td>
                       <span class="tree-name" style="--depth:${row.depth}">
                         ${escapeHtml(row.name)}
@@ -460,6 +471,34 @@ function renderTree(model: WorkbenchModel): string {
                 <dt>Bounds</dt><dd>${selected.bounds ? `${selected.bounds.x}, ${selected.bounds.y}, ${selected.bounds.w}, ${selected.bounds.h}` : "-"}</dd>
                 <dt>Source</dt><dd>${selected.sourceNodeIds.map(escapeHtml).join(", ") || "-"}</dd>
               </dl>
+              <div class="tree-editor-form">
+                <label>
+                  <span>Name</span>
+                  <input class="tree-input" data-tree-field="name" value="${escapeAttr(selected.name)}" ${canApplyTreeEdit ? "" : "disabled"} />
+                </label>
+                <label>
+                  <span>Layout</span>
+                  <select class="tree-input" data-tree-field="layout" ${canApplyTreeEdit ? "" : "disabled"}>
+                    ${layoutOptions.map((option) => `<option value="${option}" ${option === selected.layout ? "selected" : ""}>${option}</option>`).join("")}
+                  </select>
+                </label>
+                <label>
+                  <span>Render</span>
+                  <select class="tree-input" data-tree-field="render" ${canApplyTreeEdit ? "" : "disabled"}>
+                    ${renderOptions.map((option) => `<option value="${option}">${option}</option>`).join("")}
+                  </select>
+                </label>
+                <label>
+                  <span>Reason</span>
+                  <input class="tree-input" data-tree-field="reason" value="Reviewed in Workbench Tree Editor." ${canApplyTreeEdit ? "" : "disabled"} />
+                </label>
+                <div class="tree-editor-actions">
+                  ${renderTreeActionButton("rename", "Save Name", canApplyTreeEdit)}
+                  ${renderTreeActionButton("layout", "Save Layout", canApplyTreeEdit)}
+                  ${renderTreeActionButton("render", "Save Render", canApplyTreeEdit)}
+                  ${renderTreeActionButton("ignore", "Ignore Node", canApplyTreeEdit)}
+                </div>
+              </div>
             `
             : renderEmpty("Select a tree row.")
         }
@@ -835,6 +874,15 @@ function renderModeButton(mode: PreviewMode, label: string): string {
   return `<button class="${state.previewMode === mode ? "is-active" : ""}" data-preview-mode="${mode}">${escapeHtml(label)}</button>`;
 }
 
+function renderTreeActionButton(operation: string, label: string, enabled: boolean): string {
+  const isPending = state.pendingTreeOperation === operation;
+  return `
+    <button class="action-button" data-tree-operation="${escapeAttr(operation)}" ${enabled && !isPending ? "" : "disabled"}>
+      ${escapeHtml(isPending ? "Saving..." : label)}
+    </button>
+  `;
+}
+
 function renderKeyValues(value: Record<string, number>): string {
   const entries = Object.entries(value);
   if (entries.length === 0) return `<div class="kv-row"><strong>none</strong><span>0</span></div>`;
@@ -913,6 +961,12 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const treeOperationButton = target.closest<HTMLButtonElement>("[data-tree-operation]");
+  if (treeOperationButton?.dataset.treeOperation) {
+    void applyTreeOperation(treeOperationButton.dataset.treeOperation);
+    return;
+  }
+
   const modeButton = target.closest<HTMLElement>("[data-preview-mode]");
   if (modeButton?.dataset.previewMode) {
     state.previewMode = modeButton.dataset.previewMode as PreviewMode;
@@ -922,8 +976,10 @@ function onAppClick(event: MouseEvent): void {
 
   const nodeTarget = target.closest<HTMLElement>("[data-node-id]");
   const nodeId = nodeTarget?.dataset.nodeId;
-  if (nodeId) {
-    state.selectedSourceNodeId = nodeId;
+  const normalizedNodeId = nodeTarget?.dataset.normalizedId;
+  if (nodeId || normalizedNodeId) {
+    state.selectedSourceNodeId = nodeId || undefined;
+    state.selectedNormalizedNodeId = normalizedNodeId || undefined;
     if (state.activeView !== "preview" && target.closest(".task-list")) state.activeView = "preview";
     render();
   }
@@ -969,6 +1025,103 @@ async function applyTaskAction(taskId: string, actionIndex: number): Promise<voi
   }
 }
 
+async function applyTreeOperation(kind: string): Promise<void> {
+  if (!state.model) return;
+  const selected = selectedTreeRow(state.model);
+  if (!selected || selected.depth === 0) return;
+  const reason = inputValue("[data-tree-field='reason']").trim();
+  const target = treeOperationTarget(selected);
+  const operation = buildTreeOperation(kind, selected, target, reason);
+  state.pendingTreeOperation = kind;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const response = await fetch("/api/workbench/tree-edit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        artifactRoot: state.artifactRoot,
+        operation,
+        actor: "user"
+      })
+    });
+    const result = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      report?: { overrideIds?: string[]; afterOpenTasks?: number };
+    };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Tree edit failed with ${response.status}`);
+    }
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.selectedNormalizedNodeId = selected.id;
+    state.selectedSourceNodeId = selected.sourceNodeIds[0];
+    state.actionMessage = {
+      tone: "good",
+      text: `Saved ${result.report?.overrideIds?.join(", ") ?? "tree override"}; ${result.report?.afterOpenTasks ?? state.model?.reviewSummary.open ?? 0} tasks remain.`
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingTreeOperation = undefined;
+    render();
+  }
+}
+
+function buildTreeOperation(kind: string, selected: WorkbenchModel["treeRows"][number], target: Record<string, string>, reason: string): Record<string, unknown> {
+  const operationId = `workbench_${kind}_${safeId(selected.id)}`;
+  const safeReason = reason || "Reviewed in Workbench Tree Editor.";
+  if (kind === "rename") {
+    return {
+      id: operationId,
+      kind: "rename_node",
+      ...target,
+      name: inputValue("[data-tree-field='name']").trim(),
+      reason: safeReason
+    };
+  }
+  if (kind === "layout") {
+    return {
+      id: operationId,
+      kind: "force_layout",
+      ...target,
+      strategy: inputValue("[data-tree-field='layout']"),
+      reason: safeReason
+    };
+  }
+  if (kind === "render") {
+    return {
+      id: operationId,
+      kind: "force_render",
+      ...target,
+      strategy: inputValue("[data-tree-field='render']"),
+      reason: safeReason
+    };
+  }
+  if (kind === "ignore") {
+    return {
+      id: operationId,
+      kind: "ignore_node",
+      ...target,
+      reason: safeReason
+    };
+  }
+  throw new Error(`Unsupported tree operation: ${kind}`);
+}
+
+function treeOperationTarget(selected: WorkbenchModel["treeRows"][number]): Record<string, string> {
+  const sourceNodeId = selected.sourceNodeIds[0];
+  return sourceNodeId ? { sourceNodeId } : { normalizedNodeId: selected.id };
+}
+
+function inputValue(selector: string): string {
+  const field = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
+  return field?.value ?? "";
+}
+
 function fitPreviewStages(): void {
   document.querySelectorAll<HTMLElement>("[data-fit-stage]").forEach((stage) => {
     const canvas = stage.querySelector<HTMLElement>(".visual-canvas");
@@ -984,11 +1137,16 @@ function fitPreviewStages(): void {
 }
 
 function selectedTreeRow(model: WorkbenchModel): WorkbenchModel["treeRows"][number] | undefined {
+  const selectedNormalizedNodeId = state.selectedNormalizedNodeId;
+  if (selectedNormalizedNodeId) {
+    const byNormalizedId = model.treeRows.find((row) => row.id === selectedNormalizedNodeId);
+    if (byNormalizedId) return byNormalizedId;
+  }
   const selectedSourceNodeId = state.selectedSourceNodeId;
   if (selectedSourceNodeId) {
     return model.treeRows.find((row) => row.sourceNodeIds.includes(selectedSourceNodeId));
   }
-  return model.treeRows[0];
+  return model.treeRows.find((row) => row.depth > 0) ?? model.treeRows[0];
 }
 
 function tokenValue(token: JsonRecord): string {
@@ -1108,4 +1266,8 @@ function escapeHtml(value: string): string {
 
 function escapeAttr(value: string): string {
   return escapeHtml(value);
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "node";
 }
