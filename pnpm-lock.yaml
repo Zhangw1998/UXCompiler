@@ -26,6 +26,9 @@ importers:
       '@uxcompiler/normalizer':
         specifier: workspace:*
         version: link:../../packages/normalizer
+      '@uxcompiler/review-task-engine':
+        specifier: workspace:*
+        version: link:../../packages/review-task-engine
       '@uxcompiler/visual-diff':
         specifier: workspace:*
         version: link:../../packages/visual-diff
@@ -44,6 +47,9 @@ importers:
       '@uxcompiler/normalizer':
         specifier: workspace:*
         version: link:../../packages/normalizer
+      '@uxcompiler/review-task-engine':
+        specifier: workspace:*
+        version: link:../../packages/review-task-engine
       '@uxcompiler/visual-diff':
         specifier: workspace:*
         version: link:../../packages/visual-diff
@@ -88,12 +94,21 @@ importers:
       '@uxcompiler/layout-inferencer':
         specifier: workspace:*
         version: link:../layout-inferencer
+      '@uxcompiler/review-task-engine':
+        specifier: workspace:*
+        version: link:../review-task-engine
       '@uxcompiler/scene-canonicalizer':
         specifier: workspace:*
         version: link:../scene-canonicalizer
       '@uxcompiler/token-miner':
         specifier: workspace:*
         version: link:../token-miner
+
+  packages/review-task-engine:
+    dependencies:
+      '@uxcompiler/ir-schemas':
+        specifier: workspace:*
+        version: link:../ir-schemas
 
   packages/scene-canonicalizer:
     dependencies:

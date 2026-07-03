@@ -3,16 +3,17 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
-const port = Number(process.env.UXCOMPILER_LOCAL_API_PORT ?? 8787);
+const port = Number(process.env.UXCOMPILER_LOCAL_API_PORT ?? 8798);
 const artifactRoot = process.env.UXCOMPILER_ARTIFACTS_DIR ?? "artifacts/figma-bridge-smoke";
 const baseUrl = `http://127.0.0.1:${port}`;
 const referencePngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4AWP4DwQACfsD/c8LaHIAAAAASUVORK5CYII=";
+const reuseExistingLocalApi = process.env.UXCOMPILER_REUSE_LOCAL_API === "true";
 
 let server;
 let startedServer = false;
 
 try {
-  const existing = await checkHealth();
+  const existing = reuseExistingLocalApi ? await checkHealth() : false;
   if (existing) {
     console.log(`Using existing UXCompiler local API at ${baseUrl}`);
   } else {
@@ -66,9 +67,13 @@ try {
   assertArtifact(result.artifactDir, "normalized_design_ir.json");
   assertArtifact(result.artifactDir, "flutter_preview.png");
   assertArtifact(result.artifactDir, "diff/visual_diff_report.json");
+  assertArtifact(result.artifactDir, "review_tasks.json");
+  assertArtifact(result.artifactDir, "task_status_report.json");
   assertArtifact(result.artifactDir, "pipeline_run_report.json");
   const pipelineRunReport = JSON.parse(readFileSync(resolve(result.artifactDir, "pipeline_run_report.json"), "utf8"));
   assert.equal(pipelineRunReport.source.sourceKind, "local_smoke");
+  const taskStatusReport = JSON.parse(readFileSync(resolve(result.artifactDir, "task_status_report.json"), "utf8"));
+  assert.equal(typeof taskStatusReport.codegenWriteBlocked, "boolean");
 
   console.log("Figma Bridge smoke completed.");
   console.log(`Artifacts: ${result.artifactDir}`);

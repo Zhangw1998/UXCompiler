@@ -93,6 +93,8 @@ AI 只负责：
 
 最终 Dart 由确定性 Compiler / Renderer 生成。
 
+当前 MVP 已开始把低置信度和运行验证问题落成结构化 `review_tasks.json` / `task_status_report.json`，后续 Workbench、Tree Editor 和 Codegen Review 直接消费这些产物。
+
 ### 2.3 Visual Diff 从“后续扩展”变成核心闭环
 
 当目标是 99%+ 视觉还原时，必须固定 viewport、字体、DPR、主题环境，并自动导出 Figma screenshot 与 Flutter screenshot 做对比。

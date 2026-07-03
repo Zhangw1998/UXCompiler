@@ -16,6 +16,7 @@
     "@uxcompiler/figma-extractor": "workspace:*",
     "@uxcompiler/ir-schemas": "workspace:*",
     "@uxcompiler/normalizer": "workspace:*",
+    "@uxcompiler/review-task-engine": "workspace:*",
     "@uxcompiler/visual-diff": "workspace:*"
   }
 }

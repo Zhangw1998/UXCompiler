@@ -80,6 +80,8 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "pipeline_run_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "local_api_snapshot_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "materialized_assets_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "review_tasks.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "task_status_report.json")), true);
   const materializedAssetReport = JSON.parse(readFileSync(resolve(result.artifactDir, "materialized_assets_report.json"), "utf8"));
   assert.equal(materializedAssetReport.requested, 2);
   assert.equal(materializedAssetReport.materialized.length, 2);
@@ -102,6 +104,11 @@ try {
   assert.equal(pipelineRunReport.steps.snapshot.frameScreenshotFallback, false);
   assert.equal(pipelineRunReport.steps.flutterCapture.status, "success");
   assert.equal(pipelineRunReport.steps.visualDiff.status, "success");
+  const reviewTasks = JSON.parse(readFileSync(resolve(result.artifactDir, "review_tasks.json"), "utf8"));
+  const taskStatusReport = JSON.parse(readFileSync(resolve(result.artifactDir, "task_status_report.json"), "utf8"));
+  assert.ok(reviewTasks.some((task) => task.type === "visual_diff_failed"));
+  assert.ok(taskStatusReport.codegenWriteBlocked);
+  assert.ok(taskStatusReport.byPriority.P0 > 0);
 
   const fallbackScene = {
     version: "2.0",
@@ -155,6 +162,11 @@ try {
   const fallbackManifest = JSON.parse(readFileSync(resolve(fallbackResult.artifactDir, "fidelity_generation_manifest.json"), "utf8"));
   assert.ok(fallbackManifest.renderDecisions.some((decision) => decision.strategy === "frame_screenshot_asset"));
   assert.ok(fallbackManifest.renderDecisions.some((decision) => decision.strategy === "covered_by_frame_screenshot"));
+  const fallbackReviewTasks = JSON.parse(readFileSync(resolve(fallbackResult.artifactDir, "review_tasks.json"), "utf8"));
+  const fallbackTaskStatusReport = JSON.parse(readFileSync(resolve(fallbackResult.artifactDir, "task_status_report.json"), "utf8"));
+  assert.ok(fallbackReviewTasks.some((task) => task.id === "task_frame_fallback_fallback_frame"));
+  assert.ok(fallbackReviewTasks.some((task) => task.priority === "P1" && task.type === "asset_strategy_uncertain"));
+  assert.equal(fallbackTaskStatusReport.codegenWriteBlocked, false);
   const fallbackPipelineRunReport = JSON.parse(readFileSync(resolve(fallbackResult.artifactDir, "pipeline_run_report.json"), "utf8"));
   assert.equal(fallbackPipelineRunReport.steps.snapshot.frameScreenshotFallback, true);
   assert.equal(fallbackPipelineRunReport.steps.flutterCapture.status, "skipped");

@@ -15,6 +15,7 @@ This repo currently supports:
 - Flutter fidelity preview project generation.
 - Flutter golden capture to `flutter_preview.png`.
 - PNG visual diff with page and node-level reports.
+- Review Task Engine for low-confidence, fallback, resource, and diff issues.
 - A Figma Plugin Bridge that posts selected-frame snapshots to a local API.
 
 ## Tech Stack
@@ -25,6 +26,7 @@ This repo currently supports:
 - JSON IR contracts for each compiler stage.
 - Flutter and Dart for generated fidelity previews and golden screenshot capture.
 - `pixelmatch` and `pngjs` for visual diff heatmaps and reports.
+- Deterministic TypeScript review-task generation for Workbench decisions and codegen gates.
 
 ## Install And Verify
 
@@ -191,6 +193,8 @@ Outputs include:
 - `visual_ir.json`
 - `fidelity_generation_manifest.json`
 - `node_pixel_map.json`
+- `review_tasks.json`
+- `task_status_report.json`
 - `flutter_preview/`
 
 Analyze the generated Flutter preview:
@@ -310,6 +314,8 @@ Important outputs include:
 - `raw_figma_scene.json`
 - `normalized_design_ir.json`
 - `visual_ir.json`
+- `review_tasks.json`
+- `task_status_report.json`
 - `flutter_preview/`
 - `flutter_preview.png`
 - `diff/visual_diff_report.json`

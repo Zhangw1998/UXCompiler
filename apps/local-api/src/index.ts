@@ -5,8 +5,15 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
-import { assertRawFigmaScene, type AssetManifestEntry, type PipelineArtifacts, type RawFigmaScene } from "@uxcompiler/ir-schemas";
+import {
+  assertRawFigmaScene,
+  type AssetManifestEntry,
+  type PipelineArtifacts,
+  type RawFigmaScene,
+  type VisualDiffReport
+} from "@uxcompiler/ir-schemas";
 import { compileRawScene } from "@uxcompiler/normalizer";
+import { generateReviewTasks } from "@uxcompiler/review-task-engine";
 import { runVisualDiff } from "@uxcompiler/visual-diff";
 
 interface SnapshotAsset {
@@ -161,6 +168,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
     frameScreenshotPngBase64: body.figmaReferencePngBase64
   });
   const pipelineRunReport = await runLocalPipeline(artifactDir, body, artifacts, materializedAssetReport);
+  await writeRuntimeReviewTaskArtifacts(artifactDir, artifacts, pipelineRunReport);
   await writeJson(resolve(artifactDir, "local_api_snapshot_report.json"), {
     version: "0.1.0",
     generatedAt: new Date().toISOString(),
@@ -203,6 +211,8 @@ async function writePipelineArtifacts(
     ["visual_ir.json", artifacts.visualIR],
     ["fidelity_generation_manifest.json", artifacts.fidelityGenerationManifest],
     ["node_pixel_map.json", artifacts.nodePixelMap],
+    ["review_tasks.json", artifacts.reviewTasks],
+    ["task_status_report.json", artifacts.taskStatusReport],
     ["regions.json", artifacts.regions],
     ["layout_candidates.json", artifacts.layoutCandidates],
     ["layout_decisions.json", artifacts.layoutDecisions],
@@ -227,6 +237,8 @@ async function writePipelineArtifacts(
           "visual_ir.json",
           "fidelity_generation_manifest.json",
           "node_pixel_map.json",
+          "review_tasks.json",
+          "task_status_report.json",
           "materialized_assets_report.json",
           "flutter_preview/pubspec.yaml",
           "flutter_preview/lib/main.dart",
@@ -273,6 +285,39 @@ async function writePipelineArtifacts(
   const formatReport = await formatFlutterPreview(previewDir);
   await writeJson(resolve(outDir, "flutter_preview_format_report.json"), formatReport);
   return materializedAssetReport;
+}
+
+async function writeRuntimeReviewTaskArtifacts(
+  artifactDir: string,
+  artifacts: PipelineArtifacts,
+  pipelineRunReport: LocalPipelineRunReport
+): Promise<void> {
+  const visualDiffReport = await readVisualDiffReport(pipelineRunReport.steps.visualDiff.report);
+  const result = generateReviewTasks({
+    normalizedDesignIR: artifacts.normalizedDesignIR,
+    layoutCandidates: artifacts.layoutCandidates,
+    layoutDecisions: artifacts.layoutDecisions,
+    inferredTokens: artifacts.inferredTokens,
+    assetManifest: artifacts.assetManifest,
+    i18nManifest: artifacts.i18nManifest,
+    fidelityGenerationManifest: artifacts.fidelityGenerationManifest,
+    visualDiffReport,
+    flutterCapture: {
+      status: pipelineRunReport.steps.flutterCapture.status,
+      reason: pipelineRunReport.steps.flutterCapture.reason
+    }
+  });
+  await writeJson(resolve(artifactDir, "review_tasks.json"), result.reviewTasks);
+  await writeJson(resolve(artifactDir, "task_status_report.json"), result.taskStatusReport);
+}
+
+async function readVisualDiffReport(path: string | undefined): Promise<VisualDiffReport | undefined> {
+  if (!path) return undefined;
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as VisualDiffReport;
+  } catch {
+    return undefined;
+  }
 }
 
 async function materializeSnapshotAssets(

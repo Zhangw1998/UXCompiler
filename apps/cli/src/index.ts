@@ -5,8 +5,9 @@ import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "@uxcompiler/figma-extractor";
-import { assertRawFigmaScene, type PipelineArtifacts } from "@uxcompiler/ir-schemas";
+import { assertRawFigmaScene, type PipelineArtifacts, type VisualDiffReport } from "@uxcompiler/ir-schemas";
 import { compileRawScene } from "@uxcompiler/normalizer";
+import { generateReviewTasks } from "@uxcompiler/review-task-engine";
 import { runVisualDiff } from "@uxcompiler/visual-diff";
 
 const execFileAsync = promisify(execFile);
@@ -344,6 +345,7 @@ async function runFigmaCommand(args: string[]): Promise<void> {
     if (subcommand === "run") {
       const runReport = await runEndToEndPreview(outDir, extraction, artifacts);
       await writeFile(resolve(outDir, "pipeline_run_report.json"), `${JSON.stringify(runReport, null, 2)}\n`, "utf8");
+      await writeRuntimeReviewTaskArtifacts(outDir, artifacts, runReport);
       console.log(`UXCompiler Figma run completed.`);
       console.log(`Artifacts: ${outDir}`);
       console.log(`Frame node: ${extraction.rawFigmaScene.source.frameNodeId}`);
@@ -675,6 +677,8 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
     ["visual_ir.json", artifacts.visualIR],
     ["fidelity_generation_manifest.json", artifacts.fidelityGenerationManifest],
     ["node_pixel_map.json", artifacts.nodePixelMap],
+    ["review_tasks.json", artifacts.reviewTasks],
+    ["task_status_report.json", artifacts.taskStatusReport],
     ["regions.json", artifacts.regions],
     ["layout_candidates.json", artifacts.layoutCandidates],
     ["layout_decisions.json", artifacts.layoutDecisions],
@@ -700,6 +704,8 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
           "visual_ir.json",
           "fidelity_generation_manifest.json",
           "node_pixel_map.json",
+          "review_tasks.json",
+          "task_status_report.json",
           "flutter_preview/pubspec.yaml",
           "flutter_preview/lib/main.dart",
           "flutter_preview/lib/generated/fidelity/preview_page.dart",
@@ -735,6 +741,34 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
   );
   const formatReport = await formatFlutterPreview(previewDir);
   await writeFile(resolve(outDir, "flutter_preview_format_report.json"), `${JSON.stringify(formatReport, null, 2)}\n`, "utf8");
+}
+
+async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: PipelineArtifacts, runReport: FigmaRunReport): Promise<void> {
+  const visualDiffReport = await readVisualDiffReport(runReport.steps.visualDiff.report);
+  const result = generateReviewTasks({
+    normalizedDesignIR: artifacts.normalizedDesignIR,
+    layoutCandidates: artifacts.layoutCandidates,
+    layoutDecisions: artifacts.layoutDecisions,
+    inferredTokens: artifacts.inferredTokens,
+    assetManifest: artifacts.assetManifest,
+    i18nManifest: artifacts.i18nManifest,
+    fidelityGenerationManifest: artifacts.fidelityGenerationManifest,
+    visualDiffReport,
+    flutterCapture: {
+      status: runReport.steps.flutterCapture.status
+    }
+  });
+  await writeFile(resolve(outDir, "review_tasks.json"), `${JSON.stringify(result.reviewTasks, null, 2)}\n`, "utf8");
+  await writeFile(resolve(outDir, "task_status_report.json"), `${JSON.stringify(result.taskStatusReport, null, 2)}\n`, "utf8");
+}
+
+async function readVisualDiffReport(path: string | undefined): Promise<VisualDiffReport | undefined> {
+  if (!path) return undefined;
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as VisualDiffReport;
+  } catch {
+    return undefined;
+  }
 }
 
 async function formatFlutterPreview(previewDir: string): Promise<Record<string, unknown>> {

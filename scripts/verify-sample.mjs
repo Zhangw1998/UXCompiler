@@ -19,6 +19,8 @@ const requiredFiles = [
   "visual_ir.json",
   "fidelity_generation_manifest.json",
   "node_pixel_map.json",
+  "review_tasks.json",
+  "task_status_report.json",
   "flutter_preview/pubspec.yaml",
   "flutter_preview/lib/main.dart",
   "flutter_preview/lib/generated/fidelity/preview_page.dart",
@@ -45,6 +47,8 @@ const i18nManifest = readJson("i18n_manifest.json");
 const arb = readJson("arb/app_en.arb");
 const visualIR = readJson("visual_ir.json");
 const nodePixelMap = readJson("node_pixel_map.json");
+const reviewTasks = readJson("review_tasks.json");
+const taskStatusReport = readJson("task_status_report.json");
 const formatReport = readJson("flutter_preview_format_report.json");
 const regions = readJson("regions.json");
 const decisions = readJson("layout_decisions.json");
@@ -63,6 +67,12 @@ assert.equal(arb.title, "Welcome back");
 assert.equal(visualIR.root.type, "scene");
 assert.ok(visualIR.root.children.length >= 10, "Expected VisualIR positioned children");
 assert.ok(nodePixelMap.length >= 10, "Expected node pixel map entries");
+assert.ok(reviewTasks.length > 0, "Expected review tasks");
+assert.ok(reviewTasks.every((task) => task.status === "open"), "Expected open review tasks");
+assert.ok(reviewTasks.every((task) => task.suggestedActions?.length > 0), "Expected task suggested actions");
+assert.ok(reviewTasks.some((task) => task.type === "token_conflict"), "Expected token review task");
+assert.equal(taskStatusReport.total, reviewTasks.length);
+assert.equal(taskStatusReport.codegenWriteBlocked, false);
 assert.equal(formatReport.status, "success");
 assert.equal(regions.length, 3);
 assert.equal(regions[0].role, "header");

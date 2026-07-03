@@ -4,6 +4,7 @@ import { generateFlutterFidelity } from "@uxcompiler/flutter-fidelity-renderer";
 import { canonicalizeRawScene } from "@uxcompiler/scene-canonicalizer";
 import { inferLayout } from "@uxcompiler/layout-inferencer";
 import { mineTokens } from "@uxcompiler/token-miner";
+import { generateReviewTasks } from "@uxcompiler/review-task-engine";
 
 export interface CompileRawSceneOptions {
   materializedAssetSourceNodeIds?: readonly string[];
@@ -20,6 +21,15 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     frameScreenshotAssetPath: options.frameScreenshotAssetPath
   });
   const layoutResult = inferLayout(canonicalResult.canonicalScene, tokenResult.inferredTokens);
+  const reviewTaskResult = generateReviewTasks({
+    normalizedDesignIR: layoutResult.normalizedDesignIR,
+    layoutCandidates: layoutResult.layoutCandidates,
+    layoutDecisions: layoutResult.layoutDecisions,
+    inferredTokens: tokenResult.inferredTokens,
+    assetManifest: assetI18nResult.assetManifest,
+    i18nManifest: assetI18nResult.i18nManifest,
+    fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest
+  });
 
   return {
     rawFigmaScene,
@@ -36,6 +46,8 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     visualIR: fidelityResult.visualIR,
     fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest,
     nodePixelMap: fidelityResult.nodePixelMap,
+    reviewTasks: reviewTaskResult.reviewTasks,
+    taskStatusReport: reviewTaskResult.taskStatusReport,
     flutterPreviewProject: fidelityResult.flutterPreviewProject,
     regions: layoutResult.regions,
     layoutCandidates: layoutResult.layoutCandidates,

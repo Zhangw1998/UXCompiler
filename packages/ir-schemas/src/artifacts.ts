@@ -9,6 +9,7 @@ import type {
   NodePixelMapEntry,
   VisualIR
 } from "./visual-ir.js";
+import type { ReviewTask, ReviewTaskStatusReport } from "./review-task.js";
 
 export interface PipelineArtifacts {
   rawFigmaScene: RawFigmaScene;
@@ -25,6 +26,8 @@ export interface PipelineArtifacts {
   visualIR: VisualIR;
   fidelityGenerationManifest: FidelityGenerationManifest;
   nodePixelMap: NodePixelMapEntry[];
+  reviewTasks: ReviewTask[];
+  taskStatusReport: ReviewTaskStatusReport;
   flutterPreviewProject: FlutterPreviewProject;
   regions: Region[];
   layoutCandidates: LayoutCandidate[];

@@ -138,6 +138,8 @@ try {
     "visual_ir.json",
     "fidelity_generation_manifest.json",
     "node_pixel_map.json",
+    "review_tasks.json",
+    "task_status_report.json",
     "flutter_preview/pubspec.yaml",
     "flutter_preview/lib/main.dart",
     "flutter_preview/lib/generated/fidelity/preview_page.dart",
@@ -177,6 +179,11 @@ try {
   const diffReport = JSON.parse(readFileSync(resolve(outDir, "diff/visual_diff_report.json"), "utf8"));
   assert.equal(typeof diffReport.page.pass, "boolean");
   assert.equal(typeof diffReport.page.score.pixelDiffRatio, "number");
+  const reviewTasks = JSON.parse(readFileSync(resolve(outDir, "review_tasks.json"), "utf8"));
+  const taskStatusReport = JSON.parse(readFileSync(resolve(outDir, "task_status_report.json"), "utf8"));
+  assert.ok(reviewTasks.length > 0, "Expected review tasks");
+  assert.equal(taskStatusReport.total, reviewTasks.length);
+  assert.equal(typeof taskStatusReport.codegenWriteBlocked, "boolean");
 
   console.log("figma mock verification passed");
 } finally {

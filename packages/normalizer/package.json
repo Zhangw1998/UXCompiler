@@ -13,6 +13,7 @@
     "@uxcompiler/flutter-fidelity-renderer": "workspace:*",
     "@uxcompiler/ir-schemas": "workspace:*",
     "@uxcompiler/layout-inferencer": "workspace:*",
+    "@uxcompiler/review-task-engine": "workspace:*",
     "@uxcompiler/scene-canonicalizer": "workspace:*",
     "@uxcompiler/token-miner": "workspace:*"
   }

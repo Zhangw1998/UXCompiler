@@ -5,4 +5,5 @@ export * from "./layout.js";
 export * from "./asset-i18n.js";
 export * from "./visual-ir.js";
 export * from "./visual-diff.js";
+export * from "./review-task.js";
 export * from "./artifacts.js";
