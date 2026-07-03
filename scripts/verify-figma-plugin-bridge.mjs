@@ -17,19 +17,23 @@ assertEqual(manifest.documentAccess, "dynamic-page", "manifest document access")
 assertEqual(manifest.enablePrivatePluginApi, true, "manifest private plugin API access");
 assertValidDevelopmentPluginId(manifest.id);
 assertIncludes(manifest.editorType ?? [], "figma", "manifest editor type");
+assertIncludes(manifest.editorType ?? [], "dev", "manifest editor type");
+assertIncludes(manifest.capabilities ?? [], "inspect", "manifest dev mode capabilities");
 
 const endpoint = readDefaultEndpoint(ui);
 const endpointOrigin = new URL(endpoint).origin;
-assertIncludes(manifest.networkAccess?.allowedDomains ?? [], endpointOrigin, "manifest network access");
+assertIncludes(manifest.networkAccess?.allowedDomains ?? [], "none", "manifest published network access");
 assertIncludes(manifest.networkAccess?.devAllowedDomains ?? [], endpointOrigin, "manifest dev network access");
 assertIncludes(ui, "type: \"check-health\"", "UI health message");
 assertIncludes(ui, "type: \"sync-selection\"", "UI sync message");
 assertIncludes(main, "message.type === \"check-health\"", "main health handler");
 assertIncludes(main, "message.type !== \"sync-selection\"", "main sync handler");
-assertIncludes(main, "url.pathname = \"/health\"", "main health URL derivation");
+assertIncludes(main, "/health", "main health URL derivation");
+assertNotIncludes(main, "new URL(", "main should avoid URL global unavailable in Figma plugin runtime");
 assertNotIncludes(main, "figma.root", "main should avoid document root access");
 assertIncludes(builtMain, "message.type === \"check-health\"", "built main health handler");
 assertIncludes(builtMain, "message.type !== \"sync-selection\"", "built main sync handler");
+assertNotIncludes(builtMain, "new URL(", "built main should avoid URL global unavailable in Figma plugin runtime");
 assertNotIncludes(builtMain, "figma.root", "built main should avoid document root access");
 
 console.log("figma plugin bridge verification passed");

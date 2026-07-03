@@ -7,7 +7,7 @@ const reportPath = resolve(
   process.env.UXCOMPILER_ACCESS_AUDIT_REPORT ?? "artifacts/figma-access-audit/figma_access_audit_report.json"
 );
 
-const searchRoots = [
+const defaultSearchRoots = [
   "artifacts/real-figma-smoke",
   "artifacts/my-figma-frame",
   "artifacts/figma-bridge",
@@ -16,6 +16,11 @@ const searchRoots = [
   "artifacts/figma-bridge-smoke",
   "artifacts/local-api-smoke"
 ];
+const searchRoots = process.env.UXCOMPILER_ACCESS_AUDIT_ROOTS
+  ? process.env.UXCOMPILER_ACCESS_AUDIT_ROOTS.split(",")
+      .map((root) => root.trim())
+      .filter(Boolean)
+  : defaultSearchRoots;
 
 const reports = [];
 for (const root of searchRoots) {

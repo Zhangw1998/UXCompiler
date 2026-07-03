@@ -8,12 +8,28 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const tmp = await mkdtemp(join(tmpdir(), "uxcompiler-figma-access-audit-"));
 const reportPath = join(tmp, "figma_access_audit_report.json");
+const mockReportDir = join(tmp, "figma-mock");
+await mkdir(mockReportDir, { recursive: true });
+await writePipelineReport(join(mockReportDir, "pipeline_run_report.json"), {
+  generatedAt: "2026-07-02T00:00:00.000Z",
+  source: {
+    fileKey: "mock",
+    fileName: "mock_file",
+    frameNodeId: "1:2"
+  },
+  steps: {
+    figmaFetch: { status: "success" },
+    compile: { status: "success" },
+    flutterCapture: { status: "success" }
+  }
+});
 
 try {
   const result = await execFileAsync("node", ["scripts/figma-access-audit.mjs"], {
     cwd: resolve(import.meta.dirname, ".."),
     env: {
       ...process.env,
+      UXCOMPILER_ACCESS_AUDIT_ROOTS: mockReportDir,
       UXCOMPILER_ACCESS_AUDIT_REPORT: reportPath
     },
     maxBuffer: 1024 * 1024
@@ -41,33 +57,26 @@ async function verifyPluginSourceKindCountsAsReal() {
   const reportDir = join(cwd, "artifacts/figma-bridge/real_plugin_sync");
   const reportPath = join(realTmp, "audit-real.json");
   await mkdir(reportDir, { recursive: true });
-  await writeFile(
-    join(reportDir, "pipeline_run_report.json"),
-    JSON.stringify(
-      {
-        generatedAt: "2026-07-02T00:00:00.000Z",
-        source: {
-          sourceKind: "figma_plugin",
-          fileKey: "plugin_file",
-          fileName: "figma_plugin_Page 1",
-          frameNodeId: "10:2"
-        },
-        steps: {
-          snapshot: { status: "success" },
-          compile: { status: "success" },
-          flutterCapture: { status: "success" }
-        }
-      },
-      null,
-      2
-    ),
-    "utf8"
-  );
+  await writePipelineReport(join(reportDir, "pipeline_run_report.json"), {
+    generatedAt: "2026-07-02T00:00:00.000Z",
+    source: {
+      sourceKind: "figma_plugin",
+      fileKey: "plugin_file",
+      fileName: "figma_plugin_Page 1",
+      frameNodeId: "10:2"
+    },
+    steps: {
+      snapshot: { status: "success" },
+      compile: { status: "success" },
+      flutterCapture: { status: "success" }
+    }
+  });
   try {
     const result = await execFileAsync("node", [resolve(import.meta.dirname, "figma-access-audit.mjs")], {
       cwd,
       env: {
         ...process.env,
+        UXCOMPILER_ACCESS_AUDIT_ROOTS: "artifacts/figma-bridge",
         UXCOMPILER_ACCESS_AUDIT_REPORT: reportPath
       },
       maxBuffer: 1024 * 1024
@@ -79,4 +88,8 @@ async function verifyPluginSourceKindCountsAsReal() {
   } finally {
     await rm(realTmp, { recursive: true, force: true });
   }
+}
+
+async function writePipelineReport(path, report) {
+  await writeFile(path, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 }

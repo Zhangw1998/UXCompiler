@@ -9,12 +9,12 @@ type SerializableNode = Record<string, unknown> & {
 
 figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
   if (message.type === "check-health") {
-    await checkLocalApi(message.endpoint || "http://127.0.0.1:8787/api/snapshots");
+    await checkLocalApi(message.endpoint || "http://localhost:8787/api/snapshots");
     return;
   }
   if (message.type !== "sync-selection") return;
   try {
-    const endpoint = message.endpoint || "http://127.0.0.1:8787/api/snapshots";
+    const endpoint = message.endpoint || "http://localhost:8787/api/snapshots";
     const root = resolveSelectedRoot();
     const rawFigmaScene = buildRawFigmaScene(root);
     const png = await root.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } });
@@ -81,11 +81,9 @@ async function checkLocalApi(endpoint: string): Promise<void> {
 }
 
 function toHealthUrl(endpoint: string): string {
-  const url = new URL(endpoint);
-  url.pathname = "/health";
-  url.search = "";
-  url.hash = "";
-  return url.toString();
+  const match = endpoint.trim().match(/^(https?:\/\/[^/?#]+)(?:[/?#].*)?$/);
+  if (!match) throw new Error("Endpoint must start with http:// or https://.");
+  return `${match[1]}/health`;
 }
 
 function resolveSelectedRoot(): SceneNode {

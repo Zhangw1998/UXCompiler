@@ -5,10 +5,11 @@
   "ui": "src/ui.html",
   "documentAccess": "dynamic-page",
   "enablePrivatePluginApi": true,
-  "editorType": ["figma"],
+  "editorType": ["figma", "dev"],
+  "capabilities": ["inspect"],
   "networkAccess": {
-    "allowedDomains": ["http://127.0.0.1:8787", "http://localhost:8787"],
-    "devAllowedDomains": ["http://127.0.0.1:8787", "http://localhost:8787"],
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:8787"],
     "reasoning": "Sync selected Figma frame snapshots to the local UXCompiler workbench API."
   }
 }

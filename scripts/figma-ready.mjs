@@ -216,8 +216,11 @@ async function readManifestReport() {
       manifest.ui === "src/ui.html" &&
       manifest.documentAccess === "dynamic-page" &&
       manifest.enablePrivatePluginApi === true &&
-      domains.includes("http://127.0.0.1:8787") &&
-      devDomains.includes("http://127.0.0.1:8787");
+      (manifest.editorType ?? []).includes("figma") &&
+      (manifest.editorType ?? []).includes("dev") &&
+      (manifest.capabilities ?? []).includes("inspect") &&
+      (domains.includes("none") || domains.some((domain) => String(domain).startsWith("https://"))) &&
+      devDomains.includes("http://localhost:8787");
     return {
       ok,
       summary: ok ? "development bridge manifest ready" : "manifest exists but bridge fields need attention"

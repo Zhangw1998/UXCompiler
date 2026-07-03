@@ -237,8 +237,10 @@ Outputs:
 The REST CLI path is the fastest route, but the repo also includes a minimal Figma Bridge Plugin and local API.
 
 The plugin manifest uses Figma's required `documentAccess: "dynamic-page"` mode and only reads the currently selected node.
+It declares both `"figma"` and `"dev"` editor types plus the `"inspect"` capability so the same bridge can run from Design Mode or from the Dev Mode inspect panel when the file is view-only.
 For local development it intentionally omits the plugin `id`; if your Figma client asks for one, create a development plugin in Figma to get a Figma-assigned numeric id and paste it into the manifest.
 It also enables Figma's private plugin API so local/private runs can include the current `figma.fileKey`; if Figma does not expose the key, the bridge still syncs the selected node with a local fallback id.
+Local HTTP access belongs in `networkAccess.devAllowedDomains`; `allowedDomains` is kept as `["none"]` so Figma accepts the development manifest.
 
 Before opening Figma, run a local bridge smoke test:
 
@@ -272,7 +274,7 @@ To use a different artifact directory:
 UXCOMPILER_ARTIFACTS_DIR=artifacts/figma-bridge pnpm figma:plugin-start
 ```
 
-For the Figma plugin path, keep the default port `8787` unless you also update `apps/figma-plugin/manifest.json` `networkAccess.allowedDomains` and `networkAccess.devAllowedDomains`, then reload the development plugin.
+For the Figma plugin path, keep the default port `8787` unless you also update the plugin endpoint and `apps/figma-plugin/manifest.json` `networkAccess.devAllowedDomains`, then reload the development plugin. Keep `allowedDomains` as `["none"]` for local development; only published HTTPS domains belong there.
 
 Then in Figma:
 
@@ -292,7 +294,7 @@ pnpm figma:plugin-wait
 The plugin posts a read-only snapshot to:
 
 ```text
-http://127.0.0.1:8787/api/snapshots
+http://localhost:8787/api/snapshots
 ```
 
 The local API compiles the snapshot, formats the generated Flutter preview, captures `flutter_preview.png`, and runs visual diff when the plugin-provided Figma screenshot is available.
