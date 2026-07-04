@@ -236,6 +236,9 @@ try {
         strategy: "decorative_slice",
         format: "png",
         path: "assets/slices/divider_dot_workbench.png",
+        scale: 3,
+        cropBounds: { x: 185, y: 622, w: 20, h: 20 },
+        excludeTextNodes: true,
         reason: "Verify Workbench Studio asset strategy writeback."
       }
     })
@@ -249,7 +252,11 @@ try {
   const assetOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   assert.equal(assetOverrideSet.overrides.length, 6);
   assert.equal(findAssetById(finalAssets, "asset_1_17").strategy, "decorative_slice");
-  assert.equal(findAssetById(reviewedAssets, "asset_1_17").path, "assets/slices/divider_dot_workbench.png");
+  const reviewedDividerAsset = findAssetById(reviewedAssets, "asset_1_17");
+  assert.equal(reviewedDividerAsset.path, "assets/slices/divider_dot_workbench.png");
+  assert.equal(reviewedDividerAsset.scale, 3);
+  assert.deepEqual(reviewedDividerAsset.cropBounds, { x: 185, y: 622, w: 20, h: 20 });
+  assert.equal(reviewedDividerAsset.excludeTextNodes, true);
 
   const studioI18nResponse = await fetch(`${base}/api/workbench/studio-operation`, {
     method: "POST",

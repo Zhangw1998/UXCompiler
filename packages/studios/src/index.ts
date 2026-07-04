@@ -158,6 +158,12 @@ function validateOperation(
       if (operation.path && assetPathInUse(input.assetManifest, operation.path, operation.assetId, operation.sourceNodeId)) {
         addIssue(issues, operationId, "invalid_asset", `Asset path ${operation.path} is already in use.`);
       }
+      if (operation.scale !== undefined && (!Number.isFinite(operation.scale) || operation.scale <= 0 || operation.scale > 4)) {
+        addIssue(issues, operationId, "invalid_asset", "Asset export scale must be between 0.01 and 4.");
+      }
+      if (operation.cropBounds && (operation.cropBounds.w <= 0 || operation.cropBounds.h <= 0)) {
+        addIssue(issues, operationId, "invalid_asset", "Asset crop bounds require positive width and height.");
+      }
       return;
     case "rename_i18n_key":
       if (!findMessage(input.i18nManifest, operation)) addIssue(issues, operationId, "invalid_i18n_key", "i18n target does not exist.");
@@ -327,6 +333,9 @@ function toOverride(
           strategy: operation.strategy,
           format: operation.format,
           path: operation.path,
+          scale: operation.scale,
+          cropBounds: operation.cropBounds,
+          excludeTextNodes: operation.excludeTextNodes,
           reason: operation.reason
         }
       };

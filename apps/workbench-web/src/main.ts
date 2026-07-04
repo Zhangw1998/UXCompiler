@@ -644,7 +644,7 @@ function renderAssets(model: WorkbenchModel): string {
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="panel table-panel">
       <table class="data-table">
-        <thead><tr><th>ID</th><th>Source</th><th>Current</th><th>Write Strategy</th><th>Path</th><th>Format</th><th>Confidence</th><th>Action</th></tr></thead>
+        <thead><tr><th>ID</th><th>Source</th><th>Current</th><th>Write Strategy</th><th>Path</th><th>Format</th><th>Scale</th><th>Crop JSON</th><th>Exclude Text</th><th>Confidence</th><th>Action</th></tr></thead>
         <tbody>
           ${assets
             .map(
@@ -654,6 +654,10 @@ function renderAssets(model: WorkbenchModel): string {
                 const currentStrategy = stringFrom(asset.strategy) ?? "";
                 const defaultStrategy = assetStrategyOptions.includes(currentStrategy) ? currentStrategy : "image_asset";
                 const format = stringFrom(asset.format) ?? "";
+                const scale = numberFrom(asset.scale) ?? 1;
+                const cropBounds = asRecord(asset.cropBounds);
+                const cropValue = Object.keys(cropBounds).length > 0 ? JSON.stringify(cropBounds) : "";
+                const excludeTextNodes = asset.excludeTextNodes === true;
                 const pendingKey = `set_asset_strategy:${assetId || sourceNodeId}`;
                 const isPending = state.pendingStudioOperation === pendingKey;
                 return `
@@ -671,6 +675,14 @@ function renderAssets(model: WorkbenchModel): string {
                     <select class="studio-input" data-studio-field="asset-format" ${canApplyStudio ? "" : "disabled"}>
                       ${assetFormatOptions.map((option) => `<option value="${option}" ${option === format ? "selected" : ""}>${option || "-"}</option>`).join("")}
                     </select>
+                  </td>
+                  <td><input class="studio-input studio-input--small" type="number" min="0.01" max="4" step="0.25" data-studio-field="asset-scale" value="${escapeAttr(String(scale))}" ${canApplyStudio ? "" : "disabled"} /></td>
+                  <td><input class="studio-input studio-input--wide" data-studio-field="asset-crop" value="${escapeAttr(cropValue)}" placeholder='{"x":0,"y":0,"w":24,"h":24}' ${canApplyStudio ? "" : "disabled"} /></td>
+                  <td>
+                    <label class="checkbox-row checkbox-row--compact">
+                      <input type="checkbox" data-studio-field="asset-exclude-text" ${excludeTextNodes ? "checked" : ""} ${canApplyStudio ? "" : "disabled"} />
+                      <span>Text</span>
+                    </label>
                   </td>
                   <td>${formatConfidence(numberFrom(asset.confidence))}</td>
                   <td>
@@ -1764,8 +1776,12 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
     const strategy = studioFieldValue(row, "asset-strategy");
     const format = studioFieldValue(row, "asset-format");
     const path = studioFieldValue(row, "asset-path").trim();
+    const scaleText = studioFieldValue(row, "asset-scale").trim();
+    const cropText = studioFieldValue(row, "asset-crop").trim();
+    const scale = scaleText ? Number(scaleText) : undefined;
     if (!assetId && !sourceNodeId) throw new Error("Asset strategy requires an asset or source node target.");
     if (!strategy) throw new Error("Asset strategy is missing.");
+    if (scale !== undefined && (!Number.isFinite(scale) || scale <= 0 || scale > 4)) throw new Error("Asset scale must be between 0.01 and 4.");
     return {
       id: `workbench_asset_strategy_${safeId(assetId || sourceNodeId)}_${safeId(strategy)}_${safeId(path || format || "default")}`,
       kind,
@@ -1773,6 +1789,9 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
       strategy,
       ...(format ? { format } : {}),
       ...(path ? { path } : {}),
+      ...(scale !== undefined ? { scale } : {}),
+      ...(cropText ? { cropBounds: parseBoundsObject(cropText, "Asset crop JSON") } : {}),
+      excludeTextNodes: studioCheckedValue(row, "asset-exclude-text"),
       reason
     };
   }
@@ -1877,6 +1896,16 @@ function parseJsonObject(value: string, label: string): Record<string, unknown> 
   const parsed = JSON.parse(value) as unknown;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object.`);
   return parsed as Record<string, unknown>;
+}
+
+function parseBoundsObject(value: string, label: string): { x: number; y: number; w: number; h: number } {
+  const parsed = parseJsonObject(value, label);
+  const x = Number(parsed.x);
+  const y = Number(parsed.y);
+  const w = Number(parsed.w);
+  const h = Number(parsed.h);
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) throw new Error(`${label} requires numeric x, y, w, h with positive width and height.`);
+  return { x, y, w, h };
 }
 
 function parseJsonArray(value: string, label: string): Array<Record<string, unknown> & { name: string }> {

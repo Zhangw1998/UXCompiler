@@ -111,6 +111,9 @@ const operations = [
     strategy: "decorative_slice",
     format: "png",
     path: "assets/slices/divider_dot.png",
+    scale: 2,
+    cropBounds: { x: 185, y: 622, w: 20, h: 20 },
+    excludeTextNodes: true,
     reason: "Export divider dot as a decorative slice."
   },
   {
@@ -153,6 +156,9 @@ const divider = result.finalAssetManifest.assets.find((asset) => asset.id === "a
 assert.equal(divider.strategy, "decorative_slice");
 assert.equal(divider.path, "assets/slices/divider_dot.png");
 assert.equal(divider.format, "png");
+assert.equal(divider.scale, 2);
+assert.deepEqual(divider.cropBounds, { x: 185, y: 622, w: 20, h: 20 });
+assert.equal(divider.excludeTextNodes, true);
 
 assert.ok(result.finalI18nManifest.messages.some((message) => message.key === "loginSubmitLabel"));
 assert.ok(!result.finalI18nManifest.messages.some((message) => message.key === "subtitle"));

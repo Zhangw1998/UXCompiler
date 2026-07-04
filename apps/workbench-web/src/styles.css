@@ -677,6 +677,10 @@ button {
   width: min(100%, 190px);
 }
 
+.studio-input--small {
+  width: 78px;
+}
+
 .studio-input--textarea {
   min-height: 68px;
   padding: 8px;
@@ -768,6 +772,10 @@ button {
 .checkbox-row input {
   width: 15px;
   height: 15px;
+}
+
+.checkbox-row--compact {
+  min-height: 30px;
 }
 
 .tree-editor-actions {

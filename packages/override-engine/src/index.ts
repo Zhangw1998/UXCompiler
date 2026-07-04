@@ -397,6 +397,12 @@ function applyAsset(context: ApplyContext): void {
   const format = stringValue(context.override.payload.format);
   if (path) asset.path = path;
   if (format && ["svg", "png", "webp", "jpg"].includes(format)) asset.format = format as AssetManifestEntry["format"];
+  const scale = numberValue(context.override.payload.scale);
+  if (scale > 0) asset.scale = scale;
+  const cropBounds = boundsValue(context.override.payload.cropBounds);
+  if (cropBounds) asset.cropBounds = cropBounds;
+  const excludeTextNodes = booleanValue(context.override.payload.excludeTextNodes);
+  if (excludeTextNodes !== undefined) asset.excludeTextNodes = excludeTextNodes;
   asset.reason = stringValue(context.override.payload.reason) ?? `Asset strategy overridden by ${context.override.id}.`;
   asset.confidence = 1;
   context.appliedOverrideIds.push(context.override.id);
@@ -706,6 +712,21 @@ function arrayValue(value: unknown): unknown[] {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function boundsValue(value: unknown): AssetManifestEntry["cropBounds"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const x = numberValue(record.x);
+  const y = numberValue(record.y);
+  const w = numberValue(record.w);
+  const h = numberValue(record.h);
+  if (w <= 0 || h <= 0) return undefined;
+  return { x, y, w, h };
 }
 
 function tokenGroup(tokens: InferredTokens, tokenType: string): Array<Record<string, unknown>> | undefined {

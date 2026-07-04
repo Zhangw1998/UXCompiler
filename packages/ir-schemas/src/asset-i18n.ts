@@ -15,6 +15,9 @@ export interface AssetManifestEntry {
   strategy: AssetStrategy;
   format?: "svg" | "png" | "webp" | "jpg";
   path?: string;
+  scale?: number;
+  cropBounds?: { x: number; y: number; w: number; h: number };
+  excludeTextNodes?: boolean;
   reason: string;
   confidence: number;
 }

@@ -24,7 +24,15 @@ writeFileSync(
           "ovr_asset_dot",
           "asset_strategy_override",
           { kind: "asset", assetId: "asset_1_17" },
-          { strategy: "decorative_slice", format: "png", path: "assets/slices/divider_dot.png", reason: "Smoke override" }
+          {
+            strategy: "decorative_slice",
+            format: "png",
+            path: "assets/slices/divider_dot.png",
+            scale: 3,
+            cropBounds: { x: 180, y: 620, w: 22, h: 22 },
+            excludeTextNodes: true,
+            reason: "Smoke override"
+          }
         ),
         override("ovr_i18n_title", "i18n_key_override", { kind: "i18n_message", messageKey: "title" }, { key: "loginTitle" }),
         override("ovr_token_radius", "token_rename_override", { kind: "token", tokenName: "radius_18" }, { from: "radius_18", to: "radius_cta" }),
@@ -87,6 +95,9 @@ assert.ok(findNode(reviewed.tree, "n_1_12").overrideRefs.includes("ovr_render_bu
 const dividerAsset = assetManifest.assets.find((asset) => asset.id === "asset_1_17");
 assert.equal(dividerAsset.strategy, "decorative_slice");
 assert.equal(dividerAsset.path, "assets/slices/divider_dot.png");
+assert.equal(dividerAsset.scale, 3);
+assert.deepEqual(dividerAsset.cropBounds, { x: 180, y: 620, w: 22, h: 22 });
+assert.equal(dividerAsset.excludeTextNodes, true);
 
 assert.ok(i18nManifest.messages.some((message) => message.key === "loginTitle" && message.sourceNodeId === "1:3"));
 assert.equal(arb.loginTitle, "Welcome back");

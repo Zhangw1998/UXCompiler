@@ -71,6 +71,9 @@ export type StudioOperation =
       strategy: "real_text" | "svg_icon" | "image_asset" | "decorative_slice" | "custom_painter" | "ignored";
       format?: "svg" | "png" | "webp" | "jpg";
       path?: string;
+      scale?: number;
+      cropBounds?: { x: number; y: number; w: number; h: number };
+      excludeTextNodes?: boolean;
       reason: string;
     }
   | {
