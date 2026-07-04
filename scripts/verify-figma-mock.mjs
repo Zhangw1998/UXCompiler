@@ -159,6 +159,7 @@ try {
     "pipeline_run_report.json",
     "diff/visual_diff_report.json",
     "diff/node_diff_report.json",
+    "diff/diff_issues.json",
     "diff/diff_heatmap.png",
     "canonical_scene.json",
     "inferred_tokens.json",

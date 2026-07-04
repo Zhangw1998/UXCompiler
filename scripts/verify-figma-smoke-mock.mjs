@@ -86,6 +86,7 @@ try {
     "normalized_design_ir.json",
     "flutter_preview.png",
     "diff/visual_diff_report.json",
+    "diff/diff_issues.json",
     "pipeline_run_report.json"
   ];
   for (const file of required) {

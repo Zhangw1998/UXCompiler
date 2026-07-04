@@ -651,6 +651,7 @@ async function writeVisualDiffArtifacts(options: WriteVisualDiffOptions): Promis
   await mkdir(options.outDir, { recursive: true });
   await writeFile(resolve(options.outDir, "visual_diff_report.json"), `${JSON.stringify(result.visualDiffReport, null, 2)}\n`, "utf8");
   await writeFile(resolve(options.outDir, "node_diff_report.json"), `${JSON.stringify(result.nodeDiffReport, null, 2)}\n`, "utf8");
+  await writeFile(resolve(options.outDir, "diff_issues.json"), `${JSON.stringify(result.nodeDiffReport, null, 2)}\n`, "utf8");
   await writeFile(heatmapPath, result.heatmapPng);
   return result.visualDiffReport;
 }

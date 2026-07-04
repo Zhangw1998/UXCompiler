@@ -111,6 +111,7 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "flutter_preview.png")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "flutter_preview_capture_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "diff/visual_diff_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "diff/diff_issues.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "diff/diff_heatmap.png")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "pipeline_run_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "local_api_snapshot_report.json")), true);
