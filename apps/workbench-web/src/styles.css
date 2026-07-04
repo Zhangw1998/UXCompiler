@@ -328,6 +328,12 @@ button {
   padding: 12px;
 }
 
+.diff-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 12px 12px;
+}
+
 .status-row,
 .kv-row {
   display: grid;
@@ -338,6 +344,10 @@ button {
   border-bottom: 1px solid #edf0f5;
   color: var(--muted);
   font-size: 13px;
+}
+
+.diff-issue-row {
+  grid-template-columns: minmax(130px, auto) minmax(0, 1fr) auto;
 }
 
 .kv-row {

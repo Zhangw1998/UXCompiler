@@ -6,6 +6,7 @@ import type {
   LayoutCandidate,
   LayoutDecision,
   NormalizedDesignIR,
+  OverrideSet,
   ReviewTask,
   ReviewTaskPriority,
   ReviewTaskResult,
@@ -27,6 +28,7 @@ export interface GenerateReviewTasksInput {
   staleOverrideReport?: StaleOverrideReport;
   visualDiffReport?: VisualDiffReport;
   flutterCapture?: { status: string; reason?: string };
+  overrideSet?: OverrideSet;
 }
 
 export function generateReviewTasks(input: GenerateReviewTasksInput): ReviewTaskResult {
@@ -360,36 +362,41 @@ function staleOverrideTasks(input: GenerateReviewTasksInput): ReviewTask[] {
 function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {
   const report = input.visualDiffReport;
   if (!report || report.page.pass) return [];
-  const tasks: ReviewTask[] = [
-    makeTask({
-      id: "task_visual_diff_page",
-      type: "visual_diff_failed",
-      priority: "P0",
-      target: {},
-      title: "Resolve failing visual diff before codegen",
-      description: `Page visual score is ${report.page.score.visualScore}; threshold is ${report.page.threshold.visualScore}.`,
-      confidence: report.page.score.visualScore,
-      evidence: {
-        score: report.page.score,
-        threshold: report.page.threshold,
-        inputs: report.inputs
-      },
-      suggestedActions: [
-        {
-          label: "Use frame screenshot fallback",
-          override: {
-            type: "render_strategy_override",
-            payload: {
-              targetNodeId: input.normalizedDesignIR.tree.id,
-              strategy: "frame_screenshot_asset"
-            },
-            reason: "Visual diff failed and a full-frame fidelity fallback can preserve the visual baseline."
+  const acceptedRepairs = acceptedVisualDiffRepairs(input);
+  const tasks: ReviewTask[] = [];
+  if (!acceptedRepairs.page) {
+    tasks.push(
+      makeTask({
+        id: "task_visual_diff_page",
+        type: "visual_diff_failed",
+        priority: "P0",
+        target: {},
+        title: "Resolve failing visual diff before codegen",
+        description: `Page visual score is ${report.page.score.visualScore}; threshold is ${report.page.threshold.visualScore}.`,
+        confidence: report.page.score.visualScore,
+        evidence: {
+          score: report.page.score,
+          threshold: report.page.threshold,
+          inputs: report.inputs
+        },
+        suggestedActions: [
+          {
+            label: "Use frame screenshot fallback",
+            override: {
+              type: "render_strategy_override",
+              payload: {
+                targetNodeId: input.normalizedDesignIR.tree.id,
+                strategy: "frame_screenshot_asset"
+              },
+              reason: "Visual diff failed and a full-frame fidelity fallback can preserve the visual baseline."
+            }
           }
-        }
-      ]
-    })
-  ];
+        ]
+      })
+    );
+  }
   for (const issue of report.issues.slice(0, 5)) {
+    if (issue.sourceNodeId && acceptedRepairs.sourceNodeIds.has(issue.sourceNodeId)) continue;
     tasks.push(
       makeTask({
         id: taskId("visual", issue.issueId),
@@ -420,6 +427,20 @@ function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {
     );
   }
   return tasks;
+}
+
+function acceptedVisualDiffRepairs(input: GenerateReviewTasksInput): { page: boolean; sourceNodeIds: Set<string> } {
+  const sourceNodeIds = new Set<string>();
+  let page = false;
+  for (const override of input.overrideSet?.overrides ?? []) {
+    if (override.status !== "active" || override.type !== "render_strategy_override") continue;
+    const strategy = stringValue(override.payload.strategy);
+    if (strategy === "frame_screenshot_asset" && override.target.normalizedNodeId === input.normalizedDesignIR.tree.id) page = true;
+    if (strategy === "asset_slice" && override.target.sourceNodeId) sourceNodeIds.add(override.target.sourceNodeId);
+    const payloadSourceNodeId = stringValue(override.payload.sourceNodeId);
+    if (strategy === "asset_slice" && payloadSourceNodeId) sourceNodeIds.add(payloadSourceNodeId);
+  }
+  return { page, sourceNodeIds };
 }
 
 function flutterCaptureTasks(input: GenerateReviewTasksInput): ReviewTask[] {
@@ -501,6 +522,10 @@ function taskId(prefix: string, value: string): string {
 
 function safeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "unknown";
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function round(value: number): number {

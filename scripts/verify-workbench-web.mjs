@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildWorkbenchModel } from "../apps/workbench-web/dist/model.js";
 
@@ -270,6 +270,46 @@ try {
   assert.equal(workbenchWriteReport.buildId, codegenReview.buildId);
   assert.equal(projectWriteReport.files.some((file) => file.status === "created"), true);
 
+  writeSyntheticVisualDiff(sampleDir);
+  const issueRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      repairKind: "issue_asset_slice",
+      issueId: "diff_verify_region"
+    })
+  });
+  assert.equal(issueRepairResponse.ok, true);
+  const issueRepairResult = await issueRepairResponse.json();
+  assert.equal(issueRepairResult.ok, true);
+  assert.equal(issueRepairResult.report.overrideId, "ovr_diff_diff_verify_region_asset_slice");
+  const issueRepairReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_diff_repair_report.json`);
+  const issueRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
+  const issueRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  assert.equal(issueRepairReport.repairKind, "issue_asset_slice");
+  assert.equal(issueRepairOverrideSet.overrides.length, 6);
+  assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_page"), true);
+  assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_verify_region"), false);
+
+  const pageRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      repairKind: "page_frame_fallback",
+      issueId: "page"
+    })
+  });
+  assert.equal(pageRepairResponse.ok, true);
+  const pageRepairResult = await pageRepairResponse.json();
+  assert.equal(pageRepairResult.ok, true);
+  assert.equal(pageRepairResult.report.overrideId, "ovr_diff_page_frame_fallback");
+  const pageRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
+  const pageRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  assert.equal(pageRepairOverrideSet.overrides.length, 7);
+  assert.equal(pageRepairTasks.some((task) => task.type === "visual_diff_failed"), false);
+
   console.log("workbench-web verification passed");
 } finally {
   server.kill("SIGTERM");
@@ -277,6 +317,53 @@ try {
 
 function readJson(base, file) {
   return JSON.parse(readFileSync(resolve(base, file), "utf8"));
+}
+
+function writeSyntheticVisualDiff(base) {
+  const report = {
+    version: "0.1.0",
+    generatedAt: "2026-07-04T00:00:00.000Z",
+    inputs: {
+      reference: "figma_reference.png",
+      candidate: "flutter_preview.png",
+      heatmap: "diff_heatmap.png"
+    },
+    environment: {
+      viewport: { width: 390, height: 844 },
+      dpr: 1,
+      renderer: "png_pixelmatch"
+    },
+    page: {
+      pass: false,
+      score: {
+        visualScore: 0.82,
+        pixelDiffRatio: 0.18,
+        diffPixels: 59248,
+        totalPixels: 329160
+      },
+      threshold: {
+        visualScore: 0.98,
+        pixelDiffRatio: 0.02
+      }
+    },
+    issues: [
+      {
+        issueId: "diff_verify_region",
+        type: "pixel_diff_region",
+        sourceNodeId: "1:17",
+        bounds: { x: 185, y: 622, w: 20, h: 20 },
+        score: {
+          visualScore: 0.65,
+          pixelDiffRatio: 0.35,
+          diffPixels: 140,
+          totalPixels: 400
+        },
+        suggestedFixes: [{ type: "render_strategy_override", payload: { strategy: "asset_slice" } }]
+      }
+    ],
+    warnings: []
+  };
+  writeFileSync(resolve(base, "visual_diff_report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
 }
 
 async function waitForServer() {

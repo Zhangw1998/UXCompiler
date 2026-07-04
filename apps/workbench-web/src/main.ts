@@ -33,6 +33,7 @@ interface AppState {
   pendingTreeOperation?: string;
   pendingStudioOperation?: string;
   pendingCodegenOperation?: string;
+  pendingDiffRepair?: string;
   codegenProjectPath?: string;
 }
 
@@ -718,6 +719,7 @@ function renderPreview(model: WorkbenchModel): string {
         ${renderModeButton("difference", "Issues")}
       </div>
     </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     ${
       state.previewMode === "overlay"
         ? `
@@ -932,13 +934,27 @@ function renderDiffSummary(): string {
   const report = asRecord(state.artifacts.visualDiffReport);
   if (Object.keys(report).length === 0) return renderEmpty("No visual diff report.");
   const page = asRecord(report.page);
+  const score = asRecord(page.score);
+  const threshold = asRecord(page.threshold);
   const issues = asArray(report.issues).map(asRecord);
+  const canRepair = state.artifactRoot !== "selected directory";
+  const pageRepairPending = state.pendingDiffRepair === "page_frame_fallback:page";
   return `
     <div class="diff-summary">
       <div class="metric-grid metric-grid--compact">
-        ${renderMetric("Visual Score", formatMaybePercent(numberFrom(page.visualScore)), "good")}
-        ${renderMetric("Pixel Diff", formatMaybePercent(numberFrom(page.pixelDiffRatio)), "warn")}
+        ${renderMetric("Visual Score", formatMaybePercent(numberFrom(score.visualScore)), (numberFrom(score.visualScore) ?? 0) >= (numberFrom(threshold.visualScore) ?? 0.98) ? "good" : "warn")}
+        ${renderMetric("Pixel Diff", formatMaybePercent(numberFrom(score.pixelDiffRatio)), "warn")}
         ${renderMetric("Issues", String(issues.length), issues.length > 0 ? "warn" : "good")}
+      </div>
+      <div class="diff-actions">
+        <button
+          class="action-button"
+          data-diff-repair="page_frame_fallback"
+          data-diff-issue-id="page"
+          ${canRepair && !pageRepairPending ? "" : "disabled"}
+        >
+          ${escapeHtml(pageRepairPending ? "Repairing..." : "Use Frame Fallback")}
+        </button>
       </div>
       <div class="status-list">
         ${
@@ -946,12 +962,27 @@ function renderDiffSummary(): string {
             ? `<div class="status-row"><strong>No node issues</strong><span>pass</span></div>`
             : issues
                 .map(
-                  (issue) => `
-                    <div class="status-row">
+                  (issue) => {
+                    const issueId = stringFrom(issue.issueId) ?? "";
+                    const sourceNodeId = stringFrom(issue.sourceNodeId) ?? "";
+                    const issueScore = asRecord(issue.score);
+                    const pendingKey = `issue_asset_slice:${issueId}`;
+                    const isPending = state.pendingDiffRepair === pendingKey;
+                    return `
+                    <div class="status-row diff-issue-row" data-node-id="${escapeAttr(sourceNodeId)}">
                       <strong>${escapeHtml(stringFrom(issue.type) ?? "diff_issue")}</strong>
-                      <span>${escapeHtml(stringFrom(issue.sourceNodeId) ?? "-")}</span>
+                      <span>${escapeHtml(sourceNodeId || issueId || "-")} · ${formatMaybePercent(numberFrom(issueScore.pixelDiffRatio))}</span>
+                      <button
+                        class="table-action"
+                        data-diff-repair="issue_asset_slice"
+                        data-diff-issue-id="${escapeAttr(issueId)}"
+                        ${canRepair && sourceNodeId && !isPending ? "" : "disabled"}
+                      >
+                        ${escapeHtml(isPending ? "Repairing..." : "Asset Slice")}
+                      </button>
                     </div>
-                  `
+                  `;
+                  }
                 )
                 .join("")
         }
@@ -1107,6 +1138,12 @@ function onAppClick(event: MouseEvent): void {
   const codegenOperationButton = target.closest<HTMLButtonElement>("[data-codegen-operation]");
   if (codegenOperationButton?.dataset.codegenOperation) {
     void applyCodegenOperation(codegenOperationButton.dataset.codegenOperation);
+    return;
+  }
+
+  const diffRepairButton = target.closest<HTMLButtonElement>("[data-diff-repair]");
+  if (diffRepairButton?.dataset.diffRepair) {
+    void applyDiffRepair(diffRepairButton.dataset.diffRepair, diffRepairButton.dataset.diffIssueId);
     return;
   }
 
@@ -1320,6 +1357,46 @@ async function applyCodegenOperation(operation: string): Promise<void> {
     };
   } finally {
     state.pendingCodegenOperation = undefined;
+    render();
+  }
+}
+
+async function applyDiffRepair(repairKind: string, issueId: string | undefined): Promise<void> {
+  const pendingKey = `${repairKind}:${issueId ?? "page"}`;
+  state.pendingDiffRepair = pendingKey;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const response = await fetch("/api/workbench/diff-repair", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        artifactRoot: state.artifactRoot,
+        repairKind,
+        issueId,
+        actor: "user"
+      })
+    });
+    const result = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      report?: { overrideId?: string; afterOpenTasks?: number };
+    };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Diff repair failed with ${response.status}`);
+    }
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.actionMessage = {
+      tone: "good",
+      text: `Saved ${result.report?.overrideId ?? "diff repair"}; ${result.report?.afterOpenTasks ?? state.model?.reviewSummary.open ?? 0} tasks remain.`
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingDiffRepair = undefined;
     render();
   }
 }

@@ -331,6 +331,7 @@ async function writeRuntimeReviewTaskArtifacts(
     assetManifest: overrideResult.reviewedAssetManifest,
     i18nManifest: overrideResult.reviewedI18nManifest,
     fidelityGenerationManifest: artifacts.fidelityGenerationManifest,
+    overrideSet: overrideResult.overrideSet,
     staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
     flutterCapture: {

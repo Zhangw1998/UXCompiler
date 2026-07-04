@@ -127,6 +127,20 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/workbench/diff-repair") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyWorkbenchDiffRepair(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
     if (request.method !== "GET" && request.method !== "HEAD") {
       response.writeHead(405, { allow: "GET, HEAD, POST, OPTIONS" });
       response.end("Method not allowed");
@@ -268,6 +282,7 @@ async function applyReviewTaskAction(body) {
     assetManifest: overrideResult.reviewedAssetManifest,
     i18nManifest: overrideResult.reviewedI18nManifest,
     fidelityGenerationManifest,
+    overrideSet: overrideResult.overrideSet,
     staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
     flutterCapture: flutterCapture ? { status: flutterCapture.status, reason: flutterCapture.reason } : undefined
@@ -512,6 +527,67 @@ async function applyWorkbenchCodegenWrite(body) {
   };
 }
 
+async function applyWorkbenchDiffRepair(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const repairKind = stringValue(body.repairKind) ?? "issue_asset_slice";
+  const issueId = stringValue(body.issueId);
+  const actor = stringValue(body.actor) ?? "user";
+  const visualDiffReport =
+    (await readOptionalJson(resolve(artifactDir, "visual_diff_report.json"), undefined)) ??
+    (await readOptionalJson(resolve(artifactDir, "diff/visual_diff_report.json"), undefined));
+  if (!visualDiffReport) throw new Error("No visual diff report is available.");
+
+  const normalizedDesignIR = await readFirstJson([
+    resolve(artifactDir, "reviewed_normalized_design_ir.json"),
+    resolve(artifactDir, "normalized_design_ir.json")
+  ]);
+  const overrideSet = await readJson(resolve(artifactDir, "override_set.json"));
+  const now = new Date().toISOString();
+  const nextOverrideSet = clone(overrideSet);
+  nextOverrideSet.version = Number.isFinite(nextOverrideSet.version) ? nextOverrideSet.version + 1 : 1;
+  nextOverrideSet.overrides = Array.isArray(nextOverrideSet.overrides) ? nextOverrideSet.overrides : [];
+
+  const override = buildDiffRepairOverride({
+    repairKind,
+    issueId,
+    visualDiffReport,
+    normalizedDesignIR,
+    actor: actor === "agent" || actor === "system" ? actor : "user",
+    now
+  });
+  const existingIndex = nextOverrideSet.overrides.findIndex((entry) => entry.id === override.id);
+  if (existingIndex >= 0) {
+    nextOverrideSet.overrides[existingIndex] = {
+      ...nextOverrideSet.overrides[existingIndex],
+      ...override,
+      createdAt: nextOverrideSet.overrides[existingIndex].createdAt ?? override.createdAt,
+      updatedAt: now
+    };
+  } else {
+    nextOverrideSet.overrides.push(override);
+  }
+
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, nextOverrideSet, now);
+  const report = {
+    version: "0.1.0",
+    generatedAt: now,
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    repairKind,
+    issueId,
+    overrideId: override.id,
+    afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
+    overrideHash: rebuilt.overrideResult.overrideSet.hash
+  };
+  await writeJson(resolve(artifactDir, "diff_repair_report.json"), report);
+  await writeJson(resolve(artifactDir, "workbench_diff_repair_report.json"), report);
+  return {
+    report,
+    overrideSet: rebuilt.overrideResult.overrideSet,
+    taskStatusReport: rebuilt.reviewResult.taskStatusReport,
+    reviewTasks: rebuilt.reviewResult.reviewTasks
+  };
+}
+
 async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedPatch = {}) {
   const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
   const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
@@ -551,6 +627,7 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedP
     assetManifest: reviewedAssetManifest,
     i18nManifest: reviewedI18nManifest,
     fidelityGenerationManifest,
+    overrideSet: overrideResult.overrideSet,
     staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
     flutterCapture: flutterCapture ? { status: flutterCapture.status, reason: flutterCapture.reason } : undefined
@@ -597,6 +674,45 @@ function buildOverrideFromAction({ task, action, actionIndex, actor, now }) {
     payload,
     status: "active",
     createdBy: actor === "agent" || actor === "system" ? actor : "user",
+    createdAt: now,
+    scope: "snapshot"
+  };
+}
+
+function buildDiffRepairOverride({ repairKind, issueId, visualDiffReport, normalizedDesignIR, actor, now }) {
+  if (repairKind === "page_frame_fallback") {
+    return {
+      id: "ovr_diff_page_frame_fallback",
+      type: "render_strategy_override",
+      target: { kind: "normalized_node", normalizedNodeId: normalizedDesignIR.tree.id },
+      payload: {
+        targetNodeId: normalizedDesignIR.tree.id,
+        strategy: "frame_screenshot_asset",
+        diffIssueId: "page",
+        reason: "Workbench Preview accepted full-frame fallback for a failing visual diff."
+      },
+      status: "active",
+      createdBy: actor,
+      createdAt: now,
+      scope: "snapshot"
+    };
+  }
+  const issue = visualDiffReport.issues?.find((entry) => entry?.issueId === issueId);
+  if (!issue) throw new Error(`Visual diff issue not found: ${issueId ?? "missing"}`);
+  const sourceNodeId = stringValue(issue.sourceNodeId);
+  if (!sourceNodeId) throw new Error(`Visual diff issue ${issueId} does not have a sourceNodeId.`);
+  return {
+    id: `ovr_diff_${safeName(issue.issueId)}_asset_slice`,
+    type: "render_strategy_override",
+    target: { kind: "source_node", sourceNodeId },
+    payload: {
+      sourceNodeId,
+      strategy: "asset_slice",
+      diffIssueId: issue.issueId,
+      reason: "Workbench Preview accepted asset-slice repair for a localized visual diff."
+    },
+    status: "active",
+    createdBy: actor,
     createdAt: now,
     scope: "snapshot"
   };
