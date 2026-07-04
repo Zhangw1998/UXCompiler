@@ -840,6 +840,7 @@ function renderPreview(model: WorkbenchModel): string {
 function renderCodegen(model: WorkbenchModel): string {
   const review = asRecord(state.artifacts.codegenReview);
   const gates = asRecord(review.gates);
+  const analyze = asRecord(review.analyze);
   const blockers = asArray(gates.blockers).map(asRecord);
   const createFiles = asArray(review.filesToCreate);
   const modifyFiles = asArray(review.filesToModify);
@@ -885,6 +886,8 @@ function renderCodegen(model: WorkbenchModel): string {
         <div><strong>${escapeHtml(String(booleanFrom(writeReport.wrote) ?? false))}</strong><span>Wrote</span></div>
         <div><strong>${writeFiles.filter((file) => stringFrom(file.status) === "created" || stringFrom(file.status) === "updated").length}</strong><span>Changed</span></div>
         <div><strong>${asArray(writeReport.blockers).length}</strong><span>Blockers</span></div>
+        <div><strong>${numberFrom(analyze.errors) ?? 0}</strong><span>Analyze Errors</span></div>
+        <div><strong>${numberFrom(analyze.warnings) ?? 0}</strong><span>Analyze Warnings</span></div>
       </div>
     </section>
     <section class="two-column">

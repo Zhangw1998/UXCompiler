@@ -557,6 +557,11 @@ async function applyWorkbenchCodegenReview(body) {
     nodePixelMap: await readOptionalJson(resolve(artifactDir, "node_pixel_map.json"), undefined),
     overrideSet: await readOptionalJson(resolve(artifactDir, "override_set.json"), undefined),
     staleOverrideReport: await readOptionalJson(resolve(artifactDir, "stale_override_report.json"), undefined),
+    analyze: normalizeAnalyzeSummary(
+      (await readOptionalJson(resolve(artifactDir, "flutter_analyze_report.json"), undefined)) ??
+        (await readOptionalJson(resolve(artifactDir, "analyze_report.json"), undefined)) ??
+        (await readOptionalJson(resolve(artifactDir, "flutter_preview_analyze_report.json"), undefined))
+    ),
     projectId: stringValue(body.projectId),
     buildId: stringValue(body.buildId),
     normalizedIrId: stringValue(body.normalizedIrId),
@@ -571,6 +576,8 @@ async function applyWorkbenchCodegenReview(body) {
     buildId: result.codegenReview.buildId,
     gateStatus: result.codegenReview.gates.status,
     blockers: result.codegenReview.gates.blockers.length,
+    analyzeErrors: result.codegenReview.analyze.errors,
+    analyzeWarnings: result.codegenReview.analyze.warnings,
     filesToCreate: result.filesToCreate.length,
     filesToModify: result.filesToModify.length,
     assetsToAdd: result.assetsToAdd.length,
@@ -948,6 +955,20 @@ function buildDiffRepairOverride({ repairKind, issueId, visualDiffReport, normal
     createdBy: actor,
     createdAt: now,
     scope: "snapshot"
+  };
+}
+
+function normalizeAnalyzeSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value;
+  const summary = raw.summary && typeof raw.summary === "object" && !Array.isArray(raw.summary) ? raw.summary : raw;
+  const diagnostics = Array.isArray(raw.diagnostics) ? raw.diagnostics : Array.isArray(raw.issues) ? raw.issues : [];
+  const diagnosticErrors = diagnostics.filter((entry) => stringValue(entry?.severity) === "ERROR" || stringValue(entry?.severity) === "error").length;
+  const diagnosticWarnings = diagnostics.filter((entry) => stringValue(entry?.severity) === "WARNING" || stringValue(entry?.severity) === "warning").length;
+  return {
+    errors: numberValue(summary.errors) ?? numberValue(summary.errorCount) ?? numberValue(raw.errorCount) ?? diagnosticErrors,
+    warnings: numberValue(summary.warnings) ?? numberValue(summary.warningCount) ?? numberValue(raw.warningCount) ?? diagnosticWarnings,
+    raw
   };
 }
 

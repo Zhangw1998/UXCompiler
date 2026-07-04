@@ -447,6 +447,52 @@ try {
   assert.equal(workbenchWriteReport.buildId, codegenReview.buildId);
   assert.equal(projectWriteReport.files.some((file) => file.status === "created"), true);
 
+  writeFileSync(
+    resolve(sampleDir, "flutter_analyze_report.json"),
+    `${JSON.stringify(
+      {
+        version: "0.1.0",
+        generatedAt: "2026-07-04T00:00:00.000Z",
+        errors: 1,
+        warnings: 2,
+        diagnostics: [{ severity: "ERROR", message: "Undefined name 'brokenWidget'." }]
+      },
+      null,
+      2
+    )}\n`
+  );
+  const blockedAnalyzeReviewResponse = await fetch(`${base}/api/workbench/codegen-review`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      projectPath,
+      allowLowVisualScore: true
+    })
+  });
+  assert.equal(blockedAnalyzeReviewResponse.ok, true);
+  const blockedAnalyzeReviewResult = await blockedAnalyzeReviewResponse.json();
+  assert.equal(blockedAnalyzeReviewResult.ok, true);
+  assert.equal(blockedAnalyzeReviewResult.report.gateStatus, "blocked");
+  assert.equal(blockedAnalyzeReviewResult.report.analyzeErrors, 1);
+  const blockedAnalyzeReview = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/codegen_review.json`);
+  assert.equal(blockedAnalyzeReview.analyze.errors, 1);
+  assert.equal(blockedAnalyzeReview.gates.blockers.some((blocker) => blocker.type === "flutter_analyze_failed"), true);
+  const blockedAnalyzeWriteResponse = await fetch(`${base}/api/workbench/codegen-write`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      projectPath,
+      dryRun: true
+    })
+  });
+  assert.equal(blockedAnalyzeWriteResponse.ok, true);
+  const blockedAnalyzeWriteResult = await blockedAnalyzeWriteResponse.json();
+  assert.equal(blockedAnalyzeWriteResult.ok, true);
+  assert.equal(blockedAnalyzeWriteResult.report.wrote, false);
+  assert.equal(blockedAnalyzeWriteResult.report.blockers.some((blocker) => blocker.type === "flutter_analyze_failed"), true);
+
   writeSyntheticVisualDiff(sampleDir);
   const issueRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
     method: "POST",
