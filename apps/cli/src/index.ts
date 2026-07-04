@@ -1600,6 +1600,7 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
           "flutter_preview/test/preview_test.dart",
           "flutter_preview/test/golden_preview_test.dart",
           "flutter_preview_format_report.json",
+          "flutter_preview_analyze_report.json",
           "regions.json",
           "layout_candidates.json",
           "layout_decisions.json",
@@ -1628,7 +1629,11 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
     })
   );
   const formatReport = await formatFlutterPreview(previewDir);
-  await writeFile(resolve(outDir, "flutter_preview_format_report.json"), `${JSON.stringify(formatReport, null, 2)}\n`, "utf8");
+  const analyzeReport = await analyzeFlutterPreview(previewDir);
+  await Promise.all([
+    writeFile(resolve(outDir, "flutter_preview_format_report.json"), `${JSON.stringify(formatReport, null, 2)}\n`, "utf8"),
+    writeFile(resolve(outDir, "flutter_preview_analyze_report.json"), `${JSON.stringify(analyzeReport, null, 2)}\n`, "utf8")
+  ]);
 }
 
 async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: PipelineArtifacts, runReport: FigmaRunReport): Promise<void> {
@@ -1918,6 +1923,46 @@ async function formatFlutterPreview(previewDir: string): Promise<Record<string, 
       };
     }
     throw new Error(`dart format failed: ${candidate.stderr ?? candidate.message}`);
+  }
+}
+
+async function analyzeFlutterPreview(previewDir: string): Promise<Record<string, unknown>> {
+  const command = "flutter pub get && flutter analyze";
+  try {
+    const pubGet = await execFileAsync("flutter", ["pub", "get"], { cwd: previewDir });
+    const analyze = await execFileAsync("flutter", ["analyze"], { cwd: previewDir });
+    const parsed = parseAnalyzeOutput(`${analyze.stdout}\n${analyze.stderr}`);
+    return {
+      status: "success",
+      command,
+      errors: parsed.errors,
+      warnings: parsed.warnings,
+      pubGet: {
+        stdout: pubGet.stdout,
+        stderr: pubGet.stderr
+      },
+      stdout: analyze.stdout,
+      stderr: analyze.stderr
+    };
+  } catch (error) {
+    const candidate = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string; code?: string | number };
+    if (candidate.code === "ENOENT") {
+      return {
+        status: "skipped",
+        command,
+        reason: "flutter command was not found"
+      };
+    }
+    const parsed = parseAnalyzeOutput(`${candidate.stdout ?? ""}\n${candidate.stderr ?? ""}`);
+    return {
+      status: "failed",
+      command,
+      exitCode: candidate.code,
+      errors: parsed.errors,
+      warnings: parsed.warnings,
+      stdout: candidate.stdout,
+      stderr: candidate.stderr
+    };
   }
 }
 

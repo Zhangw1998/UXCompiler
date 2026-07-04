@@ -103,6 +103,7 @@ for (const file of [
 const cliReview = readJson(reviewDir, "codegen_review.json");
 assert.equal(cliReview.gates.status, "ready");
 assert.equal(cliReview.format.status, "success");
+assert.equal(cliReview.analyze.source, "flutter_preview_analyze_report.json");
 assert.ok(cliReview.filesToCreate.includes("lib/main.dart"));
 
 writeFile(resolve(projectDir, "lib/main.dart"), "void main() {}\n");

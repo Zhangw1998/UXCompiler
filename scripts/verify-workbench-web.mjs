@@ -37,6 +37,7 @@ const artifacts = {
   staleOverrideReport: readJson(sampleDir, "stale_override_report.json"),
   overrideConflictReport: readJson(sampleDir, "override_conflict_report.json"),
   fidelityGenerationManifest: readJson(sampleDir, "fidelity_generation_manifest.json"),
+  flutterPreviewAnalyzeReport: readJson(sampleDir, "flutter_preview_analyze_report.json"),
   flutterPreviewCaptureReport: existsSync(resolve(sampleDir, "flutter_preview_capture_report.json"))
     ? readJson(sampleDir, "flutter_preview_capture_report.json")
     : undefined,
@@ -426,6 +427,7 @@ try {
   assert.equal(codegenReviewReport.buildId, codegenReview.buildId);
   assert.equal(codegenReview.format.status, "success");
   assert.equal(codegenReview.format.source, "flutter_preview_format_report.json");
+  assert.equal(codegenReview.analyze.source, "flutter_preview_analyze_report.json");
   assert.match(generatedMain, /@uxc-generated:start/);
 
   const codegenWriteResponse = await fetch(`${base}/api/workbench/codegen-write`, {

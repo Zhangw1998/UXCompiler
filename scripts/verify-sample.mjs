@@ -35,6 +35,7 @@ const requiredFiles = [
   "flutter_preview/test/preview_test.dart",
   "flutter_preview/test/golden_preview_test.dart",
   "flutter_preview_format_report.json",
+  "flutter_preview_analyze_report.json",
   "regions.json",
   "layout_candidates.json",
   "layout_decisions.json",
@@ -61,6 +62,7 @@ const nodePixelMap = readJson("node_pixel_map.json");
 const reviewTasks = readJson("review_tasks.json");
 const taskStatusReport = readJson("task_status_report.json");
 const formatReport = readJson("flutter_preview_format_report.json");
+const analyzeReport = readJson("flutter_preview_analyze_report.json");
 const regions = readJson("regions.json");
 const decisions = readJson("layout_decisions.json");
 const normalized = readJson("normalized_design_ir.json");
@@ -88,6 +90,8 @@ assert.ok(reviewTasks.some((task) => task.type === "token_conflict"), "Expected 
 assert.equal(taskStatusReport.total, reviewTasks.length);
 assert.equal(taskStatusReport.codegenWriteBlocked, false);
 assert.equal(formatReport.status, "success");
+assert.ok(["success", "skipped", "failed"].includes(analyzeReport.status), "Expected analyze report status");
+assert.equal(analyzeReport.command, "flutter pub get && flutter analyze");
 assert.equal(regions.length, 3);
 assert.equal(regions[0].role, "header");
 assert.equal(regions[1].role, "content");
@@ -98,6 +102,8 @@ assert.equal(normalized.version, "2.0");
 assert.ok(normalized.confidence.overall >= 0.8, "Expected useful normalized confidence");
 
 if (commandExists("flutter")) {
+  assert.equal(analyzeReport.status, "success");
+  assert.equal(analyzeReport.errors, 0);
   execFileSync("flutter", ["pub", "get"], {
     cwd: resolve(root, "flutter_preview"),
     stdio: "pipe"

@@ -81,6 +81,7 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "diffRepairReport", files: ["workbench_diff_repair_report.json", "diff_repair_report.json"] },
   { key: "repairPatch", files: ["repair_patch.json"] },
   { key: "flutterPreviewFormatReport", files: ["flutter_preview_format_report.json"] },
+  { key: "flutterPreviewAnalyzeReport", files: ["flutter_preview_analyze_report.json"] },
   { key: "flutterPreviewCaptureReport", files: ["flutter_preview_capture_report.json"] },
   { key: "fidelityGenerationManifest", files: ["fidelity_generation_manifest.json"] }
 ];
