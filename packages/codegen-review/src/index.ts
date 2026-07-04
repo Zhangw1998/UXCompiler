@@ -6,6 +6,7 @@ import type {
   CodegenAssetPlan,
   CodegenFilePatch,
   CodegenFilePlan,
+  CodegenFormatSummary,
   CodegenGeneratedFile,
   CodegenGateIssue,
   CodegenGateStatus,
@@ -44,6 +45,7 @@ export interface CreateCodegenReviewInput {
   nodePixelMap?: NodePixelMapEntry[];
   overrideSet?: OverrideSet;
   staleOverrideReport?: StaleOverrideReport;
+  format?: CodegenFormatSummary;
   analyze?: CodegenAnalyzeSummary;
   projectId?: string;
   buildId?: string;
@@ -81,12 +83,14 @@ export function createCodegenReview(input: CreateCodegenReviewInput): CodegenRev
   const assetPlans = buildAssetPlans(input.assetManifest, new Set(input.existingPubspecAssets ?? []));
   const arbPatch = buildArbPatch(input.i18nManifest, input.existingArbFile);
   const pubspecPatch = buildPubspecPatch(assetPlans);
+  const format = input.format ?? { status: "unknown" };
   const analyze = input.analyze ?? { errors: 0, warnings: 0 };
   const gates = buildGateStatus({
     input,
     filePlans,
     assetPlans,
     arbPatch,
+    format,
     analyze
   });
   const filesToCreate = filePlans.filter((plan) => plan.action === "create");
@@ -98,6 +102,7 @@ export function createCodegenReview(input: CreateCodegenReviewInput): CodegenRev
     normalizedIrId: input.normalizedIrId,
     generatedAt,
     visualScore: input.visualDiffReport?.page.score.visualScore,
+    format,
     analyze,
     files: filePlans,
     filesToCreate: filesToCreate.map((plan) => plan.path),
@@ -310,6 +315,7 @@ function buildGateStatus(options: {
   filePlans: CodegenFilePlan[];
   assetPlans: CodegenAssetPlan[];
   arbPatch: CodegenArbPatch;
+  format: CodegenFormatSummary;
   analyze: CodegenAnalyzeSummary;
 }): CodegenGateStatus {
   const blockers: CodegenGateIssue[] = [];
@@ -342,6 +348,12 @@ function buildGateStatus(options: {
     });
   } else if (!input.visualDiffReport) {
     warnings.push({ type: "visual_diff_missing", message: "No visual_diff_report.json was provided for the codegen review." });
+  }
+  if (options.format.status === "failed") {
+    blockers.push({
+      type: "dart_format_failed",
+      message: `Dart format failed${options.format.source ? ` in ${options.format.source}` : ""}.`
+    });
   }
   if (options.analyze.errors > 0) {
     blockers.push({

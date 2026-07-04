@@ -424,6 +424,8 @@ try {
   const generatedMain = await fetchText(`${base}/artifacts/workbench-web-smoke/sample/generated/lib/main.dart`);
   assert.equal(codegenReview.projectId, "workbench_smoke");
   assert.equal(codegenReviewReport.buildId, codegenReview.buildId);
+  assert.equal(codegenReview.format.status, "success");
+  assert.equal(codegenReview.format.source, "flutter_preview_format_report.json");
   assert.match(generatedMain, /@uxc-generated:start/);
 
   const codegenWriteResponse = await fetch(`${base}/api/workbench/codegen-write`, {
@@ -446,6 +448,51 @@ try {
   assert.equal(projectWriteReport.mode, "dry_run");
   assert.equal(workbenchWriteReport.buildId, codegenReview.buildId);
   assert.equal(projectWriteReport.files.some((file) => file.status === "created"), true);
+
+  writeFileSync(
+    resolve(sampleDir, "flutter_preview_format_report.json"),
+    `${JSON.stringify(
+      {
+        status: "failed",
+        command: "dart format lib test",
+        exitCode: 1,
+        stderr: "Could not format because generated_page.dart has a syntax error."
+      },
+      null,
+      2
+    )}\n`
+  );
+  const blockedFormatReviewResponse = await fetch(`${base}/api/workbench/codegen-review`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      projectPath,
+      allowLowVisualScore: true
+    })
+  });
+  assert.equal(blockedFormatReviewResponse.ok, true);
+  const blockedFormatReviewResult = await blockedFormatReviewResponse.json();
+  assert.equal(blockedFormatReviewResult.ok, true);
+  assert.equal(blockedFormatReviewResult.report.gateStatus, "blocked");
+  assert.equal(blockedFormatReviewResult.report.formatStatus, "failed");
+  assert.equal(blockedFormatReviewResult.report.formatSource, "flutter_preview_format_report.json");
+  const blockedFormatReview = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/codegen_review.json`);
+  assert.equal(blockedFormatReview.format.status, "failed");
+  assert.equal(blockedFormatReview.gates.blockers.some((blocker) => blocker.type === "dart_format_failed"), true);
+  writeFileSync(
+    resolve(sampleDir, "flutter_preview_format_report.json"),
+    `${JSON.stringify(
+      {
+        status: "success",
+        command: "dart format lib test",
+        stdout: "Formatted 4 files (0 changed) in 0.01 seconds.",
+        stderr: ""
+      },
+      null,
+      2
+    )}\n`
+  );
 
   writeFileSync(
     resolve(sampleDir, "flutter_analyze_report.json"),
@@ -475,8 +522,10 @@ try {
   assert.equal(blockedAnalyzeReviewResult.ok, true);
   assert.equal(blockedAnalyzeReviewResult.report.gateStatus, "blocked");
   assert.equal(blockedAnalyzeReviewResult.report.analyzeErrors, 1);
+  assert.equal(blockedAnalyzeReviewResult.report.analyzeSource, "flutter_analyze_report.json");
   const blockedAnalyzeReview = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/codegen_review.json`);
   assert.equal(blockedAnalyzeReview.analyze.errors, 1);
+  assert.equal(blockedAnalyzeReview.analyze.source, "flutter_analyze_report.json");
   assert.equal(blockedAnalyzeReview.gates.blockers.some((blocker) => blocker.type === "flutter_analyze_failed"), true);
   const blockedAnalyzeWriteResponse = await fetch(`${base}/api/workbench/codegen-write`, {
     method: "POST",

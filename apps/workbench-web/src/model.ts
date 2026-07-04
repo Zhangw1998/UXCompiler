@@ -31,6 +31,7 @@ export interface WorkbenchArtifacts {
   visualDiffReport?: unknown;
   diffRepairReport?: unknown;
   repairPatch?: unknown;
+  flutterPreviewFormatReport?: unknown;
   flutterPreviewCaptureReport?: unknown;
   fidelityGenerationManifest?: unknown;
   flutterPreviewUrl?: string;

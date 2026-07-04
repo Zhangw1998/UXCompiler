@@ -45,6 +45,7 @@ const result = createCodegenReview(input);
 assert.equal(result.codegenReview.projectId, "proj_login");
 assert.equal(result.codegenReview.normalizedIrId, "nir_login");
 assert.equal(result.codegenReview.gates.status, "ready");
+assert.equal(result.codegenReview.format.status, "unknown");
 assert.ok(result.filesToCreate.some((file) => file.path === "lib/generated/fidelity/preview_page.dart"));
 assert.ok(result.generatedFiles.every((file) => file.content.includes("@uxc-generated:start")));
 assert.ok(result.assetsToAdd.some((asset) => asset.path === "assets/icons/divider_dot.svg"));
@@ -58,6 +59,13 @@ const incremental = createCodegenReview({
 });
 assert.equal(incremental.incrementalSyncReport.mode, "incremental_review");
 assert.equal(incremental.incrementalSyncReport.fileChanges.every((change) => change.change === "unchanged"), true);
+
+const formatBlocked = createCodegenReview({
+  ...input,
+  format: { status: "failed", source: "flutter_preview_format_report.json" }
+});
+assert.equal(formatBlocked.codegenReview.gates.status, "blocked");
+assert.ok(formatBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "dart_format_failed"));
 
 execFileSync(
   "node",
@@ -94,6 +102,7 @@ for (const file of [
 }
 const cliReview = readJson(reviewDir, "codegen_review.json");
 assert.equal(cliReview.gates.status, "ready");
+assert.equal(cliReview.format.status, "success");
 assert.ok(cliReview.filesToCreate.includes("lib/main.dart"));
 
 writeFile(resolve(projectDir, "lib/main.dart"), "void main() {}\n");

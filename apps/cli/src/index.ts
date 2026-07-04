@@ -12,7 +12,9 @@ import {
   assertRawFigmaScene,
   type ComponentPromotionRule,
   type ComponentRegistry,
+  type CodegenAnalyzeSummary,
   type CodegenArbPatch,
+  type CodegenFormatSummary,
   type CodegenGeneratedFile,
   type CodegenPubspecPatch,
   type CodegenReviewResult,
@@ -375,6 +377,8 @@ async function runCodegenCommand(args: string[]): Promise<void> {
     nodePixelMap: await readOptionalJsonFile(resolve(artifactDir, "node_pixel_map.json")),
     overrideSet: await readOptionalJsonFile(resolve(artifactDir, "override_set.json")),
     staleOverrideReport: await readOptionalJsonFile(resolve(artifactDir, "stale_override_report.json")),
+    format: await readCodegenFormatSummary(artifactDir),
+    analyze: await readCodegenAnalyzeSummary(artifactDir),
     projectId: options.projectId,
     buildId: options.buildId,
     normalizedIrId: options.normalizedIrId,
@@ -1688,6 +1692,120 @@ async function readOptionalJsonFile<T>(path: string): Promise<T | undefined> {
     if (candidate.code === "ENOENT") return undefined;
     throw error;
   }
+}
+
+async function readCodegenFormatSummary(artifactDir: string): Promise<CodegenFormatSummary | undefined> {
+  const candidates: Array<[string, string]> = [
+    ["flutter_preview_format_report.json", "flutter_preview_format_report.json"],
+    ["format_report.json", "format_report.json"],
+    ["dart_format_report.json", "dart_format_report.json"]
+  ];
+  for (const [file, source] of candidates) {
+    const summary = normalizeFormatSummary(await readOptionalJsonFile<Record<string, unknown>>(resolve(artifactDir, file)), source);
+    if (summary) return summary;
+  }
+  return undefined;
+}
+
+async function readCodegenAnalyzeSummary(artifactDir: string): Promise<CodegenAnalyzeSummary | undefined> {
+  const candidates: Array<[string, string]> = [
+    ["flutter_analyze_report.json", "flutter_analyze_report.json"],
+    ["analyze_report.json", "analyze_report.json"],
+    ["flutter_preview_analyze_report.json", "flutter_preview_analyze_report.json"],
+    ["flutter_preview_capture_report.json", "flutter_preview_capture_report.json"]
+  ];
+  for (const [file, source] of candidates) {
+    const summary = normalizeAnalyzeSummary(await readOptionalJsonFile<Record<string, unknown>>(resolve(artifactDir, file)), source);
+    if (summary) return summary;
+  }
+  return undefined;
+}
+
+function normalizeFormatSummary(value: Record<string, unknown> | undefined, source: string): CodegenFormatSummary | undefined {
+  if (!value) return undefined;
+  const statusValue = stringValue(value.status)?.toLowerCase();
+  const exitCode = numberValue(value.exitCode);
+  const status: CodegenFormatSummary["status"] =
+    statusValue === "success" || exitCode === 0
+      ? "success"
+      : statusValue === "skipped"
+        ? "skipped"
+        : statusValue === "failed" || statusValue === "error" || statusValue === "failure" || (exitCode ?? 0) > 0
+          ? "failed"
+          : "unknown";
+  return {
+    status,
+    source,
+    command: stringValue(value.command),
+    stdout: stringValue(value.stdout),
+    stderr: stringValue(value.stderr),
+    raw: value
+  };
+}
+
+function normalizeAnalyzeSummary(value: Record<string, unknown> | undefined, source: string): CodegenAnalyzeSummary | undefined {
+  if (!value) return undefined;
+  const summary = objectValue(value.summary) ?? objectValue(value.analyze) ?? value;
+  const diagnostics = arrayValue(value.diagnostics) ?? arrayValue(value.issues) ?? [];
+  const diagnosticErrors = diagnostics.filter((entry) => severityValue(entry) === "error").length;
+  const diagnosticWarnings = diagnostics.filter((entry) => severityValue(entry) === "warning").length;
+  const output = [value.stdout, value.stderr, value.output, value.analyzerOutput, value.analyzeOutput]
+    .map((entry) => (typeof entry === "string" ? entry : ""))
+    .filter(Boolean)
+    .join("\n");
+  const parsed = parseAnalyzeOutput(output);
+  return {
+    errors:
+      numberValue(summary.errors) ??
+      numberValue(summary.errorCount) ??
+      numberValue(value.errorCount) ??
+      (diagnostics.length > 0 ? diagnosticErrors : parsed.errors),
+    warnings:
+      numberValue(summary.warnings) ??
+      numberValue(summary.warningCount) ??
+      numberValue(value.warningCount) ??
+      (diagnostics.length > 0 ? diagnosticWarnings : parsed.warnings),
+    source,
+    stdout: stringValue(value.stdout),
+    stderr: stringValue(value.stderr),
+    raw: value
+  };
+}
+
+function parseAnalyzeOutput(output: string): { errors: number; warnings: number } {
+  const result = { errors: 0, warnings: 0 };
+  if (!output.trim()) return result;
+  for (const line of output.split(/\r?\n/)) {
+    const lower = line.toLowerCase();
+    const errorSummary = lower.match(/\b(\d+)\s+errors?\b/);
+    const warningSummary = lower.match(/\b(\d+)\s+warnings?\b/);
+    if (errorSummary) result.errors = Math.max(result.errors, Number(errorSummary[1]));
+    if (warningSummary) result.warnings = Math.max(result.warnings, Number(warningSummary[1]));
+    if (/\berror\s*[•:-]/.test(lower) || /:\s*error\s*$/.test(lower)) result.errors += 1;
+    if (/\bwarning\s*[•:-]/.test(lower) || /:\s*warning\s*$/.test(lower)) result.warnings += 1;
+  }
+  return result;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function arrayValue(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
+function severityValue(value: unknown): string | undefined {
+  const severity = objectValue(value)?.severity;
+  return typeof severity === "string" ? severity.toLowerCase() : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 async function writeJsonFile(path: string, value: unknown): Promise<void> {

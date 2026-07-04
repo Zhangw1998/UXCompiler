@@ -572,11 +572,8 @@ async function applyWorkbenchCodegenReview(body) {
     nodePixelMap: await readOptionalJson(resolve(artifactDir, "node_pixel_map.json"), undefined),
     overrideSet: await readOptionalJson(resolve(artifactDir, "override_set.json"), undefined),
     staleOverrideReport: await readOptionalJson(resolve(artifactDir, "stale_override_report.json"), undefined),
-    analyze: normalizeAnalyzeSummary(
-      (await readOptionalJson(resolve(artifactDir, "flutter_analyze_report.json"), undefined)) ??
-        (await readOptionalJson(resolve(artifactDir, "analyze_report.json"), undefined)) ??
-        (await readOptionalJson(resolve(artifactDir, "flutter_preview_analyze_report.json"), undefined))
-    ),
+    format: await readWorkbenchFormatSummary(artifactDir),
+    analyze: await readWorkbenchAnalyzeSummary(artifactDir),
     projectId: stringValue(body.projectId),
     buildId: stringValue(body.buildId),
     normalizedIrId: stringValue(body.normalizedIrId),
@@ -591,8 +588,11 @@ async function applyWorkbenchCodegenReview(body) {
     buildId: result.codegenReview.buildId,
     gateStatus: result.codegenReview.gates.status,
     blockers: result.codegenReview.gates.blockers.length,
+    formatStatus: result.codegenReview.format.status,
+    formatSource: result.codegenReview.format.source,
     analyzeErrors: result.codegenReview.analyze.errors,
     analyzeWarnings: result.codegenReview.analyze.warnings,
+    analyzeSource: result.codegenReview.analyze.source,
     filesToCreate: result.filesToCreate.length,
     filesToModify: result.filesToModify.length,
     assetsToAdd: result.assetsToAdd.length,
@@ -1022,18 +1022,105 @@ function buildDiffRepairOverride({ repairKind, issueId, visualDiffReport, normal
   };
 }
 
-function normalizeAnalyzeSummary(value) {
+async function readWorkbenchFormatSummary(artifactDir) {
+  const candidates = [
+    ["flutter_preview_format_report.json", "flutter_preview_format_report.json"],
+    ["format_report.json", "format_report.json"],
+    ["dart_format_report.json", "dart_format_report.json"]
+  ];
+  for (const [file, source] of candidates) {
+    const summary = normalizeFormatSummary(await readOptionalJson(resolve(artifactDir, file), undefined), source);
+    if (summary) return summary;
+  }
+  return undefined;
+}
+
+async function readWorkbenchAnalyzeSummary(artifactDir) {
+  const candidates = [
+    ["flutter_analyze_report.json", "flutter_analyze_report.json"],
+    ["analyze_report.json", "analyze_report.json"],
+    ["flutter_preview_analyze_report.json", "flutter_preview_analyze_report.json"],
+    ["flutter_preview_capture_report.json", "flutter_preview_capture_report.json"]
+  ];
+  for (const [file, source] of candidates) {
+    const summary = normalizeAnalyzeSummary(await readOptionalJson(resolve(artifactDir, file), undefined), source);
+    if (summary) return summary;
+  }
+  return undefined;
+}
+
+function normalizeFormatSummary(value, source) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const raw = value;
-  const summary = raw.summary && typeof raw.summary === "object" && !Array.isArray(raw.summary) ? raw.summary : raw;
+  const statusValue = stringValue(raw.status)?.toLowerCase();
+  const exitCode = numberValue(raw.exitCode);
+  const stderr = stringValue(raw.stderr);
+  const status =
+    statusValue === "success" || exitCode === 0
+      ? "success"
+      : statusValue === "skipped"
+        ? "skipped"
+        : statusValue === "failed" || statusValue === "error" || statusValue === "failure" || (exitCode ?? 0) > 0
+          ? "failed"
+          : "unknown";
+  return {
+    status,
+    source,
+    command: stringValue(raw.command),
+    stdout: stringValue(raw.stdout),
+    stderr,
+    raw
+  };
+}
+
+function normalizeAnalyzeSummary(value, source) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = value;
+  const summary =
+    raw.summary && typeof raw.summary === "object" && !Array.isArray(raw.summary)
+      ? raw.summary
+      : raw.analyze && typeof raw.analyze === "object" && !Array.isArray(raw.analyze)
+        ? raw.analyze
+        : raw;
   const diagnostics = Array.isArray(raw.diagnostics) ? raw.diagnostics : Array.isArray(raw.issues) ? raw.issues : [];
   const diagnosticErrors = diagnostics.filter((entry) => stringValue(entry?.severity) === "ERROR" || stringValue(entry?.severity) === "error").length;
   const diagnosticWarnings = diagnostics.filter((entry) => stringValue(entry?.severity) === "WARNING" || stringValue(entry?.severity) === "warning").length;
+  const output = [raw.stdout, raw.stderr, raw.output, raw.analyzerOutput, raw.analyzeOutput]
+    .map((entry) => (typeof entry === "string" ? entry : ""))
+    .filter(Boolean)
+    .join("\n");
+  const parsed = parseAnalyzeOutput(output);
   return {
-    errors: numberValue(summary.errors) ?? numberValue(summary.errorCount) ?? numberValue(raw.errorCount) ?? diagnosticErrors,
-    warnings: numberValue(summary.warnings) ?? numberValue(summary.warningCount) ?? numberValue(raw.warningCount) ?? diagnosticWarnings,
+    errors:
+      numberValue(summary.errors) ??
+      numberValue(summary.errorCount) ??
+      numberValue(raw.errorCount) ??
+      (diagnostics.length > 0 ? diagnosticErrors : parsed.errors),
+    warnings:
+      numberValue(summary.warnings) ??
+      numberValue(summary.warningCount) ??
+      numberValue(raw.warningCount) ??
+      (diagnostics.length > 0 ? diagnosticWarnings : parsed.warnings),
+    source,
+    stdout: stringValue(raw.stdout),
+    stderr: stringValue(raw.stderr),
     raw
   };
+}
+
+function parseAnalyzeOutput(output) {
+  const result = { errors: 0, warnings: 0 };
+  if (!output.trim()) return result;
+  for (const line of output.split(/\r?\n/)) {
+    const lower = line.toLowerCase();
+    const errorSummary = lower.match(/\b(\d+)\s+errors?\b/);
+    const warningSummary = lower.match(/\b(\d+)\s+warnings?\b/);
+    if (errorSummary) result.errors = Math.max(result.errors, Number(errorSummary[1]));
+    if (warningSummary) result.warnings = Math.max(result.warnings, Number(warningSummary[1]));
+    if (/\berror\s*[•:-]/.test(lower) || /:\s*error\s*$/.test(lower)) result.errors += 1;
+    if (/\bwarning\s*[•:-]/.test(lower) || /:\s*warning\s*$/.test(lower)) result.warnings += 1;
+  }
+  return result;
 }
 
 function deriveTarget(type, task, payload) {

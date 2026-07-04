@@ -54,6 +54,7 @@ export interface CodegenGateIssue {
     | "blocking_review_task"
     | "task_status_blocked"
     | "visual_diff_failed"
+    | "dart_format_failed"
     | "flutter_analyze_failed"
     | "asset_missing_path"
     | "i18n_missing_key"
@@ -75,6 +76,18 @@ export interface CodegenGateStatus {
 export interface CodegenAnalyzeSummary {
   errors: number;
   warnings: number;
+  source?: string;
+  stdout?: string;
+  stderr?: string;
+  raw?: Record<string, unknown>;
+}
+
+export interface CodegenFormatSummary {
+  status: "success" | "failed" | "skipped" | "unknown";
+  source?: string;
+  command?: string;
+  stdout?: string;
+  stderr?: string;
   raw?: Record<string, unknown>;
 }
 
@@ -85,6 +98,7 @@ export interface CodegenReviewManifest {
   normalizedIrId?: string;
   generatedAt: string;
   visualScore?: number;
+  format: CodegenFormatSummary;
   analyze: CodegenAnalyzeSummary;
   files: CodegenFilePlan[];
   filesToCreate: string[];

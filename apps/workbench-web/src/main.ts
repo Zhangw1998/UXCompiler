@@ -80,6 +80,7 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "visualDiffReport", files: ["visual_diff_report.json", "diff/visual_diff_report.json"] },
   { key: "diffRepairReport", files: ["workbench_diff_repair_report.json", "diff_repair_report.json"] },
   { key: "repairPatch", files: ["repair_patch.json"] },
+  { key: "flutterPreviewFormatReport", files: ["flutter_preview_format_report.json"] },
   { key: "flutterPreviewCaptureReport", files: ["flutter_preview_capture_report.json"] },
   { key: "fidelityGenerationManifest", files: ["fidelity_generation_manifest.json"] }
 ];
@@ -842,6 +843,7 @@ function renderPreview(model: WorkbenchModel): string {
 function renderCodegen(model: WorkbenchModel): string {
   const review = asRecord(state.artifacts.codegenReview);
   const gates = asRecord(review.gates);
+  const format = asRecord(review.format);
   const analyze = asRecord(review.analyze);
   const blockers = asArray(gates.blockers).map(asRecord);
   const createFiles = asArray(review.filesToCreate);
@@ -890,8 +892,11 @@ function renderCodegen(model: WorkbenchModel): string {
         <div><strong>${escapeHtml(String(booleanFrom(writeReport.wrote) ?? false))}</strong><span>Wrote</span></div>
         <div><strong>${writeFiles.filter((file) => stringFrom(file.status) === "created" || stringFrom(file.status) === "updated").length}</strong><span>Changed</span></div>
         <div><strong>${asArray(writeReport.blockers).length}</strong><span>Blockers</span></div>
+        <div><strong>${escapeHtml(stringFrom(format.status) ?? "unknown")}</strong><span>Dart Format</span></div>
         <div><strong>${numberFrom(analyze.errors) ?? 0}</strong><span>Analyze Errors</span></div>
         <div><strong>${numberFrom(analyze.warnings) ?? 0}</strong><span>Analyze Warnings</span></div>
+        <div><strong>${escapeHtml(stringFrom(format.source) ?? "none")}</strong><span>Format Source</span></div>
+        <div><strong>${escapeHtml(stringFrom(analyze.source) ?? "none")}</strong><span>Analyze Source</span></div>
       </div>
     </section>
     <section class="two-column">
@@ -936,6 +941,7 @@ function renderCodegen(model: WorkbenchModel): string {
 }
 
 function renderSettings(model: WorkbenchModel): string {
+  const format = asRecord(state.artifacts.flutterPreviewFormatReport);
   const capture = asRecord(state.artifacts.flutterPreviewCaptureReport);
   const conflicts = asRecord(state.artifacts.overrideConflictReport);
   return `
@@ -952,6 +958,7 @@ function renderSettings(model: WorkbenchModel): string {
           <dt>Root</dt><dd>${escapeHtml(model.artifactRoot)}</dd>
           <dt>Viewport</dt><dd>${model.viewport.width}x${model.viewport.height}</dd>
           <dt>Frame</dt><dd>${escapeHtml(model.project.frameNodeId)}</dd>
+          <dt>Dart Format</dt><dd>${escapeHtml(stringFrom(format.status) ?? "not loaded")}</dd>
           <dt>Flutter Capture</dt><dd>${escapeHtml(stringFrom(capture.status) ?? "not loaded")}</dd>
           <dt>Override Conflicts</dt><dd>${asArray(conflicts.conflicts).length}</dd>
         </dl>
