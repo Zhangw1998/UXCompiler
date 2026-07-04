@@ -14,6 +14,7 @@ import type {
   CodegenPubspecPatch,
   CodegenReviewManifest,
   CodegenReviewResult,
+  ComponentPromotionRule,
   FidelityGenerationManifest,
   I18nManifest,
   IncrementalFileChange,
@@ -45,6 +46,7 @@ export interface CreateCodegenReviewInput {
   nodePixelMap?: NodePixelMapEntry[];
   overrideSet?: OverrideSet;
   staleOverrideReport?: StaleOverrideReport;
+  promotionRules?: ComponentPromotionRule[];
   format?: CodegenFormatSummary;
   analyze?: CodegenAnalyzeSummary;
   projectId?: string;
@@ -60,6 +62,7 @@ interface PlannedFile {
   regionHash: string;
   sourceNodeIds: string[];
   strategy: string;
+  promotionRule?: ComponentPromotionRule;
 }
 
 const assetFileStrategies = new Set(["svg_icon", "image_asset", "frame_screenshot", "decorative_slice"]);
@@ -155,12 +158,14 @@ function planGeneratedFiles(input: CreateCodegenReviewInput): PlannedFile[] {
     const strategy = path.includes("preview_page") ? "fidelity_preview" : "generated_flutter_entrypoint";
     const regionHash = hashText(`${path}\n${sourceNodeIds.join("\n")}\n${rawContent}`);
     const content = wrapDartGeneratedFile(rawContent, rootSourceNodeId, regionHash, strategy);
+    const promotionRule = matchingPromotionRule(path, input.promotionRules ?? []);
     return {
       path,
       content,
       regionHash,
       sourceNodeIds,
-      strategy
+      strategy,
+      promotionRule
     };
   });
 }
@@ -170,6 +175,17 @@ function toFilePlan(file: PlannedFile, input: CreateCodegenReviewInput): Codegen
   const existing = input.existingProjectFiles?.[file.path];
   const previous = input.previousManifest?.files.find((candidate) => candidate.path === file.path);
   const patchPath = patchPathFor(file.path);
+  if (file.promotionRule?.skipGeneratedRegions) {
+    return {
+      path: file.path,
+      action: "unchanged",
+      hash: previous?.hash ?? hash,
+      previousHash: previous?.hash,
+      existingHash: existing ? hashText(existing) : undefined,
+      generatedRegions: toGeneratedRegions(file),
+      reason: `Generated region is promoted to ${file.promotionRule.name}; future codegen updates callsites only.`
+    };
+  }
   if (existing === undefined) {
     return {
       path: file.path,
@@ -219,12 +235,16 @@ function toFilePlan(file: PlannedFile, input: CreateCodegenReviewInput): Codegen
 function toGeneratedRegions(file: PlannedFile): CodegenFilePlan["generatedRegions"] {
   return [
     {
-      id: `generated_${safeId(file.path)}`,
+      id: file.promotionRule ? `generated_${safeId(file.path)}_${safeId(file.promotionRule.componentId)}` : `generated_${safeId(file.path)}`,
       sourceNodeIds: file.sourceNodeIds,
       hash: file.regionHash,
-      strategy: file.strategy
+      strategy: file.promotionRule ? `promoted_component:${file.promotionRule.componentId}` : file.strategy
     }
   ];
+}
+
+function matchingPromotionRule(path: string, rules: ComponentPromotionRule[]): ComponentPromotionRule | undefined {
+  return rules.find((rule) => rule.generatedFilePath === path && rule.skipGeneratedRegions);
 }
 
 function buildAssetPlans(assetManifest: AssetManifest, existingPubspecAssets: ReadonlySet<string>): CodegenAssetPlan[] {

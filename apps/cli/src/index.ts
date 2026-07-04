@@ -379,6 +379,7 @@ async function runCodegenCommand(args: string[]): Promise<void> {
     nodePixelMap: await readOptionalJsonFile(resolve(artifactDir, "node_pixel_map.json")),
     overrideSet: await readOptionalJsonFile(resolve(artifactDir, "override_set.json")),
     staleOverrideReport: await readOptionalJsonFile(resolve(artifactDir, "stale_override_report.json")),
+    promotionRules: await readOptionalJsonFile(resolve(artifactDir, "codegen_promotion_rules.json")),
     format: await readCodegenFormatSummary(artifactDir),
     analyze: await readCodegenAnalyzeSummary(artifactDir),
     projectId: options.projectId,

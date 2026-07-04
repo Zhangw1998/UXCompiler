@@ -572,6 +572,7 @@ async function applyWorkbenchCodegenReview(body) {
     nodePixelMap: await readOptionalJson(resolve(artifactDir, "node_pixel_map.json"), undefined),
     overrideSet: await readOptionalJson(resolve(artifactDir, "override_set.json"), undefined),
     staleOverrideReport: await readOptionalJson(resolve(artifactDir, "stale_override_report.json"), undefined),
+    promotionRules: await readOptionalJson(resolve(artifactDir, "codegen_promotion_rules.json"), undefined),
     format: await readWorkbenchFormatSummary(artifactDir),
     analyze: await readWorkbenchAnalyzeSummary(artifactDir),
     projectId: stringValue(body.projectId),

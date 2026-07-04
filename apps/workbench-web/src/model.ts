@@ -22,6 +22,7 @@ export interface WorkbenchArtifacts {
   workbenchStudioActionReport?: unknown;
   workbenchStudioRollbackReport?: unknown;
   codegenReview?: unknown;
+  codegenPromotionRules?: unknown;
   workbenchCodegenReviewReport?: unknown;
   projectWriteReport?: unknown;
   nodeRemapReport?: unknown;

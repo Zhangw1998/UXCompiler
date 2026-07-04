@@ -71,6 +71,7 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "workbenchStudioActionReport", files: ["workbench_studio_action_report.json"] },
   { key: "workbenchStudioRollbackReport", files: ["workbench_studio_rollback_report.json"] },
   { key: "codegenReview", files: ["codegen_review.json"] },
+  { key: "codegenPromotionRules", files: ["codegen_promotion_rules.json"] },
   { key: "workbenchCodegenReviewReport", files: ["workbench_codegen_review_report.json"] },
   { key: "projectWriteReport", files: ["project_write_report.json"] },
   { key: "nodeRemapReport", files: ["node_remap_report.json"] },
