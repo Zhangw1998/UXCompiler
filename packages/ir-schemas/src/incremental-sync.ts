@@ -48,10 +48,21 @@ export interface NodeRemapReport {
   oldSnapshotId?: string;
   newSnapshotId?: string;
   rawSceneChanged: boolean;
+  visualDiffChange: VisualDiffChange;
   matches: NodeRemapMatch[];
   addedSourceNodeIds: string[];
   removedSourceNodeIds: string[];
   staleOverrides: StaleOverride[];
+}
+
+export interface VisualDiffChange {
+  status: "available" | "missing" | "missing_old" | "missing_new";
+  oldVisualScore?: number;
+  newVisualScore?: number;
+  visualScoreDelta?: number;
+  oldPixelDiffRatio?: number;
+  newPixelDiffRatio?: number;
+  pixelDiffRatioDelta?: number;
 }
 
 export interface IncrementalSyncRemapResult {

@@ -676,7 +676,10 @@ try {
   const staleOverrides = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/stale_overrides.json`);
   const reviewTasksAfterSync = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   assert.equal(syncRemapReport.newSnapshotId, "workbench_smoke_next");
+  assert.equal(syncRemapReport.visualDiffChange.status, "missing_new");
+  assert.equal(syncRemapReport.visualDiffChange.oldVisualScore, 0.82);
   assert.equal(nodeRemapReport.matches.some((entry) => entry.oldSourceNodeId === "1:3" && entry.newSourceNodeId === "2:3"), true);
+  assert.equal(nodeRemapReport.visualDiffChange.status, "missing_new");
   assert.equal(reappliedOverrides.some((entry) => entry.overrideId === "ovr_tree_verify_rename_title"), true);
   assert.equal(staleOverrides.length > 0, true);
   assert.equal(reviewTasksAfterSync.some((task) => task.id.startsWith("task_incremental_remap_")), true);

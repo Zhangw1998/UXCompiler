@@ -10,6 +10,8 @@ import type {
   ReappliedOverride,
   ReviewTask,
   StaleOverride,
+  VisualDiffChange,
+  VisualDiffReport,
   UxOverride
 } from "@uxcompiler/ir-schemas";
 
@@ -19,6 +21,8 @@ export interface RunIncrementalSyncInput {
   overrideSet: OverrideSet;
   oldSnapshotId?: string;
   newSnapshotId?: string;
+  oldVisualDiffReport?: VisualDiffReport;
+  newVisualDiffReport?: VisualDiffReport;
   actor?: "user" | "agent" | "system";
   now?: () => Date;
 }
@@ -84,6 +88,7 @@ export function runIncrementalSync(input: RunIncrementalSyncInput): IncrementalS
     oldSnapshotId: input.oldSnapshotId,
     newSnapshotId: input.newSnapshotId,
     rawSceneChanged: hashStable(input.oldRawScene.root) !== hashStable(input.newRawScene.root),
+    visualDiffChange: summarizeVisualDiffChange(input.oldVisualDiffReport, input.newVisualDiffReport),
     matches: matches.map((match) => ({
       ...match,
       overrideReapplied: usedOldNodeIds.has(match.oldSourceNodeId)
@@ -136,6 +141,37 @@ function buildMatches(oldProfiles: Map<string, NodeProfile>, newProfiles: Map<st
     }
   }
   return matches.sort((left, right) => left.oldSourceNodeId.localeCompare(right.oldSourceNodeId));
+}
+
+function summarizeVisualDiffChange(oldReport?: VisualDiffReport, newReport?: VisualDiffReport): VisualDiffChange {
+  if (!oldReport && !newReport) return { status: "missing" };
+  if (!oldReport) {
+    return {
+      status: "missing_old",
+      newVisualScore: round(newReport?.page.score.visualScore ?? 0),
+      newPixelDiffRatio: round(newReport?.page.score.pixelDiffRatio ?? 0)
+    };
+  }
+  if (!newReport) {
+    return {
+      status: "missing_new",
+      oldVisualScore: round(oldReport.page.score.visualScore),
+      oldPixelDiffRatio: round(oldReport.page.score.pixelDiffRatio)
+    };
+  }
+  const oldVisualScore = round(oldReport.page.score.visualScore);
+  const newVisualScore = round(newReport.page.score.visualScore);
+  const oldPixelDiffRatio = round(oldReport.page.score.pixelDiffRatio);
+  const newPixelDiffRatio = round(newReport.page.score.pixelDiffRatio);
+  return {
+    status: "available",
+    oldVisualScore,
+    newVisualScore,
+    visualScoreDelta: round(newVisualScore - oldVisualScore),
+    oldPixelDiffRatio,
+    newPixelDiffRatio,
+    pixelDiffRatioDelta: round(newPixelDiffRatio - oldPixelDiffRatio)
+  };
 }
 
 function scoreProfiles(oldProfile: NodeProfile, newProfile: NodeProfile): number {

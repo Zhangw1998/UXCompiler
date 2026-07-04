@@ -208,6 +208,8 @@ interface SyncRemapOptions {
   out: string;
   oldSnapshotId?: string;
   newSnapshotId?: string;
+  oldVisualDiff?: string;
+  newVisualDiff?: string;
 }
 
 async function main(): Promise<void> {
@@ -488,7 +490,9 @@ async function runSyncCommand(args: string[]): Promise<void> {
     newRawScene: newRaw,
     overrideSet: await readJsonFile<OverrideSet>(options.overrideSet),
     oldSnapshotId: options.oldSnapshotId,
-    newSnapshotId: options.newSnapshotId
+    newSnapshotId: options.newSnapshotId,
+    oldVisualDiffReport: options.oldVisualDiff ? await readJsonFile<VisualDiffReport>(options.oldVisualDiff) : undefined,
+    newVisualDiffReport: options.newVisualDiff ? await readJsonFile<VisualDiffReport>(options.newVisualDiff) : undefined
   });
 
   await mkdir(outDir, { recursive: true });
@@ -1522,6 +1526,14 @@ function parseSyncRemapOptions(args: string[]): SyncRemapOptions {
       if (!next) throw new Error("Missing value for --new-snapshot-id.");
       options.newSnapshotId = next;
       index += 1;
+    } else if (arg === "--old-visual-diff") {
+      if (!next) throw new Error("Missing value for --old-visual-diff.");
+      options.oldVisualDiff = next;
+      index += 1;
+    } else if (arg === "--new-visual-diff") {
+      if (!next) throw new Error("Missing value for --new-visual-diff.");
+      options.newVisualDiff = next;
+      index += 1;
     } else {
       throw new Error(`Unknown sync remap option "${arg}".`);
     }
@@ -2179,6 +2191,8 @@ Usage:
 Options:
   --old-snapshot-id   Optional id for the previous source snapshot.
   --new-snapshot-id   Optional id for the new source snapshot.
+  --old-visual-diff   Optional previous visual_diff_report.json.
+  --new-visual-diff   Optional current visual_diff_report.json.
 
 Outputs:
   override_set.json

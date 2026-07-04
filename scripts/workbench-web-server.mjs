@@ -611,6 +611,9 @@ async function applyWorkbenchSyncRemap(body) {
   const newRawPath = resolveLocalPath(stringValue(body.newRawPath));
   const oldRawScene = await readJson(resolve(artifactDir, "raw_figma_scene.json"));
   const newRawScene = await readJson(newRawPath);
+  const oldVisualDiffReport =
+    (await readOptionalJson(resolve(artifactDir, "visual_diff_report.json"), undefined)) ??
+    (await readOptionalJson(resolve(artifactDir, "diff/visual_diff_report.json"), undefined));
   const now = new Date().toISOString();
   const result = runIncrementalSync({
     oldRawScene,
@@ -618,6 +621,7 @@ async function applyWorkbenchSyncRemap(body) {
     overrideSet: await readJson(resolve(artifactDir, "override_set.json")),
     oldSnapshotId: stringValue(body.oldSnapshotId) ?? stringValue(oldRawScene.source?.version) ?? stringValue(oldRawScene.source?.frameNodeId),
     newSnapshotId: stringValue(body.newSnapshotId) ?? stringValue(newRawScene.source?.version) ?? stringValue(newRawScene.source?.frameNodeId),
+    oldVisualDiffReport,
     actor: "agent",
     now: () => new Date(now)
   });
@@ -638,6 +642,7 @@ async function applyWorkbenchSyncRemap(body) {
     reappliedOverrides: result.reappliedOverrides.length,
     staleOverrides: result.staleOverrides.length,
     reviewTasks: result.incrementalReviewTasks.length,
+    visualDiffChange: result.nodeRemapReport.visualDiffChange,
     overrideHash: result.overrideSet.hash
   };
   await writeJson(resolve(artifactDir, "override_set.json"), result.overrideSet);

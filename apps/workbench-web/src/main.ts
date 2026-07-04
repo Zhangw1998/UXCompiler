@@ -856,6 +856,7 @@ function renderCodegen(model: WorkbenchModel): string {
   const writeFiles = asArray(writeReport.files).map(asRecord);
   const canRunCodegen = state.artifactRoot !== "selected directory";
   const sync = asRecord(state.artifacts.nodeRemapReport);
+  const visualDiffChange = asRecord(sync.visualDiffChange ?? syncReport.visualDiffChange);
   const syncPending = state.pendingSyncOperation === "remap";
   return `
     <section class="view-header">
@@ -926,6 +927,8 @@ function renderCodegen(model: WorkbenchModel): string {
           <div class="status-row"><strong>Stale</strong><span>${asArray(sync.staleOverrides).length}</span></div>
           <div class="status-row"><strong>Review Required</strong><span>${asArray(sync.matches).map(asRecord).filter((entry) => booleanFrom(entry.reviewRequired)).length}</span></div>
           <div class="status-row"><strong>Reapplied</strong><span>${numberFrom(syncReport.reappliedOverrides) ?? 0}</span></div>
+          <div class="status-row"><strong>Diff Score</strong><span>${formatMaybePercent(numberFrom(visualDiffChange.newVisualScore) ?? numberFrom(visualDiffChange.oldVisualScore))}</span></div>
+          <div class="status-row"><strong>Diff Delta</strong><span>${formatSignedMaybePercent(numberFrom(visualDiffChange.visualScoreDelta)) || escapeHtml(stringFrom(visualDiffChange.status) ?? "missing")}</span></div>
         </div>
       </div>
     </section>
@@ -2248,6 +2251,12 @@ function formatMaybePercent(value: number | undefined): string {
   if (value === undefined) return "-";
   if (value <= 1) return `${(value * 100).toFixed(2)}%`;
   return value.toFixed(2);
+}
+
+function formatSignedMaybePercent(value: number | undefined): string {
+  if (value === undefined) return "";
+  const formatted = formatMaybePercent(Math.abs(value));
+  return `${value >= 0 ? "+" : "-"}${formatted}`;
 }
 
 function cssColor(value: string): string {

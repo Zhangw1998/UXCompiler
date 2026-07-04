@@ -8,6 +8,8 @@ const root = "artifacts/incremental-sync-smoke";
 const oldRawPath = resolve(root, "old_raw_figma_scene.json");
 const newRawPath = resolve(root, "new_raw_figma_scene.json");
 const overrideSetPath = resolve(root, "override_set.json");
+const oldVisualDiffPath = resolve(root, "old_visual_diff_report.json");
+const newVisualDiffPath = resolve(root, "new_visual_diff_report.json");
 const outDir = resolve(root, "sync");
 rmSync(root, { recursive: true, force: true });
 mkdirSync(root, { recursive: true });
@@ -36,6 +38,8 @@ const overrideSet = {
 writeJson(oldRawPath, oldRaw);
 writeJson(newRawPath, newRaw);
 writeJson(overrideSetPath, overrideSet);
+writeJson(oldVisualDiffPath, visualDiffReport(0.91, 0.09));
+writeJson(newVisualDiffPath, visualDiffReport(0.86, 0.14));
 
 const result = runIncrementalSync({
   oldRawScene: oldRaw,
@@ -43,11 +47,18 @@ const result = runIncrementalSync({
   overrideSet,
   oldSnapshotId: "snap_001",
   newSnapshotId: "snap_002",
+  oldVisualDiffReport: visualDiffReport(0.91, 0.09),
+  newVisualDiffReport: visualDiffReport(0.86, 0.14),
   now: () => new Date("2026-07-04T00:00:00.000Z")
 });
 
 assert.equal(result.nodeRemapReport.oldSnapshotId, "snap_001");
 assert.equal(result.nodeRemapReport.newSnapshotId, "snap_002");
+assert.equal(result.nodeRemapReport.visualDiffChange.status, "available");
+assert.equal(result.nodeRemapReport.visualDiffChange.oldVisualScore, 0.91);
+assert.equal(result.nodeRemapReport.visualDiffChange.newVisualScore, 0.86);
+assert.equal(result.nodeRemapReport.visualDiffChange.visualScoreDelta, -0.05);
+assert.equal(result.nodeRemapReport.visualDiffChange.pixelDiffRatioDelta, 0.05);
 assert.equal(result.overrideSet.snapshotId, "snap_002");
 assert.match(result.overrideSet.hash, /^sha256_[a-f0-9]{64}$/);
 
@@ -92,6 +103,10 @@ execFileSync(
     "snap_001",
     "--new-snapshot-id",
     "snap_002",
+    "--old-visual-diff",
+    oldVisualDiffPath,
+    "--new-visual-diff",
+    newVisualDiffPath,
     "--out",
     outDir
   ],
@@ -109,6 +124,7 @@ for (const file of [
 }
 const cliReport = JSON.parse(readFileSync(resolve(outDir, "node_remap_report.json"), "utf8"));
 assert.equal(cliReport.matches.some((entry) => entry.oldSourceNodeId === "1:3" && entry.newSourceNodeId === "2:3"), true);
+assert.equal(cliReport.visualDiffChange.visualScoreDelta, -0.05);
 
 console.log("incremental sync verification passed");
 
@@ -159,4 +175,36 @@ function findNode(root, id) {
 function writeJson(path, value) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function visualDiffReport(visualScore, pixelDiffRatio) {
+  return {
+    version: "0.1.0",
+    generatedAt: "2026-07-04T00:00:00.000Z",
+    inputs: {
+      reference: "figma_reference.png",
+      candidate: "flutter_preview.png",
+      heatmap: "diff_heatmap.png"
+    },
+    environment: {
+      dpr: 1,
+      fonts: ["Inter"],
+      renderer: "png_pixelmatch"
+    },
+    page: {
+      pass: visualScore >= 0.98,
+      score: {
+        visualScore,
+        pixelDiffRatio,
+        diffPixels: Math.round(pixelDiffRatio * 1000),
+        totalPixels: 1000
+      },
+      threshold: {
+        visualScore: 0.98,
+        pixelDiffRatio: 0.02
+      }
+    },
+    issues: [],
+    warnings: []
+  };
 }
