@@ -533,6 +533,27 @@ try {
   assert.equal(pageRepairOverrideSet.overrides.length, 14);
   assert.equal(pageRepairTasks.some((task) => task.type === "visual_diff_failed"), false);
 
+  const studioRollbackResponse = await fetch(`${base}/api/workbench/studio-rollback`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      overrideIds: ["ovr_studio_verify_component_mapping"]
+    })
+  });
+  assert.equal(studioRollbackResponse.ok, true);
+  const studioRollbackResult = await studioRollbackResponse.json();
+  assert.equal(studioRollbackResult.ok, true);
+  assert.deepEqual(studioRollbackResult.report.rollbackOverrideIds, ["ovr_studio_verify_component_mapping"]);
+  const studioRollbackReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_studio_rollback_report.json`);
+  const studioRollbackOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  const studioRollbackRegistry = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/component_registry.json`);
+  const disabledStudioOverride = studioRollbackOverrideSet.overrides.find((entry) => entry.id === "ovr_studio_verify_component_mapping");
+  const rolledBackComponent = findComponentById(studioRollbackRegistry, "cmp_workbench_submit");
+  assert.equal(studioRollbackReport.rollbackOverrideIds.includes("ovr_studio_verify_component_mapping"), true);
+  assert.equal(disabledStudioOverride.status, "disabled");
+  assert.equal(rolledBackComponent.flutter, undefined);
+
   console.log("workbench-web verification passed");
 } finally {
   server.kill("SIGTERM");

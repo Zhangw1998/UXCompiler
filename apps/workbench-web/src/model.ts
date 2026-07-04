@@ -19,6 +19,8 @@ export interface WorkbenchArtifacts {
   finalI18nManifest?: unknown;
   componentRegistry?: unknown;
   studioReport?: unknown;
+  workbenchStudioActionReport?: unknown;
+  workbenchStudioRollbackReport?: unknown;
   codegenReview?: unknown;
   workbenchCodegenReviewReport?: unknown;
   projectWriteReport?: unknown;

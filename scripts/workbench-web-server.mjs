@@ -99,6 +99,20 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/workbench/studio-rollback") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyWorkbenchStudioRollback(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/workbench/codegen-review") {
       if (request.method !== "POST") {
         sendJson(response, 405, { ok: false, error: "Method not allowed" });
@@ -386,6 +400,56 @@ async function applyWorkbenchTreeEdit(body) {
     overrideSet: rebuilt.overrideResult.overrideSet,
     taskStatusReport: rebuilt.reviewResult.taskStatusReport,
     reviewTasks: rebuilt.reviewResult.reviewTasks
+  };
+}
+
+async function applyWorkbenchStudioRollback(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const nowValue = new Date();
+  const now = nowValue.toISOString();
+  const actor = stringValue(body.actor) ?? "user";
+  const explicitOverrideIds = stringArray(body.overrideIds);
+  const actionReport = await readOptionalJson(resolve(artifactDir, "workbench_studio_action_report.json"), {});
+  const rollbackOverrideIds = explicitOverrideIds.length > 0 ? explicitOverrideIds : stringArray(actionReport.overrideIds);
+  if (rollbackOverrideIds.length === 0) throw new Error("Missing Studio override ids to disable.");
+  for (const overrideId of rollbackOverrideIds) {
+    if (!overrideId.startsWith("ovr_studio_")) throw new Error(`Not a Studio override: ${overrideId}`);
+  }
+
+  const overrideSet = await readJson(resolve(artifactDir, "override_set.json"));
+  const nextOverrideSet = clone(overrideSet);
+  nextOverrideSet.version = Number.isFinite(nextOverrideSet.version) ? nextOverrideSet.version + 1 : 1;
+  nextOverrideSet.overrides = Array.isArray(nextOverrideSet.overrides) ? nextOverrideSet.overrides : [];
+  const disabled = [];
+  for (const overrideId of rollbackOverrideIds) {
+    const entry = nextOverrideSet.overrides.find((candidate) => candidate.id === overrideId);
+    if (!entry) throw new Error(`Cannot disable missing Studio override: ${overrideId}`);
+    if (entry.status === "active") {
+      entry.status = "disabled";
+      entry.disabledBy = actor === "agent" || actor === "system" ? actor : "user";
+      entry.updatedAt = now;
+      disabled.push(overrideId);
+    }
+  }
+  if (disabled.length === 0) throw new Error("Selected Studio overrides are already disabled.");
+
+  const refreshed = await refreshStudioArtifacts(artifactDir, nextOverrideSet, now, nowValue);
+  const report = {
+    version: "0.1.0",
+    generatedAt: now,
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    rollbackOverrideIds: disabled,
+    afterOpenTasks: refreshed.rebuilt.reviewResult.taskStatusReport.open,
+    overrideHash: refreshed.rebuilt.overrideResult.overrideSet.hash,
+    componentCount: refreshed.studioResult.componentRegistry.components.length,
+    tokenCount: refreshed.studioResult.tokenRegistry.tokens.length
+  };
+  await writeJson(resolve(artifactDir, "workbench_studio_rollback_report.json"), report);
+  return {
+    report,
+    overrideSet: refreshed.rebuilt.overrideResult.overrideSet,
+    taskStatusReport: refreshed.rebuilt.reviewResult.taskStatusReport,
+    reviewTasks: refreshed.rebuilt.reviewResult.reviewTasks
   };
 }
 
@@ -782,6 +846,42 @@ async function writeCodegenReviewArtifacts(artifactDir, result) {
     ...result.generatedFiles.map((file) => writeText(resolve(artifactDir, "generated", file.path), file.content)),
     ...result.filePatches.map((patch) => writeText(resolve(artifactDir, patch.patchPath), patch.patch))
   ]);
+}
+
+async function refreshStudioArtifacts(artifactDir, overrideSet, now, nowValue = new Date(now)) {
+  const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
+  const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
+  const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
+  const inferredTokens = await readJson(resolve(artifactDir, "inferred_tokens.json"));
+  const studioResult = applyStudioOperations({
+    normalizedDesignIR,
+    assetManifest,
+    i18nManifest,
+    inferredTokens,
+    overrideSet,
+    operations: [],
+    actor: "system",
+    now: () => nowValue
+  });
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, studioResult.overrideSet, now, {
+    reviewedAssetManifest: studioResult.finalAssetManifest,
+    reviewedI18nManifest: studioResult.finalI18nManifest,
+    reviewedArbFile: studioResult.finalArbFile
+  });
+  await writeJson(resolve(artifactDir, "studio_report.json"), {
+    version: studioResult.version,
+    generatedAt: now,
+    operations: studioResult.operations,
+    validationReport: studioResult.validationReport,
+    overrideMutations: studioResult.overrideMutations,
+    refreshedFromOverrideSet: true
+  });
+  await writeJson(resolve(artifactDir, "component_registry.json"), studioResult.componentRegistry);
+  await writeJson(resolve(artifactDir, "token_registry.json"), studioResult.tokenRegistry);
+  await writeJson(resolve(artifactDir, "final_asset_manifest.json"), studioResult.finalAssetManifest);
+  await writeJson(resolve(artifactDir, "final_i18n_manifest.json"), studioResult.finalI18nManifest);
+  await writeJson(resolve(artifactDir, "arb/app_en.arb"), studioResult.finalArbFile);
+  return { studioResult, rebuilt };
 }
 
 async function appendRepairIterationLog(artifactDir, entry) {

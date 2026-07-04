@@ -32,6 +32,7 @@ interface AppState {
   pendingAction?: string;
   pendingTreeOperation?: string;
   pendingStudioOperation?: string;
+  pendingStudioRollback?: string;
   pendingCodegenOperation?: string;
   pendingDiffRepair?: string;
   pendingDiffRollback?: string;
@@ -66,6 +67,8 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "i18nManifest", files: ["i18n_manifest.json"] },
   { key: "componentRegistry", files: ["component_registry.json"] },
   { key: "studioReport", files: ["studio_report.json"] },
+  { key: "workbenchStudioActionReport", files: ["workbench_studio_action_report.json"] },
+  { key: "workbenchStudioRollbackReport", files: ["workbench_studio_rollback_report.json"] },
   { key: "codegenReview", files: ["codegen_review.json"] },
   { key: "workbenchCodegenReviewReport", files: ["workbench_codegen_review_report.json"] },
   { key: "projectWriteReport", files: ["project_write_report.json"] },
@@ -547,6 +550,7 @@ function renderComponents(model: WorkbenchModel): string {
       </div>
     </section>
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
+    ${renderStudioRollbackPanel(canApplyStudio)}
     <section class="panel">
       <div class="panel-header">
         <h2>Create / Review Component</h2>
@@ -611,6 +615,7 @@ function renderTokens(model: WorkbenchModel): string {
       </div>
     </section>
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
+    ${renderStudioRollbackPanel(canApplyStudio)}
     <section class="token-layout">
       ${groups
         .map((group) => {
@@ -645,6 +650,7 @@ function renderAssets(model: WorkbenchModel): string {
       </div>
     </section>
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
+    ${renderStudioRollbackPanel(canApplyStudio)}
     <section class="panel table-panel">
       <table class="data-table">
         <thead><tr><th>ID</th><th>Source</th><th>Current</th><th>Write Strategy</th><th>Path</th><th>Format</th><th>Scale</th><th>Crop JSON</th><th>Exclude Text</th><th>Confidence</th><th>Action</th></tr></thead>
@@ -723,6 +729,7 @@ function renderI18n(model: WorkbenchModel): string {
       </div>
     </section>
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
+    ${renderStudioRollbackPanel(canApplyStudio)}
     <section class="panel table-panel">
       <table class="data-table">
         <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Non-i18n Reason</th><th>Action</th></tr></thead>
@@ -1345,6 +1352,13 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const studioRollbackButton = target.closest<HTMLButtonElement>("[data-studio-rollback]");
+  if (studioRollbackButton) {
+    const overrideIds = splitList(studioRollbackButton.dataset.studioRollback ?? "");
+    void applyStudioRollback(overrideIds);
+    return;
+  }
+
   const codegenOperationButton = target.closest<HTMLButtonElement>("[data-codegen-operation]");
   if (codegenOperationButton?.dataset.codegenOperation) {
     void applyCodegenOperation(codegenOperationButton.dataset.codegenOperation);
@@ -1527,6 +1541,73 @@ async function applyStudioOperation(button: HTMLButtonElement): Promise<void> {
     state.pendingStudioOperation = undefined;
     render();
   }
+}
+
+async function applyStudioRollback(overrideIds: string[]): Promise<void> {
+  const pendingKey = overrideIds.join(",") || "last";
+  state.pendingStudioRollback = pendingKey;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const response = await fetch("/api/workbench/studio-rollback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        artifactRoot: state.artifactRoot,
+        overrideIds,
+        actor: "user"
+      })
+    });
+    const result = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      report?: { rollbackOverrideIds?: string[]; afterOpenTasks?: number };
+    };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Studio rollback failed with ${response.status}`);
+    }
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.actionMessage = {
+      tone: "good",
+      text: `Disabled ${result.report?.rollbackOverrideIds?.join(", ") ?? "studio override"}; ${result.report?.afterOpenTasks ?? state.model?.reviewSummary.open ?? 0} tasks remain.`
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingStudioRollback = undefined;
+    render();
+  }
+}
+
+function renderStudioRollbackPanel(canApplyStudio: boolean): string {
+  const actionReport = asRecord(state.artifacts.workbenchStudioActionReport);
+  const overrideIds = asArray(actionReport.overrideIds).map((entry) => stringFrom(entry)).filter((entry): entry is string => Boolean(entry));
+  if (overrideIds.length === 0) return "";
+  const overrides = asArray(asRecord(state.artifacts.overrideSet).overrides).map(asRecord);
+  const activeOverrideIds = overrideIds.filter((overrideId) => {
+    const override = overrides.find((entry) => stringFrom(entry.id) === overrideId);
+    return stringFrom(override?.status) === "active";
+  });
+  const pendingKey = activeOverrideIds.join(",") || "last";
+  const isPending = state.pendingStudioRollback === pendingKey;
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Last Studio Action</h2>
+        <span>${escapeHtml(overrideIds.join(", "))}</span>
+      </div>
+      <button
+        class="action-button action-button--secondary"
+        data-studio-rollback="${escapeAttr(activeOverrideIds.join(","))}"
+        ${canApplyStudio && activeOverrideIds.length > 0 && !isPending ? "" : "disabled"}
+      >
+        ${escapeHtml(isPending ? "Disabling..." : "Disable Last Studio Override")}
+      </button>
+    </section>
+  `;
 }
 
 async function applyCodegenOperation(operation: string): Promise<void> {

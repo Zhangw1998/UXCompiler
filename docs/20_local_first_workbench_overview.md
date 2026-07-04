@@ -140,6 +140,8 @@ Flutter UI
 
 Preview & Diff 中的修复按钮会把接受的 visual diff 修复写入 `override_set.json`，同时生成 `repair_patch.json` 和 `repair_iteration_log.json`。当 `repair_patch.json` 仍处于 `applied` 状态时，Workbench 会显示 Rollback Repair，可将最近一次修复回滚为禁用 override 或恢复旧 override，并重新生成 review tasks。
 
+Component / Token / Asset / i18n Studios 的人工操作也必须以 `ovr_studio_*` override 形式保存。Workbench 会在 Studio 页面展示最近一次 Studio 操作，并允许禁用该操作对应的 active override，然后基于新的 `override_set.json` 重新生成 component registry、token registry、final asset/i18n manifests 与 review tasks。
+
 ### 4.3 Local Normalization Service
 
 职责：
