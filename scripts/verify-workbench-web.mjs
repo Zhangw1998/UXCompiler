@@ -462,12 +462,58 @@ try {
   assert.equal(issueRepairResult.ok, true);
   assert.equal(issueRepairResult.report.overrideId, "ovr_diff_diff_verify_region_asset_slice");
   const issueRepairReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_diff_repair_report.json`);
+  const issueRepairPatch = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/repair_patch.json`);
+  const issueRepairLog = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/repair_iteration_log.json`);
   const issueRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const issueRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   assert.equal(issueRepairReport.repairKind, "issue_asset_slice");
+  assert.equal(issueRepairReport.repairPatchPath, "repair_patch.json");
+  assert.equal(issueRepairPatch.overrideId, "ovr_diff_diff_verify_region_asset_slice");
+  assert.equal(issueRepairPatch.status, "applied");
+  assert.equal(issueRepairPatch.rollback.type, "disable_override");
+  assert.equal(issueRepairPatch.afterOverride.payload.strategy, "asset_slice");
+  assert.equal(issueRepairLog.iterations.some((entry) => entry.event === "applied" && entry.overrideId === "ovr_diff_diff_verify_region_asset_slice"), true);
   assert.equal(issueRepairOverrideSet.overrides.length, 13);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_page"), true);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_verify_region"), false);
+
+  const issueRollbackResponse = await fetch(`${base}/api/workbench/diff-repair-rollback`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      overrideId: "ovr_diff_diff_verify_region_asset_slice"
+    })
+  });
+  assert.equal(issueRollbackResponse.ok, true);
+  const issueRollbackResult = await issueRollbackResponse.json();
+  assert.equal(issueRollbackResult.ok, true);
+  assert.equal(issueRollbackResult.report.rollbackType, "disable_override");
+  const issueRollbackPatch = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/repair_patch.json`);
+  const issueRollbackTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
+  const issueRollbackOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  const disabledIssueOverride = issueRollbackOverrideSet.overrides.find((entry) => entry.id === "ovr_diff_diff_verify_region_asset_slice");
+  assert.equal(issueRollbackPatch.status, "rolled_back");
+  assert.equal(disabledIssueOverride.status, "disabled");
+  assert.equal(issueRollbackTasks.some((task) => task.id === "task_visual_diff_verify_region"), true);
+
+  const issueRepairAgainResponse = await fetch(`${base}/api/workbench/diff-repair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      repairKind: "issue_asset_slice",
+      issueId: "diff_verify_region"
+    })
+  });
+  assert.equal(issueRepairAgainResponse.ok, true);
+  const issueRepairAgainResult = await issueRepairAgainResponse.json();
+  assert.equal(issueRepairAgainResult.ok, true);
+  assert.equal(issueRepairAgainResult.report.overrideId, "ovr_diff_diff_verify_region_asset_slice");
+  const issueRepairAgainOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  const activeIssueOverride = issueRepairAgainOverrideSet.overrides.find((entry) => entry.id === "ovr_diff_diff_verify_region_asset_slice");
+  assert.equal(issueRepairAgainOverrideSet.overrides.length, 13);
+  assert.equal(activeIssueOverride.status, "active");
 
   const pageRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
     method: "POST",

@@ -26,6 +26,8 @@ export interface WorkbenchArtifacts {
   staleOverrideReport?: unknown;
   overrideConflictReport?: unknown;
   visualDiffReport?: unknown;
+  diffRepairReport?: unknown;
+  repairPatch?: unknown;
   flutterPreviewCaptureReport?: unknown;
   fidelityGenerationManifest?: unknown;
   flutterPreviewUrl?: string;

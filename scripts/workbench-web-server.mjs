@@ -141,6 +141,20 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/workbench/diff-repair-rollback") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyWorkbenchDiffRepairRollback(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
     if (request.method !== "GET" && request.method !== "HEAD") {
       response.writeHead(405, { allow: "GET, HEAD, POST, OPTIONS" });
       response.end("Method not allowed");
@@ -542,6 +556,7 @@ async function applyWorkbenchDiffRepair(body) {
     resolve(artifactDir, "normalized_design_ir.json")
   ]);
   const overrideSet = await readJson(resolve(artifactDir, "override_set.json"));
+  const previousTaskStatusReport = await readOptionalJson(resolve(artifactDir, "task_status_report.json"), {});
   const now = new Date().toISOString();
   const nextOverrideSet = clone(overrideSet);
   nextOverrideSet.version = Number.isFinite(nextOverrideSet.version) ? nextOverrideSet.version + 1 : 1;
@@ -556,6 +571,7 @@ async function applyWorkbenchDiffRepair(body) {
     now
   });
   const existingIndex = nextOverrideSet.overrides.findIndex((entry) => entry.id === override.id);
+  const previousOverride = existingIndex >= 0 ? clone(nextOverrideSet.overrides[existingIndex]) : undefined;
   if (existingIndex >= 0) {
     nextOverrideSet.overrides[existingIndex] = {
       ...nextOverrideSet.overrides[existingIndex],
@@ -568,6 +584,21 @@ async function applyWorkbenchDiffRepair(body) {
   }
 
   const rebuilt = await rebuildReviewedArtifacts(artifactDir, nextOverrideSet, now);
+  const repairPatch = {
+    version: "0.1.0",
+    generatedAt: now,
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    repairKind,
+    issueId,
+    overrideId: override.id,
+    operation: previousOverride ? "replace_override" : "add_override",
+    beforeOverride: previousOverride ?? null,
+    afterOverride: override,
+    rollback: previousOverride
+      ? { type: "restore_override", overrideId: override.id, override: previousOverride }
+      : { type: "disable_override", overrideId: override.id },
+    status: "applied"
+  };
   const report = {
     version: "0.1.0",
     generatedAt: now,
@@ -575,13 +606,104 @@ async function applyWorkbenchDiffRepair(body) {
     repairKind,
     issueId,
     overrideId: override.id,
+    repairPatchPath: "repair_patch.json",
     afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
     overrideHash: rebuilt.overrideResult.overrideSet.hash
   };
   await writeJson(resolve(artifactDir, "diff_repair_report.json"), report);
   await writeJson(resolve(artifactDir, "workbench_diff_repair_report.json"), report);
+  await writeJson(resolve(artifactDir, "repair_patch.json"), repairPatch);
+  await appendRepairIterationLog(artifactDir, {
+    event: "applied",
+    generatedAt: now,
+    repairKind,
+    issueId,
+    overrideId: override.id,
+    operation: repairPatch.operation,
+    beforeOpenTasks: previousTaskStatusReport.open,
+    afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
+    overrideHash: rebuilt.overrideResult.overrideSet.hash
+  });
   return {
     report,
+    repairPatch,
+    overrideSet: rebuilt.overrideResult.overrideSet,
+    taskStatusReport: rebuilt.reviewResult.taskStatusReport,
+    reviewTasks: rebuilt.reviewResult.reviewTasks
+  };
+}
+
+async function applyWorkbenchDiffRepairRollback(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const overrideSet = await readJson(resolve(artifactDir, "override_set.json"));
+  const repairPatch = await readJson(resolve(artifactDir, "repair_patch.json"));
+  const requestedOverrideId = stringValue(body.overrideId);
+  const overrideId = requestedOverrideId ?? stringValue(repairPatch.overrideId);
+  if (!overrideId) throw new Error("Missing repair override id.");
+  if (requestedOverrideId && requestedOverrideId !== repairPatch.overrideId) {
+    throw new Error(`Repair patch belongs to ${repairPatch.overrideId}, not ${requestedOverrideId}.`);
+  }
+  if (repairPatch.status !== "applied") throw new Error("Repair patch is not currently applied.");
+  const rollback = repairPatch.rollback ?? {};
+  const rollbackType = stringValue(rollback.type);
+  if (!rollbackType) throw new Error("Repair patch does not include rollback metadata.");
+
+  const now = new Date().toISOString();
+  const previousTaskStatusReport = await readOptionalJson(resolve(artifactDir, "task_status_report.json"), {});
+  const nextOverrideSet = clone(overrideSet);
+  nextOverrideSet.version = Number.isFinite(nextOverrideSet.version) ? nextOverrideSet.version + 1 : 1;
+  nextOverrideSet.overrides = Array.isArray(nextOverrideSet.overrides) ? nextOverrideSet.overrides : [];
+  const existingIndex = nextOverrideSet.overrides.findIndex((entry) => entry.id === overrideId);
+  if (existingIndex < 0) throw new Error(`Override not found: ${overrideId}`);
+
+  if (rollbackType === "restore_override") {
+    if (!rollback.override) throw new Error("Repair patch restore override is missing.");
+    nextOverrideSet.overrides[existingIndex] = {
+      ...clone(rollback.override),
+      updatedAt: now
+    };
+  } else if (rollbackType === "disable_override") {
+    nextOverrideSet.overrides[existingIndex] = {
+      ...nextOverrideSet.overrides[existingIndex],
+      status: "disabled",
+      updatedAt: now
+    };
+  } else {
+    throw new Error(`Unsupported rollback type: ${rollbackType}`);
+  }
+
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, nextOverrideSet, now);
+  const report = {
+    version: "0.1.0",
+    generatedAt: now,
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    overrideId,
+    rollbackType,
+    beforeOpenTasks: previousTaskStatusReport.open,
+    afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
+    overrideHash: rebuilt.overrideResult.overrideSet.hash
+  };
+  const rolledBackPatch = {
+    ...repairPatch,
+    status: "rolled_back",
+    rolledBackAt: now,
+    rollbackReport: report
+  };
+  await writeJson(resolve(artifactDir, "repair_patch.json"), rolledBackPatch);
+  await writeJson(resolve(artifactDir, "diff_repair_rollback_report.json"), report);
+  await writeJson(resolve(artifactDir, "workbench_diff_repair_rollback_report.json"), report);
+  await appendRepairIterationLog(artifactDir, {
+    event: "rolled_back",
+    generatedAt: now,
+    overrideId,
+    rollbackType,
+    beforeOpenTasks: previousTaskStatusReport.open,
+    afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
+    overrideHash: rebuilt.overrideResult.overrideSet.hash
+  });
+  return {
+    report,
+    repairPatch: rolledBackPatch,
     overrideSet: rebuilt.overrideResult.overrideSet,
     taskStatusReport: rebuilt.reviewResult.taskStatusReport,
     reviewTasks: rebuilt.reviewResult.reviewTasks
@@ -660,6 +782,17 @@ async function writeCodegenReviewArtifacts(artifactDir, result) {
     ...result.generatedFiles.map((file) => writeText(resolve(artifactDir, "generated", file.path), file.content)),
     ...result.filePatches.map((patch) => writeText(resolve(artifactDir, patch.patchPath), patch.patch))
   ]);
+}
+
+async function appendRepairIterationLog(artifactDir, entry) {
+  const logPath = resolve(artifactDir, "repair_iteration_log.json");
+  const existing = await readOptionalJson(logPath, { version: "0.1.0", iterations: [] });
+  const iterations = Array.isArray(existing.iterations) ? existing.iterations : [];
+  await writeJson(logPath, {
+    version: existing.version ?? "0.1.0",
+    updatedAt: entry.generatedAt,
+    iterations: [...iterations, entry]
+  });
 }
 
 function buildOverrideFromAction({ task, action, actionIndex, actor, now }) {

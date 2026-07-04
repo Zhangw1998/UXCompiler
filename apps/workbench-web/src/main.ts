@@ -34,6 +34,7 @@ interface AppState {
   pendingStudioOperation?: string;
   pendingCodegenOperation?: string;
   pendingDiffRepair?: string;
+  pendingDiffRollback?: string;
   codegenProjectPath?: string;
 }
 
@@ -72,6 +73,8 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "staleOverrideReport", files: ["stale_override_report.json"] },
   { key: "overrideConflictReport", files: ["override_conflict_report.json"] },
   { key: "visualDiffReport", files: ["visual_diff_report.json", "diff/visual_diff_report.json"] },
+  { key: "diffRepairReport", files: ["workbench_diff_repair_report.json", "diff_repair_report.json"] },
+  { key: "repairPatch", files: ["repair_patch.json"] },
   { key: "flutterPreviewCaptureReport", files: ["flutter_preview_capture_report.json"] },
   { key: "fidelityGenerationManifest", files: ["fidelity_generation_manifest.json"] }
 ];
@@ -1015,6 +1018,11 @@ function renderDiffSummary(): string {
   const threshold = asRecord(page.threshold);
   const issues = asArray(report.issues).map(asRecord);
   const canRepair = state.artifactRoot !== "selected directory";
+  const repairPatch = asRecord(state.artifacts.repairPatch);
+  const repairPatchRollback = asRecord(repairPatch.rollback);
+  const rollbackOverrideId = stringFrom(repairPatch.overrideId);
+  const canRollback = canRepair && stringFrom(repairPatch.status) === "applied" && Boolean(rollbackOverrideId) && Boolean(stringFrom(repairPatchRollback.type));
+  const rollbackPending = state.pendingDiffRollback === (rollbackOverrideId ?? "last");
   const pageRepairPending = state.pendingDiffRepair === "page_frame_fallback:page";
   return `
     <div class="diff-summary">
@@ -1031,6 +1039,13 @@ function renderDiffSummary(): string {
           ${canRepair && !pageRepairPending ? "" : "disabled"}
         >
           ${escapeHtml(pageRepairPending ? "Repairing..." : "Use Frame Fallback")}
+        </button>
+        <button
+          class="action-button action-button--secondary"
+          data-diff-rollback="${escapeAttr(rollbackOverrideId ?? "")}"
+          ${canRollback && !rollbackPending ? "" : "disabled"}
+        >
+          ${escapeHtml(rollbackPending ? "Rolling Back..." : "Rollback Repair")}
         </button>
       </div>
       <div class="status-list">
@@ -1342,6 +1357,12 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const diffRollbackButton = target.closest<HTMLButtonElement>("[data-diff-rollback]");
+  if (diffRollbackButton) {
+    void applyDiffRollback(diffRollbackButton.dataset.diffRollback);
+    return;
+  }
+
   const modeButton = target.closest<HTMLElement>("[data-preview-mode]");
   if (modeButton?.dataset.previewMode) {
     state.previewMode = modeButton.dataset.previewMode as PreviewMode;
@@ -1592,6 +1613,45 @@ async function applyDiffRepair(repairKind: string, issueId: string | undefined):
     };
   } finally {
     state.pendingDiffRepair = undefined;
+    render();
+  }
+}
+
+async function applyDiffRollback(overrideId: string | undefined): Promise<void> {
+  const pendingKey = overrideId || "last";
+  state.pendingDiffRollback = pendingKey;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const response = await fetch("/api/workbench/diff-repair-rollback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        artifactRoot: state.artifactRoot,
+        overrideId,
+        actor: "user"
+      })
+    });
+    const result = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      report?: { overrideId?: string; afterOpenTasks?: number };
+    };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Diff repair rollback failed with ${response.status}`);
+    }
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.actionMessage = {
+      tone: "good",
+      text: `Rolled back ${result.report?.overrideId ?? "diff repair"}; ${result.report?.afterOpenTasks ?? state.model?.reviewSummary.open ?? 0} tasks remain.`
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingDiffRollback = undefined;
     render();
   }
 }
