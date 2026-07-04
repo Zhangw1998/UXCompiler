@@ -184,6 +184,49 @@ assert.equal(invalid.overrideMutations.length, 0);
 assert.ok(invalid.validationReport.issues.some((issue) => issue.code === "invalid_component"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.code === "invalid_i18n_key"));
 
+const sequentialApprove = applyStudioOperations({
+  ...input,
+  operations: [
+    {
+      id: "seq_approve_card",
+      kind: "approve_component",
+      componentId: "cmp_seq_card",
+      name: "SeqCard",
+      instances: ["1:5"],
+      allowSingleUse: true,
+      reason: "Approve a single-use component in the first Studio operation."
+    },
+    {
+      id: "seq_non_i18n",
+      kind: "mark_non_i18n",
+      messageKey: "subtitle",
+      reason: "Keep non-i18n state across later Studio operations."
+    }
+  ]
+});
+assert.equal(sequentialApprove.validationReport.issues.length, 0);
+const sequentialProp = applyStudioOperations({
+  ...input,
+  overrideSet: sequentialApprove.overrideSet,
+  operations: [
+    {
+      id: "seq_card_title_prop",
+      kind: "define_component_prop",
+      componentId: "cmp_seq_card",
+      prop: {
+        name: "title",
+        type: "text",
+        sourceSelector: "sourceNodeId:1:3"
+      },
+      reason: "Add a prop in a later Studio operation."
+    }
+  ]
+});
+const sequentialComponent = sequentialProp.componentRegistry.components.find((candidate) => candidate.id === "cmp_seq_card");
+assert.equal(sequentialComponent.name, "SeqCard");
+assert.equal(sequentialComponent.props[0].name, "title");
+assert.ok(!sequentialProp.finalI18nManifest.messages.some((message) => message.key === "subtitle"));
+
 writeFileSync(operationsPath, `${JSON.stringify(operations, null, 2)}\n`);
 execFileSync(
   "node",

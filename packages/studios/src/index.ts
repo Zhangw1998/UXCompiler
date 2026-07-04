@@ -35,8 +35,8 @@ export function applyStudioOperations(input: ApplyStudioOperationsInput): Studio
   const validOperationIds: string[] = [];
   const rejectedOperationIds: string[] = [];
   const mutations: UxOverride[] = [];
-  const componentRegistry: ComponentRegistry = { version: "0.1.0", components: [] };
-  const nonI18n = new Set<string>();
+  const componentRegistry = componentRegistryFromOverrides(baseOverrideSet);
+  const nonI18n = nonI18nFromOverrides(input.i18nManifest, baseOverrideSet);
 
   for (const operation of input.operations) {
     const operationId = operation.id ?? operationFingerprint(operation);
@@ -210,6 +210,43 @@ function applyComponentRegistryOperation(registry: ComponentRegistry, operation:
     const component = ensureComponent(registry, operation.componentId);
     component.flutter = operation.flutter;
   }
+}
+
+function componentRegistryFromOverrides(overrideSet: OverrideSet): ComponentRegistry {
+  const registry: ComponentRegistry = { version: "0.1.0", components: [] };
+  for (const override of overrideSet.overrides) {
+    if (override.status !== "active") continue;
+    if (
+      override.type !== "component_candidate_override" &&
+      override.type !== "component_prop_override" &&
+      override.type !== "component_variant_override" &&
+      override.type !== "flutter_component_mapping_override"
+    ) {
+      continue;
+    }
+    const operation = override.payload as unknown;
+    if (isStudioOperation(operation)) applyComponentRegistryOperation(registry, operation);
+  }
+  return registry;
+}
+
+function nonI18nFromOverrides(manifest: I18nManifest, overrideSet: OverrideSet): Set<string> {
+  const keys = new Set<string>();
+  for (const override of overrideSet.overrides) {
+    if (override.status !== "active" || override.type !== "i18n_key_override") continue;
+    if (typeof override.payload.nonI18nReason !== "string" || override.payload.nonI18nReason.length === 0) continue;
+    const message = findMessage(manifest, {
+      messageKey: typeof override.target.messageKey === "string" ? override.target.messageKey : undefined,
+      sourceNodeId: typeof override.target.sourceNodeId === "string" ? override.target.sourceNodeId : undefined
+    });
+    const key = message?.key ?? (typeof override.payload.key === "string" ? override.payload.key : undefined);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+function isStudioOperation(value: unknown): value is StudioOperation {
+  return typeof value === "object" && value !== null && "kind" in value && typeof (value as { kind?: unknown }).kind === "string";
 }
 
 function toOverride(

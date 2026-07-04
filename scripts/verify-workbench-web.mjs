@@ -225,6 +225,96 @@ try {
   assert.equal(finalArb.loginTitle, "Welcome back");
   assert.equal(reviewedArb.loginTitle, "Welcome back");
 
+  const componentApproveResponse = await fetch(`${base}/api/workbench/studio-operation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_component_approve",
+        kind: "approve_component",
+        componentId: "cmp_workbench_submit",
+        name: "WorkbenchSubmit",
+        instances: ["1:12"],
+        allowSingleUse: true,
+        reason: "Verify Workbench Component Studio approval writeback."
+      }
+    })
+  });
+  assert.equal(componentApproveResponse.ok, true);
+  const componentApproveResult = await componentApproveResponse.json();
+  assert.equal(componentApproveResult.ok, true);
+  assert.deepEqual(componentApproveResult.report.overrideIds, ["ovr_studio_verify_component_approve"]);
+
+  const componentPropResponse = await fetch(`${base}/api/workbench/studio-operation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_component_prop",
+        kind: "define_component_prop",
+        componentId: "cmp_workbench_submit",
+        prop: { name: "label", type: "text", sourceSelector: "sourceNodeId:1:14" },
+        reason: "Verify Workbench Component Studio prop writeback."
+      }
+    })
+  });
+  assert.equal(componentPropResponse.ok, true);
+  const componentPropResult = await componentPropResponse.json();
+  assert.equal(componentPropResult.ok, true);
+  assert.deepEqual(componentPropResult.report.overrideIds, ["ovr_studio_verify_component_prop"]);
+
+  const componentVariantResponse = await fetch(`${base}/api/workbench/studio-operation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_component_variant",
+        kind: "define_component_variant",
+        componentId: "cmp_workbench_submit",
+        variant: { name: "state", values: ["default", "disabled"] },
+        reason: "Verify Workbench Component Studio variant writeback."
+      }
+    })
+  });
+  assert.equal(componentVariantResponse.ok, true);
+  const componentVariantResult = await componentVariantResponse.json();
+  assert.equal(componentVariantResult.ok, true);
+  assert.deepEqual(componentVariantResult.report.overrideIds, ["ovr_studio_verify_component_variant"]);
+
+  const componentMappingResponse = await fetch(`${base}/api/workbench/studio-operation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_component_mapping",
+        kind: "map_flutter_component",
+        componentId: "cmp_workbench_submit",
+        flutter: {
+          import: "package:app/ui/workbench_submit.dart",
+          constructor: "WorkbenchSubmit.primary",
+          props: { label: { from: "prop.label", i18n: true } }
+        },
+        reason: "Verify Workbench Component Studio Flutter mapping writeback."
+      }
+    })
+  });
+  assert.equal(componentMappingResponse.ok, true);
+  const componentMappingResult = await componentMappingResponse.json();
+  assert.equal(componentMappingResult.ok, true);
+  assert.deepEqual(componentMappingResult.report.overrideIds, ["ovr_studio_verify_component_mapping"]);
+  const componentRegistry = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/component_registry.json`);
+  const componentOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  const workbenchSubmit = findComponentById(componentRegistry, "cmp_workbench_submit");
+  assert.equal(componentOverrideSet.overrides.length, 9);
+  assert.equal(workbenchSubmit.name, "WorkbenchSubmit");
+  assert.equal(workbenchSubmit.props[0].sourceSelector, "sourceNodeId:1:14");
+  assert.equal(workbenchSubmit.variants[0].values.includes("disabled"), true);
+  assert.equal(workbenchSubmit.flutter.constructor, "WorkbenchSubmit.primary");
+
   const projectPath = resolve(root, "target-flutter-project");
   const codegenReviewResponse = await fetch(`${base}/api/workbench/codegen-review`, {
     method: "POST",
@@ -288,7 +378,7 @@ try {
   const issueRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const issueRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   assert.equal(issueRepairReport.repairKind, "issue_asset_slice");
-  assert.equal(issueRepairOverrideSet.overrides.length, 6);
+  assert.equal(issueRepairOverrideSet.overrides.length, 10);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_page"), true);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_verify_region"), false);
 
@@ -307,7 +397,7 @@ try {
   assert.equal(pageRepairResult.report.overrideId, "ovr_diff_page_frame_fallback");
   const pageRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const pageRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(pageRepairOverrideSet.overrides.length, 7);
+  assert.equal(pageRepairOverrideSet.overrides.length, 11);
   assert.equal(pageRepairTasks.some((task) => task.type === "visual_diff_failed"), false);
 
   console.log("workbench-web verification passed");
@@ -427,4 +517,8 @@ function findAssetById(manifest, id) {
 
 function findMessageByKey(manifest, key) {
   return manifest.messages.find((message) => message.key === key);
+}
+
+function findComponentById(registry, id) {
+  return registry.components.find((component) => component.id === id);
 }

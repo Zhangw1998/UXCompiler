@@ -93,6 +93,7 @@ const layoutOptions = ["column", "row", "grid", "stack", "absolute", "leaf"];
 const renderOptions = ["semantic_widget", "semantic_layout", "absolute_widget", "custom_painter", "asset_slice", "hybrid_region", "ignore"];
 const assetStrategyOptions = ["real_text", "svg_icon", "image_asset", "decorative_slice", "custom_painter", "ignored"];
 const assetFormatOptions = ["", "svg", "png", "webp", "jpg"];
+const componentPropTypeOptions = ["text", "asset", "boolean", "number", "slot", "enum"];
 
 let objectUrls: string[] = [];
 const initialArtifactRoot = new URLSearchParams(window.location.search).get("artifacts") ?? "/artifacts/sample";
@@ -528,6 +529,13 @@ function renderComponents(model: WorkbenchModel): string {
   const normalized = asRecord(state.artifacts.reviewedNormalizedDesignIR ?? state.artifacts.normalizedDesignIR);
   const registry = asRecord(state.artifacts.componentRegistry);
   const components = asArray(registry.components ?? normalized.components).map(asRecord);
+  const selected = selectedTreeRow(model);
+  const selectedSources = selected?.sourceNodeIds.length ? selected.sourceNodeIds.join(", ") : "";
+  const defaultComponentId = selected ? `cmp_${safeId(selected.name || selected.id)}` : "cmp_reviewed_component";
+  const defaultComponentName = pascalCase(selected?.name ?? "ReviewedComponent");
+  const canApplyStudio = state.artifactRoot !== "selected directory";
+  const createPending = state.pendingStudioOperation === "approve_component:create";
+  const rejectPending = state.pendingStudioOperation === "reject_component:create";
   return `
     <section class="view-header">
       <div>
@@ -535,11 +543,54 @@ function renderComponents(model: WorkbenchModel): string {
         <p>${model.componentCount} components</p>
       </div>
     </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="panel">
+      <div class="panel-header">
+        <h2>Create / Review Component</h2>
+        <span>${selected ? escapeHtml(selected.name) : "manual"}</span>
+      </div>
+      <div class="component-create-grid" data-studio-row>
+        <label>
+          <span>ID</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-id" value="${escapeAttr(defaultComponentId)}" ${canApplyStudio ? "" : "disabled"} />
+        </label>
+        <label>
+          <span>Name</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-name" value="${escapeAttr(defaultComponentName)}" ${canApplyStudio ? "" : "disabled"} />
+        </label>
+        <label class="component-field--wide">
+          <span>Instances</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-instances" value="${escapeAttr(selectedSources)}" placeholder="1:12, 1:13" ${canApplyStudio ? "" : "disabled"} />
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" data-studio-field="component-allow-single" ${canApplyStudio ? "" : "disabled"} />
+          <span>Allow single-use</span>
+        </label>
+        <div class="component-actions">
+          <button
+            class="table-action"
+            data-studio-operation="approve_component"
+            data-studio-key="approve_component:create"
+            ${canApplyStudio && !createPending ? "" : "disabled"}
+          >
+            ${escapeHtml(createPending ? "Saving..." : "Approve")}
+          </button>
+          <button
+            class="table-action table-action--danger"
+            data-studio-operation="reject_component"
+            data-studio-key="reject_component:create"
+            ${canApplyStudio && !rejectPending ? "" : "disabled"}
+          >
+            ${escapeHtml(rejectPending ? "Saving..." : "Reject")}
+          </button>
+        </div>
+      </div>
+    </section>
+    <section class="component-list">
       ${
         components.length === 0
           ? renderEmpty("No component registry entries are present yet.")
-          : `<div class="item-grid">${components.map((component) => renderObjectCard(component, "name", "id")).join("")}</div>`
+          : components.map((component) => renderComponentEditor(component, canApplyStudio)).join("")
       }
     </section>
   `;
@@ -1049,6 +1100,73 @@ function renderObjectCard(record: JsonRecord, primaryKey: string, secondaryKey: 
   `;
 }
 
+function renderComponentEditor(component: JsonRecord, enabled: boolean): string {
+  const componentId = stringFrom(component.id) ?? "";
+  const name = stringFrom(component.name) ?? componentId;
+  const source = stringFrom(component.source) ?? "-";
+  const instances = asArray(component.instances).map((entry) => stringFrom(entry)).filter(Boolean).join(", ");
+  const props = asArray(component.props).map(asRecord);
+  const variants = asArray(component.variants).map(asRecord);
+  const flutter = asRecord(component.flutter);
+  return `
+    <article class="panel component-editor" data-studio-row data-component-id="${escapeAttr(componentId)}">
+      <div class="panel-header">
+        <h2>${escapeHtml(name || "Component")}</h2>
+        <span>${escapeHtml(source)} · ${escapeHtml(instances || "no instances")}</span>
+      </div>
+      <div class="component-editor-grid">
+        <label>
+          <span>Prop</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-prop-name" value="${escapeAttr(stringFrom(props[0]?.name) ?? "label")}" ${enabled ? "" : "disabled"} />
+        </label>
+        <label>
+          <span>Type</span>
+          <select class="studio-input" data-studio-field="component-prop-type" ${enabled ? "" : "disabled"}>
+            ${componentPropTypeOptions.map((option) => `<option value="${option}" ${option === (stringFrom(props[0]?.type) ?? "text") ? "selected" : ""}>${option}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          <span>Source Selector</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-prop-selector" value="${escapeAttr(stringFrom(props[0]?.sourceSelector) ?? "")}" placeholder="sourceNodeId:1:14" ${enabled ? "" : "disabled"} />
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" data-studio-field="component-prop-optional" ${props[0]?.optional === true ? "checked" : ""} ${enabled ? "" : "disabled"} />
+          <span>Optional</span>
+        </label>
+        <button class="table-action" data-studio-operation="define_component_prop" data-studio-key="define_component_prop:${escapeAttr(componentId)}" ${enabled && state.pendingStudioOperation !== `define_component_prop:${componentId}` ? "" : "disabled"}>
+          ${escapeHtml(state.pendingStudioOperation === `define_component_prop:${componentId}` ? "Saving..." : "Save Prop")}
+        </button>
+        <label>
+          <span>Variant</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-variant-name" value="${escapeAttr(stringFrom(variants[0]?.name) ?? "state")}" ${enabled ? "" : "disabled"} />
+        </label>
+        <label class="component-field--wide">
+          <span>Values</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-variant-values" value="${escapeAttr(asArray(variants[0]?.values).map((entry) => stringFrom(entry)).filter(Boolean).join(", ") || "default, selected")}" ${enabled ? "" : "disabled"} />
+        </label>
+        <button class="table-action" data-studio-operation="define_component_variant" data-studio-key="define_component_variant:${escapeAttr(componentId)}" ${enabled && state.pendingStudioOperation !== `define_component_variant:${componentId}` ? "" : "disabled"}>
+          ${escapeHtml(state.pendingStudioOperation === `define_component_variant:${componentId}` ? "Saving..." : "Save Variant")}
+        </button>
+        <label class="component-field--wide">
+          <span>Flutter Import</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-flutter-import" value="${escapeAttr(stringFrom(flutter.import) ?? "")}" placeholder="package:app/ui/component.dart" ${enabled ? "" : "disabled"} />
+        </label>
+        <label>
+          <span>Constructor</span>
+          <input class="studio-input studio-input--wide" data-studio-field="component-flutter-constructor" value="${escapeAttr(stringFrom(flutter.constructor) ?? "")}" placeholder="AppButton.primary" ${enabled ? "" : "disabled"} />
+        </label>
+        <label class="component-field--wide">
+          <span>Props JSON</span>
+          <textarea class="studio-input studio-input--wide studio-input--textarea" data-studio-field="component-flutter-props" ${enabled ? "" : "disabled"}>${escapeHtml(JSON.stringify(asRecord(flutter.props), null, 2))}</textarea>
+        </label>
+        <button class="table-action" data-studio-operation="map_flutter_component" data-studio-key="map_flutter_component:${escapeAttr(componentId)}" ${enabled && state.pendingStudioOperation !== `map_flutter_component:${componentId}` ? "" : "disabled"}>
+          ${escapeHtml(state.pendingStudioOperation === `map_flutter_component:${componentId}` ? "Saving..." : "Save Mapping")}
+        </button>
+      </div>
+    </article>
+  `;
+}
+
 function renderTokenRow(token: JsonRecord, group: string, enabled: boolean): string {
   const value = tokenValue(token);
   const color = stringFrom(token.value);
@@ -1452,6 +1570,86 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
   const row = button.closest<HTMLElement>("[data-studio-row]");
   if (!kind || !row) throw new Error("Missing Studio operation target.");
   const reason = "Reviewed in Workbench Studio.";
+  if (kind === "approve_component") {
+    const componentId = studioFieldValue(row, "component-id").trim();
+    const name = studioFieldValue(row, "component-name").trim();
+    const instances = splitList(studioFieldValue(row, "component-instances"));
+    const allowSingleUse = studioCheckedValue(row, "component-allow-single");
+    if (!componentId || !name) throw new Error("Component approval requires an ID and name.");
+    if (instances.length === 0) throw new Error("Component approval requires at least one instance.");
+    return {
+      id: `workbench_approve_component_${safeId(componentId)}_${safeId(name)}`,
+      kind,
+      componentId,
+      name,
+      instances,
+      allowSingleUse,
+      reason
+    };
+  }
+  if (kind === "reject_component") {
+    const componentId = studioFieldValue(row, "component-id").trim();
+    if (!componentId) throw new Error("Component rejection requires an ID.");
+    return {
+      id: `workbench_reject_component_${safeId(componentId)}`,
+      kind,
+      componentId,
+      reason
+    };
+  }
+  if (kind === "define_component_prop") {
+    const componentId = button.closest<HTMLElement>("[data-component-id]")?.dataset.componentId ?? "";
+    const name = studioFieldValue(row, "component-prop-name").trim();
+    const type = studioFieldValue(row, "component-prop-type");
+    const sourceSelector = studioFieldValue(row, "component-prop-selector").trim();
+    if (!componentId || !name || !sourceSelector) throw new Error("Component prop requires a component, name, and source selector.");
+    return {
+      id: `workbench_component_prop_${safeId(componentId)}_${safeId(name)}`,
+      kind,
+      componentId,
+      prop: {
+        name,
+        type,
+        sourceSelector,
+        optional: studioCheckedValue(row, "component-prop-optional")
+      },
+      reason
+    };
+  }
+  if (kind === "define_component_variant") {
+    const componentId = button.closest<HTMLElement>("[data-component-id]")?.dataset.componentId ?? "";
+    const name = studioFieldValue(row, "component-variant-name").trim();
+    const values = splitList(studioFieldValue(row, "component-variant-values"));
+    if (!componentId || !name || values.length === 0) throw new Error("Component variant requires a component, name, and values.");
+    return {
+      id: `workbench_component_variant_${safeId(componentId)}_${safeId(name)}`,
+      kind,
+      componentId,
+      variant: {
+        name,
+        values
+      },
+      reason
+    };
+  }
+  if (kind === "map_flutter_component") {
+    const componentId = button.closest<HTMLElement>("[data-component-id]")?.dataset.componentId ?? "";
+    const importPath = studioFieldValue(row, "component-flutter-import").trim();
+    const constructorName = studioFieldValue(row, "component-flutter-constructor").trim();
+    const propsText = studioFieldValue(row, "component-flutter-props").trim();
+    if (!componentId || !importPath || !constructorName) throw new Error("Flutter mapping requires a component, import, and constructor.");
+    return {
+      id: `workbench_component_flutter_${safeId(componentId)}_${safeId(constructorName)}`,
+      kind,
+      componentId,
+      flutter: {
+        import: importPath,
+        constructor: constructorName,
+        ...(propsText ? { props: parseJsonObject(propsText, "Flutter props JSON") } : {})
+      },
+      reason
+    };
+  }
   if (kind === "rename_token") {
     const tokenType = button.dataset.tokenType ?? "";
     const from = button.dataset.tokenName ?? "";
@@ -1552,8 +1750,26 @@ function codegenResultMessage(operation: string, report: { gateStatus?: string; 
 }
 
 function studioFieldValue(row: HTMLElement, fieldName: string): string {
-  const field = row.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-studio-field='${fieldName}']`);
+  const field = row.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[data-studio-field='${fieldName}']`);
   return field?.value ?? "";
+}
+
+function studioCheckedValue(row: HTMLElement, fieldName: string): boolean {
+  const field = row.querySelector<HTMLInputElement>(`[data-studio-field='${fieldName}']`);
+  return field?.checked ?? false;
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(/[,\n]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parseJsonObject(value: string, label: string): Record<string, unknown> {
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object.`);
+  return parsed as Record<string, unknown>;
 }
 
 function tokenTypeForGroup(group: string): string {
@@ -1599,6 +1815,12 @@ function selectedTreeRow(model: WorkbenchModel): WorkbenchModel["treeRows"][numb
     return model.treeRows.find((row) => row.sourceNodeIds.includes(selectedSourceNodeId));
   }
   return model.treeRows.find((row) => row.depth > 0) ?? model.treeRows[0];
+}
+
+function pascalCase(value: string): string {
+  const words = value.match(/[a-zA-Z0-9]+/g) ?? ["Component"];
+  const result = words.map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join("");
+  return /^[A-Z]/.test(result) ? result : `Component${result}`;
 }
 
 function tokenValue(token: JsonRecord): string {
