@@ -114,7 +114,7 @@ function assetTasks(input: GenerateReviewTasksInput): ReviewTask[] {
     const asset = warning.sourceNodeId ? assetsByNode.get(warning.sourceNodeId) : undefined;
     const priority: ReviewTaskPriority = warning.type === "decorative_slice_contains_text" ? "P0" : "P2";
     return makeTask({
-      id: taskId("asset", warning.sourceNodeId ?? warning.type),
+      id: taskId("asset", `${warning.sourceNodeId ?? "global"}_${warning.type}`),
       type: priority === "P0" ? "resource_export_failed" : "asset_strategy_uncertain",
       priority,
       target: {

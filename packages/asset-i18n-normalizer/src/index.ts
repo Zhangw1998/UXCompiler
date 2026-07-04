@@ -62,6 +62,7 @@ export function normalizeAssetsAndI18n(canonicalScene: CanonicalScene, locale = 
     }
 
     if (node.flags.recommendAssetSlice) {
+      const textDescendants = visibleTextDescendants(node);
       assets.push({
         id: `asset_${safeId(node.sourceNodeId)}`,
         sourceNodeId: node.sourceNodeId,
@@ -77,6 +78,15 @@ export function normalizeAssetsAndI18n(canonicalScene: CanonicalScene, locale = 
         type: "decorative_slice_candidate",
         message: "Complex visual node requires later asset export or Studio confirmation."
       });
+      if (textDescendants.length > 0) {
+        assetWarnings.push({
+          sourceNodeId: node.sourceNodeId,
+          type: "decorative_slice_contains_text",
+          message: `Decorative slice "${node.sourceName}" contains visible Text descendants: ${textDescendants
+            .map((textNode) => `${textNode.sourceName} (${textNode.sourceNodeId})`)
+            .join(", ")}. Confirm the text remains editable/i18n or explicitly exclude it from the slice.`
+        });
+      }
       return;
     }
 
@@ -127,6 +137,22 @@ export function normalizeAssetsAndI18n(canonicalScene: CanonicalScene, locale = 
 function walk(node: CanonicalNode, visit: (node: CanonicalNode) => void): void {
   visit(node);
   for (const child of node.children) walk(child, visit);
+}
+
+function visibleTextDescendants(node: CanonicalNode): CanonicalNode[] {
+  const descendants: CanonicalNode[] = [];
+  for (const child of node.children) {
+    collectVisibleText(child, descendants);
+  }
+  return descendants;
+}
+
+function collectVisibleText(node: CanonicalNode, descendants: CanonicalNode[]): void {
+  if (node.flags.isInvisible || node.flags.isZeroSize) return;
+  if (node.canonicalType === "text" && (node.text?.content?.trim() ?? "").length > 0) {
+    descendants.push(node);
+  }
+  for (const child of node.children) collectVisibleText(child, descendants);
 }
 
 function renderArb(manifest: I18nManifest): Record<string, unknown> {

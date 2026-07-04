@@ -23,6 +23,7 @@ try {
   const rawFigmaScene = JSON.parse(readFileSync("examples/fixtures/login_raw_figma_scene.json", "utf8"));
   const imageSourceNodeId = "smoke:asset:1";
   const sliceSourceNodeId = "smoke:slice:1";
+  const sliceTextSourceNodeId = "smoke:slice:text";
   rawFigmaScene.root.children.push({
     id: imageSourceNodeId,
     name: "Smoke Bitmap",
@@ -34,11 +35,29 @@ try {
   rawFigmaScene.root.children.push({
     id: sliceSourceNodeId,
     name: "Smoke Blur Slice",
-    type: "RECTANGLE",
+    type: "FRAME",
     visible: true,
-    absoluteBoundingBox: { x: 28, y: 12, width: 8, height: 8 },
+    absoluteBoundingBox: { x: 28, y: 12, width: 80, height: 24 },
     fills: [{ type: "SOLID", visible: true, color: { r: 0.4, g: 0.8, b: 0.2 } }],
-    effects: [{ type: "LAYER_BLUR", visible: true, radius: 2 }]
+    effects: [{ type: "LAYER_BLUR", visible: true, radius: 2 }],
+    children: [
+      {
+        id: sliceTextSourceNodeId,
+        name: "Smoke Slice Text",
+        type: "TEXT",
+        visible: true,
+        absoluteBoundingBox: { x: 32, y: 16, width: 56, height: 12 },
+        characters: "Do not slice",
+        style: {
+          fontFamily: "Inter",
+          fontSize: 12,
+          fontWeight: 500,
+          lineHeightPx: 14,
+          textAlignHorizontal: "LEFT"
+        },
+        fills: [{ type: "SOLID", visible: true, color: { r: 0, g: 0, b: 0 } }]
+      }
+    ]
   });
   const response = await fetch("http://127.0.0.1:8799/api/snapshots", {
     method: "POST",
@@ -111,11 +130,28 @@ try {
   const diffReport = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/visual_diff_report.json"), "utf8"));
   assert.ok(diffReport.environment.fonts.length > 0, "Expected visual diff font metadata");
   assert.match(diffReport.environment.flutterVersion, /^Flutter /);
+  const assetManifest = JSON.parse(readFileSync(resolve(result.artifactDir, "asset_manifest.json"), "utf8"));
+  assert.ok(
+    assetManifest.warnings.some(
+      (warning) => warning.sourceNodeId === sliceSourceNodeId && warning.type === "decorative_slice_contains_text"
+    ),
+    "Expected decorative slice text warning"
+  );
   const reviewTasks = JSON.parse(readFileSync(resolve(result.artifactDir, "review_tasks.json"), "utf8"));
   const taskStatusReport = JSON.parse(readFileSync(resolve(result.artifactDir, "task_status_report.json"), "utf8"));
   const overrideSet = JSON.parse(readFileSync(resolve(result.artifactDir, "override_set.json"), "utf8"));
   assert.match(overrideSet.hash, /^sha256_[a-f0-9]{64}$/);
   assert.ok(reviewTasks.some((task) => task.type === "visual_diff_failed"));
+  assert.ok(
+    reviewTasks.some(
+      (task) =>
+        task.type === "resource_export_failed" &&
+        task.priority === "P0" &&
+        task.target?.sourceNodeIds?.includes(sliceSourceNodeId) &&
+        task.evidence?.warningType === "decorative_slice_contains_text"
+    ),
+    "Expected P0 task for decorative slice containing text"
+  );
   assert.ok(taskStatusReport.codegenWriteBlocked);
   assert.ok(taskStatusReport.byPriority.P0 > 0);
 
