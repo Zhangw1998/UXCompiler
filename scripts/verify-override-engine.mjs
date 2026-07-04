@@ -36,6 +36,7 @@ writeFileSync(
         ),
         override("ovr_i18n_title", "i18n_key_override", { kind: "i18n_message", messageKey: "title" }, { key: "loginTitle" }),
         override("ovr_token_radius", "token_rename_override", { kind: "token", tokenName: "radius_18" }, { from: "radius_18", to: "radius_cta" }),
+        override("ovr_font_inter", "font_mapping_override", { kind: "token", tokenName: "text_body" }, { fromFamily: "System", fallbackFamily: "Inter" }),
         override("ovr_stale", "naming_override", { kind: "normalized_node", normalizedNodeId: "missing_node" }, { name: "Missing" }),
         override("ovr_conflict_a", "naming_override", { kind: "normalized_node", normalizedNodeId: "n_1_4" }, { name: "SubtitleA" }),
         override("ovr_conflict_b", "naming_override", { kind: "normalized_node", normalizedNodeId: "n_1_4" }, { name: "SubtitleB" })
@@ -103,6 +104,8 @@ assert.ok(i18nManifest.messages.some((message) => message.key === "loginTitle" &
 assert.equal(arb.loginTitle, "Welcome back");
 assert.ok(tokens.radii.some((token) => token.name === "radius_cta" && token.confidence === 1));
 assert.match(overrideSet.hash, /^sha256_[a-f0-9]{64}$/);
+assert.ok(stale.appliedOverrideIds.includes("ovr_font_inter"));
+assert.ok(conflicts.warnings.some((entry) => entry.overrideId === "ovr_font_inter" && entry.type === "configuration_override"));
 assert.ok(stale.staleOverrides.some((entry) => entry.overrideId === "ovr_stale"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_name_title"));
 assert.ok(reviewTasks.some((task) => task.type === "stale_override" && task.evidence.overrideId === "ovr_stale"));

@@ -8,6 +8,7 @@ export type ReviewTaskType =
   | "asset_strategy_uncertain"
   | "i18n_key_uncertain"
   | "visual_diff_failed"
+  | "font_missing"
   | "stale_override"
   | "flutter_analyze_failed"
   | "resource_export_failed"

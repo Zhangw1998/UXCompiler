@@ -1702,6 +1702,7 @@ async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: Pipeli
     layoutCandidates: artifacts.layoutCandidates,
     layoutDecisions: artifacts.layoutDecisions,
     inferredTokens: overrideResult.reviewedInferredTokens,
+    tokenConfidenceReport: artifacts.tokenConfidenceReport,
     assetManifest: overrideResult.reviewedAssetManifest,
     i18nManifest: overrideResult.reviewedI18nManifest,
     fidelityGenerationManifest: artifacts.fidelityGenerationManifest,

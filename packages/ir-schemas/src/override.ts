@@ -15,6 +15,7 @@ export type OverrideType =
   | "asset_strategy_override"
   | "i18n_key_override"
   | "flutter_component_mapping_override"
+  | "font_mapping_override"
   | "text_calibration_override"
   | "ignore_node_override";
 

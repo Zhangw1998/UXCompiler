@@ -14,6 +14,7 @@ import type {
   ReviewTaskSuggestedAction,
   ReviewTaskType,
   StaleOverrideReport,
+  TokenConfidenceReport,
   VisualDiffReport
 } from "@uxcompiler/ir-schemas";
 
@@ -22,6 +23,7 @@ export interface GenerateReviewTasksInput {
   layoutCandidates: LayoutCandidate[];
   layoutDecisions: LayoutDecision[];
   inferredTokens: InferredTokens;
+  tokenConfidenceReport?: TokenConfidenceReport;
   assetManifest: AssetManifest;
   i18nManifest: I18nManifest;
   fidelityGenerationManifest: FidelityGenerationManifest;
@@ -36,6 +38,7 @@ export function generateReviewTasks(input: GenerateReviewTasksInput): ReviewTask
     ...layoutTasks(input),
     ...assetTasks(input),
     ...fidelityTasks(input),
+    ...fontTasks(input),
     ...tokenTasks(input),
     ...i18nTasks(input),
     ...staleOverrideTasks(input),
@@ -244,6 +247,85 @@ function fidelityTasks(input: GenerateReviewTasksInput): ReviewTask[] {
   });
 }
 
+function fontTasks(input: GenerateReviewTasksInput): ReviewTask[] {
+  const tasks: ReviewTask[] = [];
+  for (const warning of input.tokenConfidenceReport?.warnings ?? []) {
+    if (warning.type !== "missing_font" && warning.type !== "no_typography") continue;
+    tasks.push(
+      makeTask({
+        id: taskId("font_missing", `${warning.type}_${warning.sourceNodeIds?.join("_") ?? warning.message}`),
+        type: "font_missing",
+        priority: "P1",
+        target: {
+          sourceNodeIds: warning.sourceNodeIds
+        },
+        title: "Map missing text font",
+        description: warning.type === "no_typography" ? "No typography samples were discovered; configure a font mapping before trusting text fidelity." : warning.message,
+        confidence: 0.25,
+        evidence: {
+          warningType: warning.type,
+          message: warning.message,
+          sourceNodeIds: warning.sourceNodeIds
+        },
+        suggestedActions: [
+          {
+            label: "Configure font mapping",
+            override: {
+              type: "font_mapping_override",
+              payload: {
+                sourceNodeIds: warning.sourceNodeIds,
+                fallbackFamily: "Inter"
+              },
+              reason: "Missing or unknown text fonts should be mapped before final fidelity validation."
+            }
+          }
+        ]
+      })
+    );
+  }
+
+  for (const token of input.inferredTokens.typography) {
+    if (!isMissingFontFamily(token.fontFamily)) continue;
+    tasks.push(
+      makeTask({
+        id: taskId("font_missing", token.name),
+        type: "font_missing",
+        priority: "P1",
+        target: {
+          tokenName: token.name,
+          sourceNodeIds: token.sourceNodeIds
+        },
+        title: "Map missing text font",
+        description: `Typography token ${token.name} uses ${token.fontFamily || "an unknown font family"}; configure a project font mapping.`,
+        confidence: token.confidence,
+        evidence: {
+          tokenName: token.name,
+          fontFamily: token.fontFamily,
+          fontSize: token.fontSize,
+          fontWeight: token.fontWeight,
+          lineHeight: token.lineHeight
+        },
+        suggestedActions: [
+          {
+            label: "Map font family",
+            override: {
+              type: "font_mapping_override",
+              payload: {
+                tokenName: token.name,
+                sourceNodeIds: token.sourceNodeIds,
+                fromFamily: token.fontFamily || "unknown",
+                fallbackFamily: "Inter"
+              },
+              reason: "Map missing design fonts to an available project font."
+            }
+          }
+        ]
+      })
+    );
+  }
+  return tasks;
+}
+
 function tokenTasks(input: GenerateReviewTasksInput): ReviewTask[] {
   const candidates = [
     ...input.inferredTokens.colors.map((token) => ({ kind: "color", name: token.name, confidence: token.confidence, sourceNodeIds: token.sourceNodeIds })),
@@ -282,6 +364,11 @@ function tokenTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         ]
       })
     );
+}
+
+function isMissingFontFamily(fontFamily: string): boolean {
+  const normalized = fontFamily.trim().toLowerCase();
+  return !normalized || normalized === "system" || normalized === "unknown" || normalized === "missing";
 }
 
 function i18nTasks(input: GenerateReviewTasksInput): ReviewTask[] {

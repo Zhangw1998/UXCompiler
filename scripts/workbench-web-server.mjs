@@ -295,6 +295,7 @@ async function applyReviewTaskAction(body) {
   const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
   const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
   const inferredTokens = await readJson(resolve(artifactDir, "inferred_tokens.json"));
+  const tokenConfidenceReport = await readOptionalJson(resolve(artifactDir, "token_confidence_report.json"), undefined);
   const layoutCandidates = await readOptionalJson(resolve(artifactDir, "layout_candidates.json"), []);
   const layoutDecisions = await readOptionalJson(resolve(artifactDir, "layout_decisions.json"), []);
   const fidelityGenerationManifest = await readOptionalJson(resolve(artifactDir, "fidelity_generation_manifest.json"), {
@@ -322,6 +323,7 @@ async function applyReviewTaskAction(body) {
     layoutCandidates,
     layoutDecisions,
     inferredTokens: overrideResult.reviewedInferredTokens,
+    tokenConfidenceReport,
     assetManifest: overrideResult.reviewedAssetManifest,
     i18nManifest: overrideResult.reviewedI18nManifest,
     fidelityGenerationManifest,
@@ -856,6 +858,7 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedP
   const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
   const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
   const inferredTokens = await readJson(resolve(artifactDir, "inferred_tokens.json"));
+  const tokenConfidenceReport = await readOptionalJson(resolve(artifactDir, "token_confidence_report.json"), undefined);
   const layoutCandidates = await readOptionalJson(resolve(artifactDir, "layout_candidates.json"), []);
   const layoutDecisions = await readOptionalJson(resolve(artifactDir, "layout_decisions.json"), []);
   const fidelityGenerationManifest = await readOptionalJson(resolve(artifactDir, "fidelity_generation_manifest.json"), {
@@ -887,6 +890,7 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedP
     layoutCandidates,
     layoutDecisions,
     inferredTokens: reviewedInferredTokens,
+    tokenConfidenceReport,
     assetManifest: reviewedAssetManifest,
     i18nManifest: reviewedI18nManifest,
     fidelityGenerationManifest,

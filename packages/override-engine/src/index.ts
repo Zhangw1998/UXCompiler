@@ -55,6 +55,7 @@ const overrideOrder: OverrideType[] = [
   "asset_strategy_override",
   "i18n_key_override",
   "flutter_component_mapping_override",
+  "font_mapping_override",
   "text_calibration_override"
 ];
 
@@ -182,6 +183,14 @@ function applyOne(context: {
       return;
     case "token_split_override":
       applyTokenSplit(context);
+      return;
+    case "font_mapping_override":
+      context.warnings.push({
+        overrideId: override.id,
+        type: "configuration_override",
+        message: "font_mapping_override is recorded as project preview configuration for downstream renderers."
+      });
+      context.appliedOverrideIds.push(override.id);
       return;
     case "component_candidate_override":
     case "component_prop_override":

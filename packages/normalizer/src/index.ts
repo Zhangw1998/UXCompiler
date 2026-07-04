@@ -35,6 +35,7 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     layoutCandidates: layoutResult.layoutCandidates,
     layoutDecisions: layoutResult.layoutDecisions,
     inferredTokens: overrideResult.reviewedInferredTokens,
+    tokenConfidenceReport: tokenResult.confidenceReport,
     assetManifest: overrideResult.reviewedAssetManifest,
     i18nManifest: overrideResult.reviewedI18nManifest,
     fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest,
