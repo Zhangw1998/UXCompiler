@@ -323,7 +323,14 @@ function buildGateStatus(options: {
   const { input } = options;
 
   for (const task of input.reviewTasks ?? []) {
-    if (task.status === "open" && task.priority === "P0") {
+    if (task.status === "open" && task.type === "stale_override") {
+      blockers.push({
+        type: "stale_override_unresolved",
+        message: task.title,
+        taskId: task.id,
+        priority: task.priority
+      });
+    } else if (task.status === "open" && task.priority === "P0") {
       blockers.push({
         type: "blocking_review_task",
         message: task.title,
@@ -333,6 +340,18 @@ function buildGateStatus(options: {
     } else if (task.status === "open") {
       warnings.push({ type: "open_review_task", message: `${task.priority} task remains open: ${task.title}` });
     }
+  }
+  const staleTaskIds = new Set(
+    (input.reviewTasks ?? [])
+      .filter((task) => task.type === "stale_override")
+      .map((task) => String(task.evidence?.overrideId ?? task.id))
+  );
+  for (const staleOverride of input.staleOverrideReport?.staleOverrides ?? []) {
+    if (staleTaskIds.has(staleOverride.overrideId)) continue;
+    blockers.push({
+      type: "stale_override_unresolved",
+      message: `Stale override ${staleOverride.overrideId} must be reviewed before codegen write.`
+    });
   }
 
   if (input.taskStatusReport?.codegenWriteBlocked) {

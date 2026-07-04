@@ -67,6 +67,26 @@ const formatBlocked = createCodegenReview({
 assert.equal(formatBlocked.codegenReview.gates.status, "blocked");
 assert.ok(formatBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "dart_format_failed"));
 
+const staleBlocked = createCodegenReview({
+  ...input,
+  reviewTasks: [
+    {
+      id: "task_incremental_remap_ovr_title",
+      type: "stale_override",
+      priority: "P1",
+      target: { sourceNodeIds: ["2:3"] },
+      title: "Confirm remapped override",
+      description: "A low-confidence incremental remap needs review before codegen write.",
+      confidence: 0.62,
+      evidence: { overrideId: "ovr_title" },
+      suggestedActions: [],
+      status: "open"
+    }
+  ]
+});
+assert.equal(staleBlocked.codegenReview.gates.status, "blocked");
+assert.ok(staleBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "stale_override_unresolved"));
+
 execFileSync(
   "node",
   [

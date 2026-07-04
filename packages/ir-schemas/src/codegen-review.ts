@@ -56,6 +56,7 @@ export interface CodegenGateIssue {
     | "visual_diff_failed"
     | "dart_format_failed"
     | "flutter_analyze_failed"
+    | "stale_override_unresolved"
     | "asset_missing_path"
     | "i18n_missing_key"
     | "manual_file_conflict";

@@ -680,6 +680,21 @@ try {
   assert.equal(reappliedOverrides.some((entry) => entry.overrideId === "ovr_tree_verify_rename_title"), true);
   assert.equal(staleOverrides.length > 0, true);
   assert.equal(reviewTasksAfterSync.some((task) => task.id.startsWith("task_incremental_remap_")), true);
+  const staleGateResponse = await fetch(`${base}/api/workbench/codegen-review`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      projectPath,
+      allowLowVisualScore: true
+    })
+  });
+  assert.equal(staleGateResponse.ok, true);
+  const staleGateResult = await staleGateResponse.json();
+  assert.equal(staleGateResult.ok, true);
+  assert.equal(staleGateResult.report.gateStatus, "blocked");
+  const staleGateReview = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/codegen_review.json`);
+  assert.equal(staleGateReview.gates.blockers.some((blocker) => blocker.type === "stale_override_unresolved"), true);
 
   console.log("workbench-web verification passed");
 } finally {
