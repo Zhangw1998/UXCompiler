@@ -5,6 +5,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import { applyOverrides } from "../packages/override-engine/dist/index.js";
 import { generateReviewTasks } from "../packages/review-task-engine/dist/index.js";
+import { applyStudioOperations } from "../packages/studios/dist/index.js";
 import { applyTreeEdits } from "../packages/tree-editor/dist/index.js";
 
 const args = parseArgs(process.argv.slice(2));
@@ -75,6 +76,20 @@ const server = createServer(async (request, response) => {
       }
       const body = await readJsonBody(request);
       const result = await applyWorkbenchTreeEdit(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workbench/studio-operation") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyWorkbenchStudioOperation(body);
       sendJson(response, 200, {
         ok: true,
         ...result
@@ -315,7 +330,77 @@ async function applyWorkbenchTreeEdit(body) {
   };
 }
 
-async function rebuildReviewedArtifacts(artifactDir, overrideSet, now) {
+async function applyWorkbenchStudioOperation(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const operation = body.operation;
+  const actor = stringValue(body.actor) ?? "user";
+  if (!operation || typeof operation !== "object" || Array.isArray(operation)) {
+    throw new Error("Missing Studio operation.");
+  }
+
+  const nowValue = new Date();
+  const now = nowValue.toISOString();
+  const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
+  const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
+  const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
+  const inferredTokens = await readJson(resolve(artifactDir, "inferred_tokens.json"));
+  const overrideSet = await readJson(resolve(artifactDir, "override_set.json"));
+  const result = applyStudioOperations({
+    normalizedDesignIR,
+    assetManifest,
+    i18nManifest,
+    inferredTokens,
+    overrideSet,
+    operations: [operation],
+    actor: actor === "agent" || actor === "system" ? actor : "user",
+    now: () => nowValue
+  });
+  if (result.validationReport.rejectedOperationIds.length > 0 || result.overrideMutations.length === 0) {
+    const message = result.validationReport.issues.map((issue) => issue.message).join("; ") || "Studio operation was rejected.";
+    throw new Error(message);
+  }
+
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, result.overrideSet, now, {
+    reviewedAssetManifest: result.finalAssetManifest,
+    reviewedI18nManifest: result.finalI18nManifest,
+    reviewedArbFile: result.finalArbFile
+  });
+  const report = {
+    version: "0.1.0",
+    generatedAt: now,
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    operation,
+    overrideIds: result.overrideMutations.map((override) => override.id),
+    validationReport: result.validationReport,
+    afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
+    overrideHash: rebuilt.overrideResult.overrideSet.hash,
+    componentCount: result.componentRegistry.components.length,
+    tokenCount: result.tokenRegistry.tokens.length
+  };
+
+  await writeJson(resolve(artifactDir, "studio_report.json"), {
+    version: result.version,
+    generatedAt: now,
+    operations: result.operations,
+    validationReport: result.validationReport,
+    overrideMutations: result.overrideMutations
+  });
+  await writeJson(resolve(artifactDir, "component_registry.json"), result.componentRegistry);
+  await writeJson(resolve(artifactDir, "token_registry.json"), result.tokenRegistry);
+  await writeJson(resolve(artifactDir, "final_asset_manifest.json"), result.finalAssetManifest);
+  await writeJson(resolve(artifactDir, "final_i18n_manifest.json"), result.finalI18nManifest);
+  await writeJson(resolve(artifactDir, "arb/app_en.arb"), result.finalArbFile);
+  await writeJson(resolve(artifactDir, "workbench_studio_action_report.json"), report);
+
+  return {
+    report,
+    overrideSet: rebuilt.overrideResult.overrideSet,
+    taskStatusReport: rebuilt.reviewResult.taskStatusReport,
+    reviewTasks: rebuilt.reviewResult.reviewTasks
+  };
+}
+
+async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedPatch = {}) {
   const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
   const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
   const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
@@ -341,24 +426,29 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now) {
     inferredTokens,
     overrideSet
   });
+  const reviewedNormalizedDesignIR = reviewedPatch.reviewedNormalizedDesignIR ?? overrideResult.reviewedNormalizedDesignIR;
+  const reviewedAssetManifest = reviewedPatch.reviewedAssetManifest ?? overrideResult.reviewedAssetManifest;
+  const reviewedI18nManifest = reviewedPatch.reviewedI18nManifest ?? overrideResult.reviewedI18nManifest;
+  const reviewedInferredTokens = reviewedPatch.reviewedInferredTokens ?? overrideResult.reviewedInferredTokens;
+  const reviewedArbFile = reviewedPatch.reviewedArbFile ?? overrideResult.reviewedArbFile;
   const reviewResult = generateReviewTasks({
-    normalizedDesignIR: overrideResult.reviewedNormalizedDesignIR,
+    normalizedDesignIR: reviewedNormalizedDesignIR,
     layoutCandidates,
     layoutDecisions,
-    inferredTokens: overrideResult.reviewedInferredTokens,
-    assetManifest: overrideResult.reviewedAssetManifest,
-    i18nManifest: overrideResult.reviewedI18nManifest,
+    inferredTokens: reviewedInferredTokens,
+    assetManifest: reviewedAssetManifest,
+    i18nManifest: reviewedI18nManifest,
     fidelityGenerationManifest,
     staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
     flutterCapture: flutterCapture ? { status: flutterCapture.status, reason: flutterCapture.reason } : undefined
   });
   await writeJson(resolve(artifactDir, "override_set.json"), overrideResult.overrideSet);
-  await writeJson(resolve(artifactDir, "reviewed_normalized_design_ir.json"), overrideResult.reviewedNormalizedDesignIR);
-  await writeJson(resolve(artifactDir, "reviewed_asset_manifest.json"), overrideResult.reviewedAssetManifest);
-  await writeJson(resolve(artifactDir, "reviewed_i18n_manifest.json"), overrideResult.reviewedI18nManifest);
-  await writeJson(resolve(artifactDir, "reviewed_inferred_tokens.json"), overrideResult.reviewedInferredTokens);
-  await writeJson(resolve(artifactDir, "reviewed_arb/app_en.arb"), overrideResult.reviewedArbFile);
+  await writeJson(resolve(artifactDir, "reviewed_normalized_design_ir.json"), reviewedNormalizedDesignIR);
+  await writeJson(resolve(artifactDir, "reviewed_asset_manifest.json"), reviewedAssetManifest);
+  await writeJson(resolve(artifactDir, "reviewed_i18n_manifest.json"), reviewedI18nManifest);
+  await writeJson(resolve(artifactDir, "reviewed_inferred_tokens.json"), reviewedInferredTokens);
+  await writeJson(resolve(artifactDir, "reviewed_arb/app_en.arb"), reviewedArbFile);
   await writeJson(resolve(artifactDir, "override_conflict_report.json"), overrideResult.overrideConflictReport);
   await writeJson(resolve(artifactDir, "stale_override_report.json"), overrideResult.staleOverrideReport);
   await writeJson(resolve(artifactDir, "review_tasks.json"), reviewResult.reviewTasks);

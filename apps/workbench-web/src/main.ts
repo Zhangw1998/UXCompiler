@@ -31,6 +31,7 @@ interface AppState {
   actionMessage?: { tone: "good" | "warn" | "bad"; text: string };
   pendingAction?: string;
   pendingTreeOperation?: string;
+  pendingStudioOperation?: string;
 }
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
@@ -52,10 +53,15 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "overrideSet", files: ["override_set.json"] },
   { key: "reviewedInferredTokens", files: ["reviewed_inferred_tokens.json"] },
   { key: "inferredTokens", files: ["inferred_tokens.json"] },
+  { key: "tokenRegistry", files: ["token_registry.json"] },
+  { key: "finalAssetManifest", files: ["final_asset_manifest.json"] },
   { key: "reviewedAssetManifest", files: ["reviewed_asset_manifest.json"] },
   { key: "assetManifest", files: ["asset_manifest.json"] },
+  { key: "finalI18nManifest", files: ["final_i18n_manifest.json"] },
   { key: "reviewedI18nManifest", files: ["reviewed_i18n_manifest.json"] },
   { key: "i18nManifest", files: ["i18n_manifest.json"] },
+  { key: "componentRegistry", files: ["component_registry.json"] },
+  { key: "studioReport", files: ["studio_report.json"] },
   { key: "codegenReview", files: ["codegen_review.json"] },
   { key: "nodeRemapReport", files: ["node_remap_report.json"] },
   { key: "staleOverrideReport", files: ["stale_override_report.json"] },
@@ -80,6 +86,8 @@ const navItems: Array<{ id: ViewId; label: string }> = [
 
 const layoutOptions = ["column", "row", "grid", "stack", "absolute", "leaf"];
 const renderOptions = ["semantic_widget", "semantic_layout", "absolute_widget", "custom_painter", "asset_slice", "hybrid_region", "ignore"];
+const assetStrategyOptions = ["real_text", "svg_icon", "image_asset", "decorative_slice", "custom_painter", "ignored"];
+const assetFormatOptions = ["", "svg", "png", "webp", "jpg"];
 
 let objectUrls: string[] = [];
 const initialArtifactRoot = new URLSearchParams(window.location.search).get("artifacts") ?? "/artifacts/sample";
@@ -509,7 +517,8 @@ function renderTree(model: WorkbenchModel): string {
 
 function renderComponents(model: WorkbenchModel): string {
   const normalized = asRecord(state.artifacts.reviewedNormalizedDesignIR ?? state.artifacts.normalizedDesignIR);
-  const components = asArray(normalized.components).map(asRecord);
+  const registry = asRecord(state.artifacts.componentRegistry);
+  const components = asArray(registry.components ?? normalized.components).map(asRecord);
   return `
     <section class="view-header">
       <div>
@@ -530,6 +539,7 @@ function renderComponents(model: WorkbenchModel): string {
 function renderTokens(model: WorkbenchModel): string {
   const tokens = asRecord(state.artifacts.reviewedInferredTokens ?? state.artifacts.inferredTokens ?? asRecord(state.artifacts.reviewedNormalizedDesignIR).tokens);
   const groups = ["colors", "spacing", "typography", "radii", "shadows"];
+  const canApplyStudio = state.artifactRoot !== "selected directory";
   return `
     <section class="view-header">
       <div>
@@ -537,6 +547,7 @@ function renderTokens(model: WorkbenchModel): string {
         <p>${Object.values(model.tokenCounts).reduce((sum, count) => sum + count, 0)} tokens</p>
       </div>
     </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="token-layout">
       ${groups
         .map((group) => {
@@ -548,7 +559,7 @@ function renderTokens(model: WorkbenchModel): string {
                 <span>${entries.length}</span>
               </div>
               <div class="token-list">
-                ${entries.length === 0 ? renderEmpty("Empty") : entries.map(renderTokenRow).join("")}
+                ${entries.length === 0 ? renderEmpty("Empty") : entries.map((entry) => renderTokenRow(entry, group, canApplyStudio)).join("")}
               </div>
             </div>
           `;
@@ -559,8 +570,9 @@ function renderTokens(model: WorkbenchModel): string {
 }
 
 function renderAssets(model: WorkbenchModel): string {
-  const manifest = asRecord(state.artifacts.reviewedAssetManifest ?? state.artifacts.assetManifest);
+  const manifest = asRecord(state.artifacts.finalAssetManifest ?? state.artifacts.reviewedAssetManifest ?? state.artifacts.assetManifest);
   const assets = asArray(manifest.assets).map(asRecord);
+  const canApplyStudio = state.artifactRoot !== "selected directory";
   return `
     <section class="view-header">
       <div>
@@ -568,21 +580,53 @@ function renderAssets(model: WorkbenchModel): string {
         <p>${model.assetCount} asset decisions</p>
       </div>
     </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="panel table-panel">
       <table class="data-table">
-        <thead><tr><th>ID</th><th>Source</th><th>Strategy</th><th>Path</th><th>Confidence</th></tr></thead>
+        <thead><tr><th>ID</th><th>Source</th><th>Current</th><th>Write Strategy</th><th>Path</th><th>Format</th><th>Confidence</th><th>Action</th></tr></thead>
         <tbody>
           ${assets
             .map(
-              (asset) => `
-                <tr data-node-id="${escapeAttr(stringFrom(asset.sourceNodeId) ?? "")}">
+              (asset) => {
+                const assetId = stringFrom(asset.id) ?? "";
+                const sourceNodeId = stringFrom(asset.sourceNodeId) ?? "";
+                const currentStrategy = stringFrom(asset.strategy) ?? "";
+                const defaultStrategy = assetStrategyOptions.includes(currentStrategy) ? currentStrategy : "image_asset";
+                const format = stringFrom(asset.format) ?? "";
+                const pendingKey = `set_asset_strategy:${assetId || sourceNodeId}`;
+                const isPending = state.pendingStudioOperation === pendingKey;
+                return `
+                <tr data-node-id="${escapeAttr(sourceNodeId)}" data-studio-row>
                   <td>${escapeHtml(stringFrom(asset.id) ?? "-")}</td>
                   <td>${escapeHtml(stringFrom(asset.sourceName) ?? stringFrom(asset.sourceNodeId) ?? "-")}</td>
-                  <td>${escapeHtml(stringFrom(asset.strategy) ?? "-")}</td>
-                  <td>${escapeHtml(stringFrom(asset.path) ?? "-")}</td>
+                  <td>${escapeHtml(currentStrategy || "-")}</td>
+                  <td>
+                    <select class="studio-input" data-studio-field="asset-strategy" ${canApplyStudio ? "" : "disabled"}>
+                      ${assetStrategyOptions.map((option) => `<option value="${option}" ${option === defaultStrategy ? "selected" : ""}>${option}</option>`).join("")}
+                    </select>
+                  </td>
+                  <td><input class="studio-input studio-input--wide" data-studio-field="asset-path" value="${escapeAttr(stringFrom(asset.path) ?? "")}" ${canApplyStudio ? "" : "disabled"} /></td>
+                  <td>
+                    <select class="studio-input" data-studio-field="asset-format" ${canApplyStudio ? "" : "disabled"}>
+                      ${assetFormatOptions.map((option) => `<option value="${option}" ${option === format ? "selected" : ""}>${option || "-"}</option>`).join("")}
+                    </select>
+                  </td>
                   <td>${formatConfidence(numberFrom(asset.confidence))}</td>
+                  <td>
+                    <button
+                      class="table-action"
+                      data-studio-operation="set_asset_strategy"
+                      data-studio-key="${escapeAttr(pendingKey)}"
+                      data-asset-id="${escapeAttr(assetId)}"
+                      data-source-node-id="${escapeAttr(sourceNodeId)}"
+                      ${canApplyStudio && !isPending ? "" : "disabled"}
+                    >
+                      ${escapeHtml(isPending ? "Saving..." : "Save")}
+                    </button>
+                  </td>
                 </tr>
-              `
+              `;
+              }
             )
             .join("")}
         </tbody>
@@ -592,8 +636,9 @@ function renderAssets(model: WorkbenchModel): string {
 }
 
 function renderI18n(model: WorkbenchModel): string {
-  const manifest = asRecord(state.artifacts.reviewedI18nManifest ?? state.artifacts.i18nManifest);
+  const manifest = asRecord(state.artifacts.finalI18nManifest ?? state.artifacts.reviewedI18nManifest ?? state.artifacts.i18nManifest);
   const messages = asArray(manifest.messages).map(asRecord);
+  const canApplyStudio = state.artifactRoot !== "selected directory";
   return `
     <section class="view-header">
       <div>
@@ -601,20 +646,40 @@ function renderI18n(model: WorkbenchModel): string {
         <p>${model.i18nCount} messages · ${escapeHtml(stringFrom(manifest.locale) ?? "locale")}</p>
       </div>
     </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="panel table-panel">
       <table class="data-table">
-        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th></tr></thead>
+        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Action</th></tr></thead>
         <tbody>
           ${messages
             .map(
-              (message) => `
-                <tr data-node-id="${escapeAttr(stringFrom(message.sourceNodeId) ?? "")}">
-                  <td>${escapeHtml(stringFrom(message.key) ?? "-")}</td>
+              (message) => {
+                const key = stringFrom(message.key) ?? "";
+                const sourceNodeId = stringFrom(message.sourceNodeId) ?? "";
+                const pendingKey = `rename_i18n_key:${sourceNodeId || key}`;
+                const isPending = state.pendingStudioOperation === pendingKey;
+                return `
+                <tr data-node-id="${escapeAttr(sourceNodeId)}" data-studio-row>
+                  <td><input class="studio-input studio-input--wide" data-studio-field="i18n-key" value="${escapeAttr(key)}" ${canApplyStudio ? "" : "disabled"} /></td>
                   <td>${escapeHtml(stringFrom(message.value) ?? "-")}</td>
                   <td>${escapeHtml(stringFrom(message.sourceNodeId) ?? "-")}</td>
                   <td>${formatConfidence(numberFrom(message.confidence))}</td>
+                  <td>
+                    <button
+                      class="table-action"
+                      data-studio-operation="rename_i18n_key"
+                      data-studio-key="${escapeAttr(pendingKey)}"
+                      data-message-key="${escapeAttr(key)}"
+                      data-source-node-id="${escapeAttr(sourceNodeId)}"
+                      data-description="${escapeAttr(stringFrom(message.description) ?? "")}"
+                      ${canApplyStudio && !isPending ? "" : "disabled"}
+                    >
+                      ${escapeHtml(isPending ? "Saving..." : "Save")}
+                    </button>
+                  </td>
                 </tr>
-              `
+              `;
+              }
             )
             .join("")}
         </tbody>
@@ -901,16 +966,30 @@ function renderObjectCard(record: JsonRecord, primaryKey: string, secondaryKey: 
   `;
 }
 
-function renderTokenRow(token: JsonRecord): string {
+function renderTokenRow(token: JsonRecord, group: string, enabled: boolean): string {
   const value = tokenValue(token);
   const color = stringFrom(token.value);
   const swatch = color?.startsWith("#") ? `<span class="swatch" style="background:${cssColor(color)}"></span>` : "";
+  const name = stringFrom(token.name) ?? "token";
+  const tokenType = tokenTypeForGroup(group);
+  const pendingKey = `rename_token:${tokenType}:${name}`;
+  const isPending = state.pendingStudioOperation === pendingKey;
   return `
-    <div class="token-row">
+    <div class="token-row" data-studio-row>
       ${swatch}
-      <strong>${escapeHtml(stringFrom(token.name) ?? "token")}</strong>
+      <input class="studio-input studio-input--wide" data-studio-field="token-name" value="${escapeAttr(name)}" ${enabled ? "" : "disabled"} />
       <span>${escapeHtml(value)}</span>
       <em>${formatConfidence(numberFrom(token.confidence))}</em>
+      <button
+        class="table-action"
+        data-studio-operation="rename_token"
+        data-studio-key="${escapeAttr(pendingKey)}"
+        data-token-type="${escapeAttr(tokenType)}"
+        data-token-name="${escapeAttr(name)}"
+        ${enabled && !isPending ? "" : "disabled"}
+      >
+        ${escapeHtml(isPending ? "Saving..." : "Save")}
+      </button>
     </div>
   `;
 }
@@ -967,12 +1046,20 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const studioOperationButton = target.closest<HTMLButtonElement>("[data-studio-operation]");
+  if (studioOperationButton?.dataset.studioOperation) {
+    void applyStudioOperation(studioOperationButton);
+    return;
+  }
+
   const modeButton = target.closest<HTMLElement>("[data-preview-mode]");
   if (modeButton?.dataset.previewMode) {
     state.previewMode = modeButton.dataset.previewMode as PreviewMode;
     render();
     return;
   }
+
+  if (target.closest("input, select, textarea")) return;
 
   const nodeTarget = target.closest<HTMLElement>("[data-node-id]");
   const nodeId = nodeTarget?.dataset.nodeId;
@@ -1071,6 +1158,57 @@ async function applyTreeOperation(kind: string): Promise<void> {
   }
 }
 
+async function applyStudioOperation(button: HTMLButtonElement): Promise<void> {
+  const operationKind = button.dataset.studioOperation ?? "";
+  const pendingKey = button.dataset.studioKey ?? operationKind;
+  let operation: Record<string, unknown>;
+  try {
+    operation = buildStudioOperation(button);
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+    render();
+    return;
+  }
+  state.pendingStudioOperation = pendingKey;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const response = await fetch("/api/workbench/studio-operation", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        artifactRoot: state.artifactRoot,
+        operation,
+        actor: "user"
+      })
+    });
+    const result = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      report?: { overrideIds?: string[]; afterOpenTasks?: number };
+    };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Studio operation failed with ${response.status}`);
+    }
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.actionMessage = {
+      tone: "good",
+      text: `Saved ${result.report?.overrideIds?.join(", ") ?? "studio override"}; ${result.report?.afterOpenTasks ?? state.model?.reviewSummary.open ?? 0} tasks remain.`
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingStudioOperation = undefined;
+    render();
+  }
+}
+
 function buildTreeOperation(kind: string, selected: WorkbenchModel["treeRows"][number], target: Record<string, string>, reason: string): Record<string, unknown> {
   const operationId = `workbench_${kind}_${safeId(selected.id)}`;
   const safeReason = reason || "Reviewed in Workbench Tree Editor.";
@@ -1115,6 +1253,76 @@ function buildTreeOperation(kind: string, selected: WorkbenchModel["treeRows"][n
 function treeOperationTarget(selected: WorkbenchModel["treeRows"][number]): Record<string, string> {
   const sourceNodeId = selected.sourceNodeIds[0];
   return sourceNodeId ? { sourceNodeId } : { normalizedNodeId: selected.id };
+}
+
+function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown> {
+  const kind = button.dataset.studioOperation;
+  const row = button.closest<HTMLElement>("[data-studio-row]");
+  if (!kind || !row) throw new Error("Missing Studio operation target.");
+  const reason = "Reviewed in Workbench Studio.";
+  if (kind === "rename_token") {
+    const tokenType = button.dataset.tokenType ?? "";
+    const from = button.dataset.tokenName ?? "";
+    const to = studioFieldValue(row, "token-name").trim();
+    if (!tokenType || !from || !to) throw new Error("Token rename requires a token type and name.");
+    if (from === to) throw new Error("Token name is unchanged.");
+    return {
+      id: `workbench_rename_token_${safeId(tokenType)}_${safeId(from)}_${safeId(to)}`,
+      kind,
+      tokenType,
+      from,
+      to,
+      reason
+    };
+  }
+  if (kind === "set_asset_strategy") {
+    const assetId = button.dataset.assetId ?? "";
+    const sourceNodeId = button.dataset.sourceNodeId ?? "";
+    const strategy = studioFieldValue(row, "asset-strategy");
+    const format = studioFieldValue(row, "asset-format");
+    const path = studioFieldValue(row, "asset-path").trim();
+    if (!assetId && !sourceNodeId) throw new Error("Asset strategy requires an asset or source node target.");
+    if (!strategy) throw new Error("Asset strategy is missing.");
+    return {
+      id: `workbench_asset_strategy_${safeId(assetId || sourceNodeId)}_${safeId(strategy)}_${safeId(path || format || "default")}`,
+      kind,
+      ...(assetId ? { assetId } : { sourceNodeId }),
+      strategy,
+      ...(format ? { format } : {}),
+      ...(path ? { path } : {}),
+      reason
+    };
+  }
+  if (kind === "rename_i18n_key") {
+    const messageKey = button.dataset.messageKey ?? "";
+    const sourceNodeId = button.dataset.sourceNodeId ?? "";
+    const key = studioFieldValue(row, "i18n-key").trim();
+    if (!messageKey && !sourceNodeId) throw new Error("i18n rename requires a message or source node target.");
+    if (!key) throw new Error("i18n key is missing.");
+    return {
+      id: `workbench_rename_i18n_${safeId(sourceNodeId || messageKey)}_${safeId(key)}`,
+      kind,
+      ...(messageKey ? { messageKey } : {}),
+      ...(sourceNodeId ? { sourceNodeId } : {}),
+      key,
+      description: button.dataset.description || undefined,
+      reason
+    };
+  }
+  throw new Error(`Unsupported Studio operation: ${kind}`);
+}
+
+function studioFieldValue(row: HTMLElement, fieldName: string): string {
+  const field = row.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-studio-field='${fieldName}']`);
+  return field?.value ?? "";
+}
+
+function tokenTypeForGroup(group: string): string {
+  if (group === "colors") return "color";
+  if (group === "radii") return "radius";
+  if (group === "shadows") return "shadow";
+  if (group === "typography") return "typography";
+  return "spacing";
 }
 
 function inputValue(selector: string): string {

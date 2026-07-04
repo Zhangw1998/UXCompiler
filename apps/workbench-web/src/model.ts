@@ -10,10 +10,15 @@ export interface WorkbenchArtifacts {
   overrideSet?: unknown;
   inferredTokens?: unknown;
   reviewedInferredTokens?: unknown;
+  tokenRegistry?: unknown;
   assetManifest?: unknown;
   reviewedAssetManifest?: unknown;
+  finalAssetManifest?: unknown;
   i18nManifest?: unknown;
   reviewedI18nManifest?: unknown;
+  finalI18nManifest?: unknown;
+  componentRegistry?: unknown;
+  studioReport?: unknown;
   codegenReview?: unknown;
   nodeRemapReport?: unknown;
   staleOverrideReport?: unknown;
@@ -125,9 +130,9 @@ export function buildWorkbenchModel(artifacts: WorkbenchArtifacts): WorkbenchMod
   const tokenCounts = countTokenGroups(tokens);
   const overrideSet = asRecord(artifacts.overrideSet);
   const overrideCount = asArray(overrideSet.overrides).length;
-  const assetManifest = asRecord(artifacts.reviewedAssetManifest ?? artifacts.assetManifest);
-  const i18nManifest = asRecord(artifacts.reviewedI18nManifest ?? artifacts.i18nManifest);
-  const components = asArray(normalized.components);
+  const assetManifest = asRecord(artifacts.finalAssetManifest ?? artifacts.reviewedAssetManifest ?? artifacts.assetManifest);
+  const i18nManifest = asRecord(artifacts.finalI18nManifest ?? artifacts.reviewedI18nManifest ?? artifacts.i18nManifest);
+  const components = asArray(asRecord(artifacts.componentRegistry).components ?? normalized.components);
   const assetCount = asArray(assetManifest.assets).length;
   const i18nCount = asArray(i18nManifest.messages).length;
   const codegen = summarizeCodegen(artifacts.codegenReview, codegenBlocked);
@@ -177,6 +182,7 @@ export function buildWorkbenchModel(artifacts: WorkbenchArtifacts): WorkbenchMod
       artifactStatus("Visual IR", visualNodes.length > 0, `${visualNodes.length} render nodes`),
       artifactStatus("Review Tasks", reviewTasks.length > 0, `${reviewSummary.open} open`),
       artifactStatus("Override Set", Boolean(overrideSet.hash) || overrideCount > 0, `${overrideCount} overrides`),
+      artifactStatus("Studio Review", Boolean(artifacts.studioReport), Boolean(artifacts.studioReport) ? "review applied" : "not applied"),
       artifactStatus("Flutter Preview", preview.hasFlutterPreview, preview.hasFlutterPreview ? "image available" : "missing"),
       artifactStatus("Codegen Review", Boolean(artifacts.codegenReview), codegen.status),
       artifactStatus("Incremental Sync", Boolean(artifacts.nodeRemapReport), `${sync.matches} matches`)

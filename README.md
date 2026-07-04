@@ -285,6 +285,8 @@ When opened through `pnpm workbench:web`, Review Task action buttons can write b
 
 The Tree view also supports local Tree Editor writeback for selected non-root nodes: save a reviewed name, force layout, force render strategy, or ignore the node. These operations run through the headless Tree Editor validator, append structured overrides, rebuild reviewed artifacts, and write `tree_edit_report.json` plus `workbench_tree_edit_action_report.json`.
 
+Token, Asset, and i18n Studio rows can also save local edits when the Workbench is served through `pnpm workbench:web`. Token edits write `rename_token` operations, Asset edits write `set_asset_strategy` operations, and i18n edits write `rename_i18n_key` operations. Successful saves update `override_set.json`, reviewed artifacts, `review_tasks.json`, `task_status_report.json`, Studio registry/final manifest files, `studio_report.json`, and `workbench_studio_action_report.json`.
+
 ## Fetch And Compile A Real Figma Frame
 
 Create a Figma personal access token with file read access, then export it:
