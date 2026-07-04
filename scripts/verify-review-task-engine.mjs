@@ -99,6 +99,37 @@ const mappedFont = generateReviewTasks({
 });
 assert.equal(mappedFont.reviewTasks.some((task) => task.type === "font_missing"), false);
 
+const componentCandidate = generateReviewTasks({
+  ...baseInput,
+  normalizedDesignIR: {
+    ...baseInput.normalizedDesignIR,
+    components: [
+      {
+        componentId: "primary_button",
+        name: "PrimaryButton",
+        sourceInstances: ["button:1", "button:2"],
+        props: [{ name: "label", type: "text", source: "firstText" }],
+        confidence: 0.82,
+        fallback: "generate_separate_widgets"
+      },
+      {
+        componentId: "trusted_card",
+        name: "TrustedCard",
+        sourceInstances: ["card:1", "card:2"],
+        confidence: 0.95
+      }
+    ]
+  }
+});
+const componentTask = componentCandidate.reviewTasks.find((task) => task.type === "low_confidence_component");
+assert.ok(componentTask, "Expected a medium-confidence component candidate to create a review task");
+assert.equal(componentTask.priority, "P1");
+assert.equal(componentTask.target.candidateId, "primary_button");
+assert.deepEqual(componentTask.target.sourceNodeIds, ["button:1", "button:2"]);
+assert.equal(componentTask.suggestedActions[0].override.type, "component_candidate_override");
+assert.equal(componentTask.suggestedActions[0].override.payload.kind, "approve_component");
+assert.equal(componentCandidate.taskStatusReport.byType.low_confidence_component, 1);
+
 console.log("review task engine verification passed");
 
 function emptyTokens() {

@@ -36,6 +36,7 @@ export interface GenerateReviewTasksInput {
 export function generateReviewTasks(input: GenerateReviewTasksInput): ReviewTaskResult {
   const tasks: ReviewTask[] = [
     ...layoutTasks(input),
+    ...componentTasks(input),
     ...assetTasks(input),
     ...fidelityTasks(input),
     ...fontTasks(input),
@@ -109,6 +110,67 @@ function layoutTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         suggestedActions: actions
       });
     });
+}
+
+function componentTasks(input: GenerateReviewTasksInput): ReviewTask[] {
+  return input.normalizedDesignIR.components.flatMap((candidate, index) => {
+    const component = recordValue(candidate);
+    if (!component) return [];
+    const score = numberValue(component.confidence) ?? numberValue(component.similarity) ?? numberValue(component.componentSimilarity);
+    if (score === undefined || score < 0.7 || score >= 0.9) return [];
+    const componentId = stringValue(component.componentId) ?? stringValue(component.id) ?? `component_${index + 1}`;
+    const name = stringValue(component.name) ?? pascalCase(componentId);
+    const instances = stringArrayValue(component.sourceInstances) ?? stringArrayValue(component.instances) ?? [];
+    return [
+      makeTask({
+        id: taskId("component", componentId),
+        type: "low_confidence_component",
+        priority: "P1",
+        target: {
+          candidateId: componentId,
+          sourceNodeIds: instances
+        },
+        title: "Review inferred component candidate",
+        description: `Component candidate ${name} has similarity ${round(score)}; confirm whether it should become a reusable component.`,
+        confidence: score,
+        evidence: {
+          componentId,
+          name,
+          instances,
+          props: component.props,
+          fallback: component.fallback
+        },
+        suggestedActions: [
+          {
+            label: "Approve component",
+            override: {
+              type: "component_candidate_override",
+              payload: {
+                kind: "approve_component",
+                componentId,
+                name,
+                instances,
+                reason: "User confirmed the inferred component candidate."
+              },
+              reason: "Confirmed component candidates are recorded in the Component Studio registry."
+            }
+          },
+          {
+            label: "Reject component",
+            override: {
+              type: "component_candidate_override",
+              payload: {
+                kind: "reject_component",
+                componentId,
+                reason: "User rejected the inferred component candidate."
+              },
+              reason: "Rejected candidates remain as generated separate widgets."
+            }
+          }
+        ]
+      })
+    ];
+  });
 }
 
 function assetTasks(input: GenerateReviewTasksInput): ReviewTask[] {
@@ -613,6 +675,26 @@ function safeId(value: string): string {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function stringArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function pascalCase(value: string): string {
+  const words = value.match(/[a-zA-Z0-9]+/g) ?? ["Component"];
+  const result = words.map((word) => word.slice(0, 1).toUpperCase() + word.slice(1)).join("");
+  return /^[A-Z]/.test(result) ? result : `Component${result}`;
 }
 
 function round(value: number): number {
