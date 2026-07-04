@@ -114,6 +114,7 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "diff/diff_issues.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "diff/diff_heatmap.png")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "pipeline_run_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "preview_artifact.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "local_api_snapshot_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "materialized_assets_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "flutter_preview_analyze_report.json")), true);
@@ -153,6 +154,9 @@ try {
   assert.equal(pipelineRunReport.steps.flutterAnalyze.report, resolve(result.artifactDir, "flutter_preview_analyze_report.json"));
   assert.equal(pipelineRunReport.steps.flutterCapture.status, "success");
   assert.equal(pipelineRunReport.steps.visualDiff.status, "success");
+  const previewArtifact = JSON.parse(readFileSync(resolve(result.artifactDir, "preview_artifact.json"), "utf8"));
+  assert.equal(previewArtifact.files.diffIssues, resolve(result.artifactDir, "diff/diff_issues.json"));
+  assert.equal(previewArtifact.status.visualDiff, "success");
   const diffReport = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/visual_diff_report.json"), "utf8"));
   assert.ok(diffReport.environment.fonts.length > 0, "Expected visual diff font metadata");
   assert.match(diffReport.environment.flutterVersion, /^Flutter /);

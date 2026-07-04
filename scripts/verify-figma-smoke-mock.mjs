@@ -87,6 +87,7 @@ try {
     "flutter_preview.png",
     "diff/visual_diff_report.json",
     "diff/diff_issues.json",
+    "preview_artifact.json",
     "pipeline_run_report.json"
   ];
   for (const file of required) {

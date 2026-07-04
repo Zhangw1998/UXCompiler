@@ -176,6 +176,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
     frameScreenshotPngBase64: body.figmaReferencePngBase64
   });
   const pipelineRunReport = await runLocalPipeline(artifactDir, body, artifacts, materializedAssetReport);
+  await writePreviewArtifact(artifactDir, pipelineRunReport);
   await writeRuntimeReviewTaskArtifacts(artifactDir, artifacts, pipelineRunReport);
   await writeJson(resolve(artifactDir, "local_api_snapshot_report.json"), {
     version: "0.1.0",
@@ -271,6 +272,7 @@ async function writePipelineArtifacts(
           "flutter_preview/test/golden_preview_test.dart",
           "flutter_preview_format_report.json",
           "flutter_preview_analyze_report.json",
+          "preview_artifact.json",
           "regions.json",
           "layout_candidates.json",
           "layout_decisions.json",
@@ -558,6 +560,33 @@ async function runLocalPipeline(
       visualDiff
     }
   };
+}
+
+async function writePreviewArtifact(artifactDir: string, pipelineRunReport: LocalPipelineRunReport): Promise<void> {
+  const diffDir = pipelineRunReport.steps.visualDiff.report ? dirname(pipelineRunReport.steps.visualDiff.report) : undefined;
+  await writeJson(resolve(artifactDir, "preview_artifact.json"), {
+    version: "0.1.0",
+    generatedAt: new Date().toISOString(),
+    artifactDir,
+    source: pipelineRunReport.source,
+    status: {
+      flutterAnalyze: pipelineRunReport.steps.flutterAnalyze.status,
+      flutterCapture: pipelineRunReport.steps.flutterCapture.status,
+      visualDiff: pipelineRunReport.steps.visualDiff.status,
+      pass: pipelineRunReport.steps.visualDiff.pass,
+      visualScore: pipelineRunReport.steps.visualDiff.visualScore,
+      pixelDiffRatio: pipelineRunReport.steps.visualDiff.pixelDiffRatio
+    },
+    files: {
+      flutterPreview: pipelineRunReport.steps.flutterCapture.output,
+      flutterAnalyzeReport: pipelineRunReport.steps.flutterAnalyze.report,
+      flutterCaptureReport: pipelineRunReport.steps.flutterCapture.report,
+      visualDiffReport: pipelineRunReport.steps.visualDiff.report,
+      diffIssues: diffDir ? resolve(diffDir, "diff_issues.json") : undefined,
+      nodeDiffReport: diffDir ? resolve(diffDir, "node_diff_report.json") : undefined,
+      heatmap: pipelineRunReport.steps.visualDiff.heatmap
+    }
+  });
 }
 
 async function formatFlutterPreview(previewDir: string): Promise<Record<string, unknown>> {

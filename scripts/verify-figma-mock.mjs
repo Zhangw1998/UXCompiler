@@ -157,6 +157,7 @@ try {
     "flutter_preview.png",
     "flutter_preview_capture_report.json",
     "pipeline_run_report.json",
+    "preview_artifact.json",
     "diff/visual_diff_report.json",
     "diff/node_diff_report.json",
     "diff/diff_issues.json",
@@ -184,6 +185,8 @@ try {
   assert.equal(runReport.steps.compile.status, "success");
   assert.equal(runReport.steps.flutterCapture.status, "success");
   assert.equal(runReport.steps.visualDiff.status, "success");
+  const previewArtifact = JSON.parse(readFileSync(resolve(outDir, "preview_artifact.json"), "utf8"));
+  assert.equal(previewArtifact.files.diffIssues, resolve(outDir, "diff/diff_issues.json"));
 
   const diffReport = JSON.parse(readFileSync(resolve(outDir, "diff/visual_diff_report.json"), "utf8"));
   assert.equal(typeof diffReport.page.pass, "boolean");

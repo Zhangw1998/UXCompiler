@@ -881,6 +881,7 @@ async function runFigmaCommand(args: string[]): Promise<void> {
     await writeFigmaSnapshot(outDir, extraction);
     if (subcommand === "run") {
       const runReport = await runEndToEndPreview(outDir, extraction, artifacts);
+      await writePreviewArtifact(outDir, runReport);
       await writeFile(resolve(outDir, "pipeline_run_report.json"), `${JSON.stringify(runReport, null, 2)}\n`, "utf8");
       await writeRuntimeReviewTaskArtifacts(outDir, artifacts, runReport);
       console.log(`UXCompiler Figma run completed.`);
@@ -975,6 +976,32 @@ async function runEndToEndPreview(
       visualDiff: diffStep
     }
   };
+}
+
+async function writePreviewArtifact(outDir: string, runReport: FigmaRunReport): Promise<void> {
+  const diffDir = runReport.steps.visualDiff.report ? dirname(runReport.steps.visualDiff.report) : undefined;
+  const artifact = {
+    version: "0.1.0",
+    generatedAt: new Date().toISOString(),
+    artifactsDir: outDir,
+    source: runReport.source,
+    status: {
+      flutterCapture: runReport.steps.flutterCapture.status,
+      visualDiff: runReport.steps.visualDiff.status,
+      pass: runReport.steps.visualDiff.pass,
+      visualScore: runReport.steps.visualDiff.visualScore,
+      pixelDiffRatio: runReport.steps.visualDiff.pixelDiffRatio
+    },
+    files: {
+      flutterPreview: runReport.steps.flutterCapture.output,
+      flutterCaptureReport: runReport.steps.flutterCapture.report,
+      visualDiffReport: runReport.steps.visualDiff.report,
+      diffIssues: diffDir ? resolve(diffDir, "diff_issues.json") : undefined,
+      nodeDiffReport: diffDir ? resolve(diffDir, "node_diff_report.json") : undefined,
+      heatmap: runReport.steps.visualDiff.heatmap
+    }
+  };
+  await writeFile(resolve(outDir, "preview_artifact.json"), `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
 }
 
 function parseCompileOptions(args: string[]): CompileOptions {
