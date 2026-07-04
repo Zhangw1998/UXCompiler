@@ -25,6 +25,7 @@ export interface WorkbenchArtifacts {
   workbenchCodegenReviewReport?: unknown;
   projectWriteReport?: unknown;
   nodeRemapReport?: unknown;
+  workbenchSyncRemapReport?: unknown;
   staleOverrideReport?: unknown;
   overrideConflictReport?: unknown;
   visualDiffReport?: unknown;

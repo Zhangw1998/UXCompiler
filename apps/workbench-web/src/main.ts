@@ -34,6 +34,7 @@ interface AppState {
   pendingStudioOperation?: string;
   pendingStudioRollback?: string;
   pendingCodegenOperation?: string;
+  pendingSyncOperation?: string;
   pendingDiffRepair?: string;
   pendingDiffRollback?: string;
   codegenProjectPath?: string;
@@ -73,6 +74,7 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "workbenchCodegenReviewReport", files: ["workbench_codegen_review_report.json"] },
   { key: "projectWriteReport", files: ["project_write_report.json"] },
   { key: "nodeRemapReport", files: ["node_remap_report.json"] },
+  { key: "workbenchSyncRemapReport", files: ["workbench_sync_remap_report.json"] },
   { key: "staleOverrideReport", files: ["stale_override_report.json"] },
   { key: "overrideConflictReport", files: ["override_conflict_report.json"] },
   { key: "visualDiffReport", files: ["visual_diff_report.json", "diff/visual_diff_report.json"] },
@@ -846,9 +848,11 @@ function renderCodegen(model: WorkbenchModel): string {
   const modifyFiles = asArray(review.filesToModify);
   const writeReport = asRecord(state.artifacts.projectWriteReport);
   const workbenchReviewReport = asRecord(state.artifacts.workbenchCodegenReviewReport);
+  const syncReport = asRecord(state.artifacts.workbenchSyncRemapReport);
   const writeFiles = asArray(writeReport.files).map(asRecord);
   const canRunCodegen = state.artifactRoot !== "selected directory";
   const sync = asRecord(state.artifacts.nodeRemapReport);
+  const syncPending = state.pendingSyncOperation === "remap";
   return `
     <section class="view-header">
       <div>
@@ -901,10 +905,20 @@ function renderCodegen(model: WorkbenchModel): string {
       </div>
       <div class="panel">
         <div class="panel-header"><h2>Incremental Sync</h2></div>
+        <div class="codegen-controls codegen-controls--stacked">
+          <label class="codegen-field codegen-field--wide">
+            <span>New Raw Path</span>
+            <input class="studio-input codegen-input" data-sync-field="new-raw-path" value="${escapeAttr(stringFrom(syncReport.newRawPath) ?? "")}" placeholder="artifacts/next/raw_figma_scene.json" ${canRunCodegen ? "" : "disabled"} />
+          </label>
+          <button class="action-button action-button--secondary" data-sync-operation="remap" ${canRunCodegen && !syncPending ? "" : "disabled"}>
+            ${escapeHtml(syncPending ? "Syncing..." : "Sync Remap")}
+          </button>
+        </div>
         <div class="status-list">
           <div class="status-row"><strong>Matches</strong><span>${asArray(sync.matches).length}</span></div>
           <div class="status-row"><strong>Stale</strong><span>${asArray(sync.staleOverrides).length}</span></div>
           <div class="status-row"><strong>Review Required</strong><span>${asArray(sync.matches).map(asRecord).filter((entry) => booleanFrom(entry.reviewRequired)).length}</span></div>
+          <div class="status-row"><strong>Reapplied</strong><span>${numberFrom(syncReport.reappliedOverrides) ?? 0}</span></div>
         </div>
       </div>
     </section>
@@ -1368,6 +1382,12 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const syncOperationButton = target.closest<HTMLButtonElement>("[data-sync-operation]");
+  if (syncOperationButton?.dataset.syncOperation) {
+    void applySyncOperation(syncOperationButton.dataset.syncOperation);
+    return;
+  }
+
   const diffRepairButton = target.closest<HTMLButtonElement>("[data-diff-repair]");
   if (diffRepairButton?.dataset.diffRepair) {
     void applyDiffRepair(diffRepairButton.dataset.diffRepair, diffRepairButton.dataset.diffIssueId);
@@ -1657,6 +1677,46 @@ async function applyCodegenOperation(operation: string): Promise<void> {
     };
   } finally {
     state.pendingCodegenOperation = undefined;
+    render();
+  }
+}
+
+async function applySyncOperation(operation: string): Promise<void> {
+  const payload = buildSyncPayload(operation);
+  if (payload.error) {
+    state.actionMessage = { tone: "bad", text: payload.error };
+    render();
+    return;
+  }
+  state.pendingSyncOperation = operation;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const response = await fetch("/api/workbench/sync-remap", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload.body)
+    });
+    const result = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      report?: { matches?: number; staleOverrides?: number; reappliedOverrides?: number; reviewTasks?: number };
+    };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Sync remap failed with ${response.status}`);
+    }
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.actionMessage = {
+      tone: result.report?.staleOverrides ? "warn" : "good",
+      text: `Sync remap finished; ${result.report?.reappliedOverrides ?? 0} reapplied, ${result.report?.staleOverrides ?? 0} stale, ${result.report?.reviewTasks ?? 0} review tasks.`
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingSyncOperation = undefined;
     render();
   }
 }
@@ -2009,6 +2069,18 @@ function buildCodegenPayload(operation: string): { body?: Record<string, unknown
     };
   }
   return { error: `Unsupported Codegen operation: ${operation}` };
+}
+
+function buildSyncPayload(operation: string): { body?: Record<string, unknown>; error?: string } {
+  if (operation !== "remap") return { error: `Unsupported Sync operation: ${operation}` };
+  const newRawPath = inputValue("[data-sync-field='new-raw-path']").trim();
+  if (!newRawPath) return { error: "New Raw Path is required for Sync Remap." };
+  return {
+    body: {
+      artifactRoot: state.artifactRoot,
+      newRawPath
+    }
+  };
 }
 
 function codegenResultMessage(operation: string, report: { gateStatus?: string; mode?: string; wrote?: boolean; filesToCreate?: number; filesToModify?: number; blockers?: number | unknown[] } | undefined): string {

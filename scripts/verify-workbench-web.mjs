@@ -600,6 +600,36 @@ try {
   assert.equal(disabledStudioOverride.status, "disabled");
   assert.equal(rolledBackComponent.flutter, undefined);
 
+  const nextRawPath = resolve(root, "next_raw_figma_scene.json");
+  const nextRaw = JSON.parse(readFileSync(resolve(sampleDir, "raw_figma_scene.json"), "utf8"));
+  nextRaw.source.version = "workbench_smoke_next";
+  renameRawNode(nextRaw.root, "1:3", "2:3", { name: "Login Heading" });
+  removeRawNode(nextRaw.root, "1:17");
+  writeFileSync(nextRawPath, `${JSON.stringify(nextRaw, null, 2)}\n`);
+  const syncRemapResponse = await fetch(`${base}/api/workbench/sync-remap`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      newRawPath: nextRawPath
+    })
+  });
+  assert.equal(syncRemapResponse.ok, true);
+  const syncRemapResult = await syncRemapResponse.json();
+  assert.equal(syncRemapResult.ok, true);
+  assert.equal(syncRemapResult.report.reappliedOverrides > 0, true);
+  assert.equal(syncRemapResult.report.staleOverrides > 0, true);
+  const syncRemapReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_sync_remap_report.json`);
+  const nodeRemapReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/node_remap_report.json`);
+  const reappliedOverrides = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reapplied_overrides.json`);
+  const staleOverrides = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/stale_overrides.json`);
+  const reviewTasksAfterSync = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
+  assert.equal(syncRemapReport.newSnapshotId, "workbench_smoke_next");
+  assert.equal(nodeRemapReport.matches.some((entry) => entry.oldSourceNodeId === "1:3" && entry.newSourceNodeId === "2:3"), true);
+  assert.equal(reappliedOverrides.some((entry) => entry.overrideId === "ovr_tree_verify_rename_title"), true);
+  assert.equal(staleOverrides.length > 0, true);
+  assert.equal(reviewTasksAfterSync.some((task) => task.id.startsWith("task_incremental_remap_")), true);
+
   console.log("workbench-web verification passed");
 } finally {
   server.kill("SIGTERM");
@@ -654,6 +684,32 @@ function writeSyntheticVisualDiff(base) {
     warnings: []
   };
   writeFileSync(resolve(base, "visual_diff_report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+}
+
+function renameRawNode(root, id, newId, patch = {}) {
+  const node = findRawNode(root, id);
+  assert.ok(node, `Missing raw node ${id}`);
+  node.id = newId;
+  Object.assign(node, patch);
+}
+
+function removeRawNode(root, id) {
+  if (!root.children) return false;
+  const index = root.children.findIndex((child) => child.id === id);
+  if (index !== -1) {
+    root.children.splice(index, 1);
+    return true;
+  }
+  return root.children.some((child) => removeRawNode(child, id));
+}
+
+function findRawNode(root, id) {
+  if (root.id === id) return root;
+  for (const child of root.children ?? []) {
+    const match = findRawNode(child, id);
+    if (match) return match;
+  }
+  return undefined;
 }
 
 async function waitForServer() {

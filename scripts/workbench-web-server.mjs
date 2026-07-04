@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import { createCodegenReview } from "../packages/codegen-review/dist/index.js";
+import { runIncrementalSync } from "../packages/incremental-sync/dist/index.js";
 import { applyOverrides } from "../packages/override-engine/dist/index.js";
 import { writeCodegenToProject } from "../packages/project-writer/dist/index.js";
 import { generateReviewTasks } from "../packages/review-task-engine/dist/index.js";
@@ -120,6 +121,20 @@ const server = createServer(async (request, response) => {
       }
       const body = await readJsonBody(request);
       const result = await applyWorkbenchCodegenReview(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workbench/sync-remap") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyWorkbenchSyncRemap(body);
       sendJson(response, 200, {
         ok: true,
         ...result
@@ -587,6 +602,55 @@ async function applyWorkbenchCodegenReview(body) {
   return {
     report,
     codegenReview: result.codegenReview
+  };
+}
+
+async function applyWorkbenchSyncRemap(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const newRawPath = resolveLocalPath(stringValue(body.newRawPath));
+  const oldRawScene = await readJson(resolve(artifactDir, "raw_figma_scene.json"));
+  const newRawScene = await readJson(newRawPath);
+  const now = new Date().toISOString();
+  const result = runIncrementalSync({
+    oldRawScene,
+    newRawScene,
+    overrideSet: await readJson(resolve(artifactDir, "override_set.json")),
+    oldSnapshotId: stringValue(body.oldSnapshotId) ?? stringValue(oldRawScene.source?.version) ?? stringValue(oldRawScene.source?.frameNodeId),
+    newSnapshotId: stringValue(body.newSnapshotId) ?? stringValue(newRawScene.source?.version) ?? stringValue(newRawScene.source?.frameNodeId),
+    actor: "agent",
+    now: () => new Date(now)
+  });
+  const existingReviewTasks = await readOptionalJson(resolve(artifactDir, "review_tasks.json"), []);
+  const incrementalTaskIds = new Set(result.incrementalReviewTasks.map((task) => task.id));
+  const mergedReviewTasks = [
+    ...asArray(existingReviewTasks).filter((task) => !incrementalTaskIds.has(task.id)),
+    ...result.incrementalReviewTasks
+  ];
+  const report = {
+    version: "0.1.0",
+    generatedAt: now,
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    newRawPath,
+    oldSnapshotId: result.oldSnapshotId,
+    newSnapshotId: result.newSnapshotId,
+    matches: result.nodeRemapReport.matches.length,
+    reappliedOverrides: result.reappliedOverrides.length,
+    staleOverrides: result.staleOverrides.length,
+    reviewTasks: result.incrementalReviewTasks.length,
+    overrideHash: result.overrideSet.hash
+  };
+  await writeJson(resolve(artifactDir, "override_set.json"), result.overrideSet);
+  await writeJson(resolve(artifactDir, "node_remap_report.json"), result.nodeRemapReport);
+  await writeJson(resolve(artifactDir, "reapplied_overrides.json"), result.reappliedOverrides);
+  await writeJson(resolve(artifactDir, "stale_overrides.json"), result.staleOverrides);
+  await writeJson(resolve(artifactDir, "incremental_review_tasks.json"), result.incrementalReviewTasks);
+  await writeJson(resolve(artifactDir, "review_tasks.json"), mergedReviewTasks);
+  await writeJson(resolve(artifactDir, "workbench_sync_remap_report.json"), report);
+  return {
+    report,
+    overrideSet: result.overrideSet,
+    nodeRemapReport: result.nodeRemapReport,
+    reviewTasks: mergedReviewTasks
   };
 }
 
@@ -1162,6 +1226,10 @@ function numberValue(value) {
 
 function stringArray(value) {
   return Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : [];
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 function safeName(value) {
