@@ -746,6 +746,8 @@ function renderI18n(model: WorkbenchModel): string {
                 const sourceNodeId = stringFrom(message.sourceNodeId) ?? "";
                 const pendingKey = `rename_i18n_key:${sourceNodeId || key}`;
                 const isPending = state.pendingStudioOperation === pendingKey;
+                const acceptPendingKey = `accept_i18n_key:${sourceNodeId || key}`;
+                const isAcceptPending = state.pendingStudioOperation === acceptPendingKey;
                 const nonI18nPendingKey = `mark_non_i18n:${sourceNodeId || key}`;
                 const isNonI18nPending = state.pendingStudioOperation === nonI18nPendingKey;
                 const placeholderPendingKey = `define_i18n_placeholder:${sourceNodeId || key}`;
@@ -773,6 +775,16 @@ function renderI18n(model: WorkbenchModel): string {
                       ${canApplyStudio && !isPending ? "" : "disabled"}
                     >
                       ${escapeHtml(isPending ? "Saving..." : "Save")}
+                    </button>
+                    <button
+                      class="table-action"
+                      data-studio-operation="accept_i18n_key"
+                      data-studio-key="${escapeAttr(acceptPendingKey)}"
+                      data-message-key="${escapeAttr(key)}"
+                      data-source-node-id="${escapeAttr(sourceNodeId)}"
+                      ${canApplyStudio && !isAcceptPending ? "" : "disabled"}
+                    >
+                      ${escapeHtml(isAcceptPending ? "Saving..." : "Accept")}
                     </button>
                     <button
                       class="table-action table-action--danger"
@@ -2041,6 +2053,18 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
       ...(sourceNodeId ? { sourceNodeId } : {}),
       key,
       description: button.dataset.description || undefined,
+      reason
+    };
+  }
+  if (kind === "accept_i18n_key") {
+    const messageKey = button.dataset.messageKey ?? "";
+    const sourceNodeId = button.dataset.sourceNodeId ?? "";
+    if (!messageKey && !sourceNodeId) throw new Error("i18n accept requires a message or source node target.");
+    return {
+      id: `workbench_accept_i18n_${safeId(sourceNodeId || messageKey)}`,
+      kind,
+      ...(messageKey ? { messageKey } : {}),
+      ...(sourceNodeId ? { sourceNodeId } : {}),
       reason
     };
   }

@@ -87,6 +87,13 @@ export type StudioOperation =
     }
   | {
       id?: string;
+      kind: "accept_i18n_key";
+      messageKey?: string;
+      sourceNodeId?: string;
+      reason: string;
+    }
+  | {
+      id?: string;
       kind: "define_i18n_placeholder";
       messageKey?: string;
       sourceNodeId?: string;

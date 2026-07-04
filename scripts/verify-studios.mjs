@@ -117,6 +117,12 @@ const operations = [
     reason: "Export divider dot as a decorative slice."
   },
   {
+    id: "accept_generated_title_key",
+    kind: "accept_i18n_key",
+    messageKey: "title",
+    reason: "Accept the generated title i18n key."
+  },
+  {
     id: "rename_button_label_key",
     kind: "rename_i18n_key",
     messageKey: "button_label",
@@ -175,6 +181,7 @@ assert.equal(divider.excludeTextNodes, true);
 assert.ok(result.finalI18nManifest.messages.some((message) => message.key === "loginSubmitLabel"));
 assert.ok(!result.finalI18nManifest.messages.some((message) => message.key === "subtitle"));
 assert.equal(result.finalI18nManifest.messages.find((message) => message.key === "loginSubmitLabel").placeholders.ctaLabel.type, "String");
+assert.equal(result.finalI18nManifest.messages.find((message) => message.key === "title").confidence, 1);
 assert.equal(result.finalArbFile.loginSubmitLabel, "Sign in");
 assert.equal(result.finalArbFile["@loginSubmitLabel"].placeholders.ctaLabel.example, "Sign in");
 assert.equal(result.finalArbFile.subtitle, undefined);
@@ -207,6 +214,12 @@ const invalid = applyStudioOperations({
         type: ""
       },
       reason: "Should be rejected because placeholder name and type are invalid."
+    },
+    {
+      id: "bad_accept_i18n",
+      kind: "accept_i18n_key",
+      messageKey: "missingKey",
+      reason: "Should be rejected because the i18n message target is missing."
     }
   ]
 });

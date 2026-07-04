@@ -174,6 +174,9 @@ function validateOperation(
         addIssue(issues, operationId, "invalid_i18n_key", `i18n key ${operation.key} already exists.`);
       }
       return;
+    case "accept_i18n_key":
+      if (!findMessage(input.i18nManifest, operation)) addIssue(issues, operationId, "invalid_i18n_key", "i18n target does not exist.");
+      return;
     case "define_i18n_placeholder":
       if (!findMessage(input.i18nManifest, operation)) addIssue(issues, operationId, "invalid_i18n_key", "i18n target does not exist.");
       if (!/^[a-z][A-Za-z0-9]*$/.test(operation.placeholder.name)) {
@@ -355,6 +358,16 @@ function toOverride(
         target: i18nTarget(operation),
         payload: { key: operation.key, description: operation.description, reason: operation.reason }
       };
+    case "accept_i18n_key":
+      {
+        const message = findMessage(input.i18nManifest, operation);
+        return {
+          ...base,
+          type: "i18n_key_override",
+          target: i18nTarget(operation),
+          payload: { key: message?.key, description: message?.description, reason: operation.reason }
+        };
+      }
     case "define_i18n_placeholder":
       return {
         ...base,
