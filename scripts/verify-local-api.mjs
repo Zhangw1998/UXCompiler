@@ -22,6 +22,7 @@ try {
   await waitForHealth();
   const rawFigmaScene = JSON.parse(readFileSync("examples/fixtures/login_raw_figma_scene.json", "utf8"));
   const imageSourceNodeId = "smoke:asset:1";
+  const duplicateImageSourceNodeId = "smoke:asset:2";
   const sliceSourceNodeId = "smoke:slice:1";
   const sliceTextSourceNodeId = "smoke:slice:text";
   rawFigmaScene.root.children.push({
@@ -31,6 +32,14 @@ try {
     visible: true,
     absoluteBoundingBox: { x: 12, y: 12, width: 8, height: 8 },
     fills: [{ type: "IMAGE", visible: true, imageHash: "smoke-image" }]
+  });
+  rawFigmaScene.root.children.push({
+    id: duplicateImageSourceNodeId,
+    name: "Smoke Bitmap",
+    type: "RECTANGLE",
+    visible: true,
+    absoluteBoundingBox: { x: 12, y: 24, width: 8, height: 8 },
+    fills: [{ type: "IMAGE", visible: true, imageHash: "smoke-image-duplicate" }]
   });
   rawFigmaScene.root.children.push({
     id: sliceSourceNodeId,
@@ -76,6 +85,13 @@ try {
           pngBase64: referencePngBase64
         },
         {
+          sourceNodeId: duplicateImageSourceNodeId,
+          name: "Smoke Bitmap",
+          format: "png",
+          contentType: "image/png",
+          pngBase64: referencePngBase64
+        },
+        {
           sourceNodeId: sliceSourceNodeId,
           name: "Smoke Blur Slice",
           format: "png",
@@ -106,15 +122,20 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "override_conflict_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "stale_override_report.json")), true);
   const materializedAssetReport = JSON.parse(readFileSync(resolve(result.artifactDir, "materialized_assets_report.json"), "utf8"));
-  assert.equal(materializedAssetReport.requested, 2);
-  assert.equal(materializedAssetReport.materialized.length, 2);
+  assert.equal(materializedAssetReport.requested, 3);
+  assert.equal(materializedAssetReport.materialized.length, 3);
   const imageAsset = materializedAssetReport.materialized.find((asset) => asset.sourceNodeId === imageSourceNodeId);
+  const duplicateImageAsset = materializedAssetReport.materialized.find((asset) => asset.sourceNodeId === duplicateImageSourceNodeId);
   const sliceAsset = materializedAssetReport.materialized.find((asset) => asset.sourceNodeId === sliceSourceNodeId);
   assert.ok(imageAsset);
+  assert.ok(duplicateImageAsset);
   assert.ok(sliceAsset);
   assert.match(imageAsset.path, /^assets\/images\//);
+  assert.match(duplicateImageAsset.path, /^assets\/images\//);
+  assert.notEqual(duplicateImageAsset.path, imageAsset.path);
+  assert.match(duplicateImageAsset.path, /^assets\/images\/smoke_bitmap_[a-f0-9]{8}\.png$/);
   assert.match(sliceAsset.path, /^assets\/slices\//);
-  for (const materializedAsset of [imageAsset, sliceAsset]) {
+  for (const materializedAsset of [imageAsset, duplicateImageAsset, sliceAsset]) {
     assert.equal(existsSync(resolve(result.artifactDir, materializedAsset.path)), true);
     assert.equal(existsSync(resolve(result.artifactDir, "flutter_preview", materializedAsset.path)), true);
   }
@@ -123,7 +144,7 @@ try {
   assert.match(previewPage, /assets\/slices\/smoke_blur_slice\.png/);
   const pipelineRunReport = JSON.parse(readFileSync(resolve(result.artifactDir, "pipeline_run_report.json"), "utf8"));
   assert.equal(pipelineRunReport.source.sourceKind, "local_smoke");
-  assert.equal(pipelineRunReport.steps.snapshot.materializedAssets, 2);
+  assert.equal(pipelineRunReport.steps.snapshot.materializedAssets, 3);
   assert.equal(pipelineRunReport.steps.snapshot.frameScreenshotFallback, false);
   assert.equal(pipelineRunReport.steps.flutterCapture.status, "success");
   assert.equal(pipelineRunReport.steps.visualDiff.status, "success");
@@ -131,6 +152,8 @@ try {
   assert.ok(diffReport.environment.fonts.length > 0, "Expected visual diff font metadata");
   assert.match(diffReport.environment.flutterVersion, /^Flutter /);
   const assetManifest = JSON.parse(readFileSync(resolve(result.artifactDir, "asset_manifest.json"), "utf8"));
+  const generatedAssetPaths = assetManifest.assets.map((asset) => asset.path).filter(Boolean);
+  assert.equal(new Set(generatedAssetPaths).size, generatedAssetPaths.length, "Expected generated asset paths to be unique");
   assert.ok(
     assetManifest.warnings.some(
       (warning) => warning.sourceNodeId === sliceSourceNodeId && warning.type === "decorative_slice_contains_text"

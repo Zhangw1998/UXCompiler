@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   AssetI18nResult,
   AssetManifest,
@@ -14,6 +15,7 @@ export function normalizeAssetsAndI18n(canonicalScene: CanonicalScene, locale = 
   const assetWarnings: AssetManifest["warnings"] = [];
   const i18nWarnings: I18nManifest["warnings"] = [];
   const usedKeys = new Set<string>();
+  const usedAssetPaths = new Set<string>();
 
   walk(canonicalScene.root, (node) => {
     if (node.flags.isInvisible || node.flags.isZeroSize) return;
@@ -54,7 +56,7 @@ export function normalizeAssetsAndI18n(canonicalScene: CanonicalScene, locale = 
         sourceName: node.sourceName,
         strategy: "image_asset",
         format: "png",
-        path: `assets/images/${fileBase(node.sourceName, node.sourceNodeId)}.png`,
+        path: uniqueAssetPath(`assets/images/${fileBase(node.sourceName, node.sourceNodeId)}.png`, node.sourceNodeId, usedAssetPaths),
         reason: "Bitmap/image fill should be emitted as a Flutter image asset.",
         confidence: 0.84
       });
@@ -69,7 +71,7 @@ export function normalizeAssetsAndI18n(canonicalScene: CanonicalScene, locale = 
         sourceName: node.sourceName,
         strategy: "decorative_slice",
         format: "png",
-        path: `assets/slices/${fileBase(node.sourceName, node.sourceNodeId)}.png`,
+        path: uniqueAssetPath(`assets/slices/${fileBase(node.sourceName, node.sourceNodeId)}.png`, node.sourceNodeId, usedAssetPaths),
         reason: "Complex vector/effect/mask is safer as a decorative slice for fidelity.",
         confidence: 0.72
       });
@@ -97,7 +99,7 @@ export function normalizeAssetsAndI18n(canonicalScene: CanonicalScene, locale = 
         sourceName: node.sourceName,
         strategy: "svg_icon",
         format: "svg",
-        path: `assets/icons/${fileBase(node.sourceName, node.sourceNodeId)}.svg`,
+        path: uniqueAssetPath(`assets/icons/${fileBase(node.sourceName, node.sourceNodeId)}.svg`, node.sourceNodeId, usedAssetPaths),
         reason: "Simple vector can be exported as an SVG icon candidate.",
         confidence: 0.76
       });
@@ -193,6 +195,25 @@ function uniqueKey(base: string, used: Set<string>): string {
   }
   used.add(key);
   return key;
+}
+
+function uniqueAssetPath(path: string, sourceNodeId: string, used: Set<string>): string {
+  if (!used.has(path)) {
+    used.add(path);
+    return path;
+  }
+  const extensionIndex = path.lastIndexOf(".");
+  const stem = extensionIndex === -1 ? path : path.slice(0, extensionIndex);
+  const extension = extensionIndex === -1 ? "" : path.slice(extensionIndex);
+  const suffix = createHash("sha256").update(sourceNodeId).digest("hex").slice(0, 8);
+  let candidate = `${stem}_${suffix}${extension}`;
+  let index = 2;
+  while (used.has(candidate)) {
+    candidate = `${stem}_${suffix}_${index}${extension}`;
+    index += 1;
+  }
+  used.add(candidate);
+  return candidate;
 }
 
 function fileBase(name: string, sourceNodeId: string): string {
