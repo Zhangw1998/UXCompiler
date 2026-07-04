@@ -106,12 +106,18 @@ try {
   const updatedTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const updatedOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   const actionReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_task_action_report.json`);
+  const closureLog = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_task_closure_log.json`);
   const updatedTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_inferred_tokens.json`);
   assert.equal(updatedTasks.length, artifacts.reviewTasks.length - 1);
   assert.equal(updatedTasks.some((task) => task.id === firstTaskId), false);
   assert.equal(updatedOverrideSet.overrides.length, 1);
   assert.match(updatedOverrideSet.hash, /^sha256_[a-f0-9]{64}$/);
   assert.equal(actionReport.afterOpenTasks, artifacts.reviewTasks.length - 1);
+  assert.equal(actionReport.closureReason.length > 0, true);
+  assert.equal(closureLog.at(-1).taskId, firstTaskId);
+  assert.equal(closureLog.at(-1).status, "closed");
+  assert.equal(closureLog.at(-1).closureReason, actionReport.closureReason);
+  assert.equal(closureLog.at(-1).taskSnapshot.status, "closed");
   assert.equal(findTokenConfidence(updatedTokens, "radius_18"), 1);
 
   const treeEditResponse = await fetch(`${base}/api/workbench/tree-edit`, {

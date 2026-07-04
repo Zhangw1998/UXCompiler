@@ -344,6 +344,34 @@ async function applyReviewTaskAction(body) {
   await writeJson(resolve(artifactDir, "review_tasks.json"), reviewResult.reviewTasks);
   await writeJson(resolve(artifactDir, "task_status_report.json"), reviewResult.taskStatusReport);
 
+  const closureReason =
+    stringValue(action.override.reason) ??
+    stringValue(action.override.payload?.reason) ??
+    `Applied suggested action: ${action.label}`;
+  const existingClosureLog = await readOptionalJson(resolve(artifactDir, "review_task_closure_log.json"), []);
+  const closureLog = Array.isArray(existingClosureLog) ? existingClosureLog : [];
+  closureLog.push({
+    version: "0.1.0",
+    taskId,
+    closedAt: now,
+    closedBy: actor,
+    status: "closed",
+    closureReason,
+    actionIndex,
+    actionLabel: action.label,
+    overrideId: appliedOverrideId,
+    disabledStaleOverride: disableResult?.disabled ?? false,
+    taskSnapshot: {
+      ...task,
+      status: "closed",
+      closeReason: closureReason,
+      closedAt: now,
+      closedBy: actor,
+      closedByOverrideId: appliedOverrideId
+    }
+  });
+  await writeJson(resolve(artifactDir, "review_task_closure_log.json"), closureLog);
+
   const report = {
     version: "0.1.0",
     generatedAt: now,
@@ -354,6 +382,7 @@ async function applyReviewTaskAction(body) {
     overrideId: appliedOverrideId,
     beforeOpenTasks: beforeOpen,
     afterOpenTasks: reviewResult.taskStatusReport.open,
+    closureReason,
     overrideHash: overrideResult.overrideSet.hash,
     disabledStaleOverride: disableResult?.disabled ?? false
   };
