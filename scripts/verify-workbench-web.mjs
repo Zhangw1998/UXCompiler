@@ -168,6 +168,62 @@ try {
   assert.equal(findTokenConfidence(studioReviewedTokens, "space_10"), undefined);
   assert.equal(tokenRegistry.tokens.some((token) => token.type === "spacing" && token.name === "space_10_reviewed"), true);
 
+  const studioTokenMergeResponse = await fetch(`${base}/api/workbench/studio-operation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_merge_spacing",
+        kind: "merge_tokens",
+        tokenType: "spacing",
+        sourceTokenNames: ["space_12", "space_16"],
+        canonicalTokenName: "space_body_gap",
+        reason: "Verify Workbench Studio token merge writeback."
+      }
+    })
+  });
+  assert.equal(studioTokenMergeResponse.ok, true);
+  const studioTokenMergeResult = await studioTokenMergeResponse.json();
+  assert.equal(studioTokenMergeResult.ok, true);
+  assert.deepEqual(studioTokenMergeResult.report.overrideIds, ["ovr_studio_verify_merge_spacing"]);
+  const mergedTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_inferred_tokens.json`);
+  const mergedTokenRegistry = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/token_registry.json`);
+  const mergedOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  assert.equal(mergedOverrideSet.overrides.length, 4);
+  assert.equal(findTokenConfidence(mergedTokens, "space_body_gap"), 1);
+  assert.equal(findTokenConfidence(mergedTokens, "space_12"), undefined);
+  assert.equal(mergedTokenRegistry.tokens.some((token) => token.type === "spacing" && token.name === "space_body_gap"), true);
+
+  const studioTokenSplitResponse = await fetch(`${base}/api/workbench/studio-operation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_split_radius",
+        kind: "split_token",
+        tokenType: "radius",
+        sourceTokenName: "radius_16",
+        tokens: [
+          { name: "radius_input_top", value: 16, sourceNodeIds: ["1:7"] },
+          { name: "radius_input_bottom", value: 16, sourceNodeIds: ["1:10"] }
+        ],
+        reason: "Verify Workbench Studio token split writeback."
+      }
+    })
+  });
+  assert.equal(studioTokenSplitResponse.ok, true);
+  const studioTokenSplitResult = await studioTokenSplitResponse.json();
+  assert.equal(studioTokenSplitResult.ok, true);
+  assert.deepEqual(studioTokenSplitResult.report.overrideIds, ["ovr_studio_verify_split_radius"]);
+  const splitTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_inferred_tokens.json`);
+  const splitOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  assert.equal(splitOverrideSet.overrides.length, 5);
+  assert.equal(findTokenConfidence(splitTokens, "radius_16"), undefined);
+  assert.equal(findTokenConfidence(splitTokens, "radius_input_top"), 1);
+  assert.equal(findTokenConfidence(splitTokens, "radius_input_bottom"), 1);
+
   const studioAssetResponse = await fetch(`${base}/api/workbench/studio-operation`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -191,7 +247,7 @@ try {
   const finalAssets = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/final_asset_manifest.json`);
   const reviewedAssets = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_asset_manifest.json`);
   const assetOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(assetOverrideSet.overrides.length, 4);
+  assert.equal(assetOverrideSet.overrides.length, 6);
   assert.equal(findAssetById(finalAssets, "asset_1_17").strategy, "decorative_slice");
   assert.equal(findAssetById(reviewedAssets, "asset_1_17").path, "assets/slices/divider_dot_workbench.png");
 
@@ -219,11 +275,35 @@ try {
   const finalArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/arb/app_en.arb`);
   const reviewedArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_arb/app_en.arb`);
   const i18nOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(i18nOverrideSet.overrides.length, 5);
+  assert.equal(i18nOverrideSet.overrides.length, 7);
   assert.equal(findMessageByKey(finalI18n, "loginTitle").value, "Welcome back");
   assert.equal(findMessageByKey(reviewedI18n, "loginTitle").description, "Reviewed login title.");
   assert.equal(finalArb.loginTitle, "Welcome back");
   assert.equal(reviewedArb.loginTitle, "Welcome back");
+
+  const studioNonI18nResponse = await fetch(`${base}/api/workbench/studio-operation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_subtitle_non_i18n",
+        kind: "mark_non_i18n",
+        messageKey: "subtitle",
+        reason: "Verify Workbench Studio non-i18n writeback."
+      }
+    })
+  });
+  assert.equal(studioNonI18nResponse.ok, true);
+  const studioNonI18nResult = await studioNonI18nResponse.json();
+  assert.equal(studioNonI18nResult.ok, true);
+  assert.deepEqual(studioNonI18nResult.report.overrideIds, ["ovr_studio_verify_subtitle_non_i18n"]);
+  const nonI18nFinal = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/final_i18n_manifest.json`);
+  const nonI18nArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/arb/app_en.arb`);
+  const nonI18nOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  assert.equal(nonI18nOverrideSet.overrides.length, 8);
+  assert.equal(Boolean(findMessageByKey(nonI18nFinal, "subtitle")), false);
+  assert.equal(nonI18nArb.subtitle, undefined);
 
   const componentApproveResponse = await fetch(`${base}/api/workbench/studio-operation`, {
     method: "POST",
@@ -309,7 +389,7 @@ try {
   const componentRegistry = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/component_registry.json`);
   const componentOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   const workbenchSubmit = findComponentById(componentRegistry, "cmp_workbench_submit");
-  assert.equal(componentOverrideSet.overrides.length, 9);
+  assert.equal(componentOverrideSet.overrides.length, 12);
   assert.equal(workbenchSubmit.name, "WorkbenchSubmit");
   assert.equal(workbenchSubmit.props[0].sourceSelector, "sourceNodeId:1:14");
   assert.equal(workbenchSubmit.variants[0].values.includes("disabled"), true);
@@ -378,7 +458,7 @@ try {
   const issueRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const issueRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   assert.equal(issueRepairReport.repairKind, "issue_asset_slice");
-  assert.equal(issueRepairOverrideSet.overrides.length, 10);
+  assert.equal(issueRepairOverrideSet.overrides.length, 13);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_page"), true);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_verify_region"), false);
 
@@ -397,7 +477,7 @@ try {
   assert.equal(pageRepairResult.report.overrideId, "ovr_diff_page_frame_fallback");
   const pageRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const pageRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(pageRepairOverrideSet.overrides.length, 11);
+  assert.equal(pageRepairOverrideSet.overrides.length, 14);
   assert.equal(pageRepairTasks.some((task) => task.type === "visual_diff_failed"), false);
 
   console.log("workbench-web verification passed");

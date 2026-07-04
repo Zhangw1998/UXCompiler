@@ -852,6 +852,31 @@ button {
   gap: 16px;
 }
 
+.token-group-actions {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(110px, 0.8fr) auto minmax(110px, 0.8fr) minmax(150px, 1.2fr) auto;
+  align-items: end;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.token-group-actions label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.token-group-actions label span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.token-json-field {
+  min-width: 0;
+}
+
 .token-row {
   display: grid;
   grid-template-columns: auto minmax(130px, 1fr) minmax(80px, auto) auto auto;
@@ -1129,7 +1154,8 @@ button {
   .split-view,
   .token-layout,
   .component-create-grid,
-  .component-editor-grid {
+  .component-editor-grid,
+  .token-group-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 

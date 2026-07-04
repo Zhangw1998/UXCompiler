@@ -618,6 +618,7 @@ function renderTokens(model: WorkbenchModel): string {
                 <h2>${escapeHtml(group)}</h2>
                 <span>${entries.length}</span>
               </div>
+              ${renderTokenGroupActions(entries, group, canApplyStudio)}
               <div class="token-list">
                 ${entries.length === 0 ? renderEmpty("Empty") : entries.map((entry) => renderTokenRow(entry, group, canApplyStudio)).join("")}
               </div>
@@ -709,7 +710,7 @@ function renderI18n(model: WorkbenchModel): string {
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="panel table-panel">
       <table class="data-table">
-        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Action</th></tr></thead>
+        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Non-i18n Reason</th><th>Action</th></tr></thead>
         <tbody>
           ${messages
             .map(
@@ -718,12 +719,15 @@ function renderI18n(model: WorkbenchModel): string {
                 const sourceNodeId = stringFrom(message.sourceNodeId) ?? "";
                 const pendingKey = `rename_i18n_key:${sourceNodeId || key}`;
                 const isPending = state.pendingStudioOperation === pendingKey;
+                const nonI18nPendingKey = `mark_non_i18n:${sourceNodeId || key}`;
+                const isNonI18nPending = state.pendingStudioOperation === nonI18nPendingKey;
                 return `
                 <tr data-node-id="${escapeAttr(sourceNodeId)}" data-studio-row>
                   <td><input class="studio-input studio-input--wide" data-studio-field="i18n-key" value="${escapeAttr(key)}" ${canApplyStudio ? "" : "disabled"} /></td>
                   <td>${escapeHtml(stringFrom(message.value) ?? "-")}</td>
                   <td>${escapeHtml(stringFrom(message.sourceNodeId) ?? "-")}</td>
                   <td>${formatConfidence(numberFrom(message.confidence))}</td>
+                  <td><input class="studio-input studio-input--wide" data-studio-field="i18n-non-reason" value="Reviewed as non-translatable copy." ${canApplyStudio ? "" : "disabled"} /></td>
                   <td>
                     <button
                       class="table-action"
@@ -735,6 +739,16 @@ function renderI18n(model: WorkbenchModel): string {
                       ${canApplyStudio && !isPending ? "" : "disabled"}
                     >
                       ${escapeHtml(isPending ? "Saving..." : "Save")}
+                    </button>
+                    <button
+                      class="table-action table-action--danger"
+                      data-studio-operation="mark_non_i18n"
+                      data-studio-key="${escapeAttr(nonI18nPendingKey)}"
+                      data-message-key="${escapeAttr(key)}"
+                      data-source-node-id="${escapeAttr(sourceNodeId)}"
+                      ${canApplyStudio && !isNonI18nPending ? "" : "disabled"}
+                    >
+                      ${escapeHtml(isNonI18nPending ? "Saving..." : "Non-i18n")}
                     </button>
                   </td>
                 </tr>
@@ -1164,6 +1178,57 @@ function renderComponentEditor(component: JsonRecord, enabled: boolean): string 
         </button>
       </div>
     </article>
+  `;
+}
+
+function renderTokenGroupActions(entries: JsonRecord[], group: string, enabled: boolean): string {
+  const tokenType = tokenTypeForGroup(group);
+  const names = entries.map((entry) => stringFrom(entry.name)).filter((entry): entry is string => Boolean(entry));
+  const mergeSources = names.slice(0, 2).join(", ");
+  const mergeCanonical = names.length >= 2 ? `${tokenType}_${safeId(names.slice(0, 2).join("_"))}` : names[0] || `${tokenType}_reviewed`;
+  const splitSource = names[0] ?? "";
+  const splitOutputs = JSON.stringify(defaultSplitTokens(entries[0], splitSource), null, 2);
+  const mergePendingKey = `merge_tokens:${tokenType}`;
+  const splitPendingKey = `split_token:${tokenType}`;
+  const isMergePending = state.pendingStudioOperation === mergePendingKey;
+  const isSplitPending = state.pendingStudioOperation === splitPendingKey;
+  return `
+    <div class="token-group-actions" data-studio-row>
+      <label>
+        <span>Merge Sources</span>
+        <input class="studio-input studio-input--wide" data-studio-field="token-merge-sources" value="${escapeAttr(mergeSources)}" placeholder="space_10, space_12" ${enabled ? "" : "disabled"} />
+      </label>
+      <label>
+        <span>Canonical</span>
+        <input class="studio-input studio-input--wide" data-studio-field="token-merge-canonical" value="${escapeAttr(mergeCanonical)}" ${enabled ? "" : "disabled"} />
+      </label>
+      <button
+        class="table-action"
+        data-studio-operation="merge_tokens"
+        data-studio-key="${escapeAttr(mergePendingKey)}"
+        data-token-type="${escapeAttr(tokenType)}"
+        ${enabled && !isMergePending && names.length >= 2 ? "" : "disabled"}
+      >
+        ${escapeHtml(isMergePending ? "Saving..." : "Merge")}
+      </button>
+      <label>
+        <span>Split Source</span>
+        <input class="studio-input studio-input--wide" data-studio-field="token-split-source" value="${escapeAttr(splitSource)}" ${enabled ? "" : "disabled"} />
+      </label>
+      <label class="token-json-field">
+        <span>Outputs JSON</span>
+        <textarea class="studio-input studio-input--wide studio-input--textarea" data-studio-field="token-split-outputs" ${enabled ? "" : "disabled"}>${escapeHtml(splitOutputs)}</textarea>
+      </label>
+      <button
+        class="table-action"
+        data-studio-operation="split_token"
+        data-studio-key="${escapeAttr(splitPendingKey)}"
+        data-token-type="${escapeAttr(tokenType)}"
+        ${enabled && !isSplitPending && Boolean(splitSource) ? "" : "disabled"}
+      >
+        ${escapeHtml(isSplitPending ? "Saving..." : "Split")}
+      </button>
+    </div>
   `;
 }
 
@@ -1665,6 +1730,34 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
       reason
     };
   }
+  if (kind === "merge_tokens") {
+    const tokenType = button.dataset.tokenType ?? "";
+    const sourceTokenNames = splitList(studioFieldValue(row, "token-merge-sources"));
+    const canonicalTokenName = studioFieldValue(row, "token-merge-canonical").trim();
+    if (!tokenType || sourceTokenNames.length < 2 || !canonicalTokenName) throw new Error("Token merge requires a type, at least two sources, and a canonical name.");
+    return {
+      id: `workbench_merge_tokens_${safeId(tokenType)}_${safeId(canonicalTokenName)}`,
+      kind,
+      tokenType,
+      sourceTokenNames,
+      canonicalTokenName,
+      reason
+    };
+  }
+  if (kind === "split_token") {
+    const tokenType = button.dataset.tokenType ?? "";
+    const sourceTokenName = studioFieldValue(row, "token-split-source").trim();
+    const tokens = parseJsonArray(studioFieldValue(row, "token-split-outputs").trim(), "Token split outputs");
+    if (!tokenType || !sourceTokenName || tokens.length === 0) throw new Error("Token split requires a type, source token, and output tokens.");
+    return {
+      id: `workbench_split_token_${safeId(tokenType)}_${safeId(sourceTokenName)}`,
+      kind,
+      tokenType,
+      sourceTokenName,
+      tokens,
+      reason
+    };
+  }
   if (kind === "set_asset_strategy") {
     const assetId = button.dataset.assetId ?? "";
     const sourceNodeId = button.dataset.sourceNodeId ?? "";
@@ -1697,6 +1790,20 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
       key,
       description: button.dataset.description || undefined,
       reason
+    };
+  }
+  if (kind === "mark_non_i18n") {
+    const messageKey = button.dataset.messageKey ?? "";
+    const sourceNodeId = button.dataset.sourceNodeId ?? "";
+    const nonI18nReason = studioFieldValue(row, "i18n-non-reason").trim();
+    if (!messageKey && !sourceNodeId) throw new Error("Non-i18n marking requires a message or source node target.");
+    if (!nonI18nReason) throw new Error("Non-i18n marking requires a reason.");
+    return {
+      id: `workbench_non_i18n_${safeId(sourceNodeId || messageKey)}`,
+      kind,
+      ...(messageKey ? { messageKey } : {}),
+      ...(sourceNodeId ? { sourceNodeId } : {}),
+      reason: nonI18nReason
     };
   }
   throw new Error(`Unsupported Studio operation: ${kind}`);
@@ -1772,6 +1879,17 @@ function parseJsonObject(value: string, label: string): Record<string, unknown> 
   return parsed as Record<string, unknown>;
 }
 
+function parseJsonArray(value: string, label: string): Array<Record<string, unknown> & { name: string }> {
+  const parsed = JSON.parse(value) as unknown;
+  if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array.`);
+  return parsed.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry) || typeof (entry as { name?: unknown }).name !== "string") {
+      throw new Error(`${label} item ${index + 1} must be an object with a name.`);
+    }
+    return entry as Record<string, unknown> & { name: string };
+  });
+}
+
 function tokenTypeForGroup(group: string): string {
   if (group === "colors") return "color";
   if (group === "radii") return "radius";
@@ -1815,6 +1933,26 @@ function selectedTreeRow(model: WorkbenchModel): WorkbenchModel["treeRows"][numb
     return model.treeRows.find((row) => row.sourceNodeIds.includes(selectedSourceNodeId));
   }
   return model.treeRows.find((row) => row.depth > 0) ?? model.treeRows[0];
+}
+
+function defaultSplitTokens(token: JsonRecord | undefined, sourceName: string): Array<Record<string, unknown> & { name: string }> {
+  const baseName = sourceName || "token";
+  const sourceNodeIds = asArray(token?.sourceNodeIds).map((entry) => stringFrom(entry)).filter((entry): entry is string => Boolean(entry));
+  const firstSource = sourceNodeIds[0] ? [sourceNodeIds[0]] : undefined;
+  const secondSource = sourceNodeIds[1] ? [sourceNodeIds[1]] : firstSource;
+  const value = token?.value;
+  return [
+    {
+      name: `${baseName}_primary`,
+      ...(value !== undefined ? { value } : {}),
+      ...(firstSource ? { sourceNodeIds: firstSource } : {})
+    },
+    {
+      name: `${baseName}_secondary`,
+      ...(value !== undefined ? { value } : {}),
+      ...(secondSource ? { sourceNodeIds: secondSource } : {})
+    }
+  ];
 }
 
 function pascalCase(value: string): string {
