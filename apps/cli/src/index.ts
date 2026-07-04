@@ -2117,7 +2117,8 @@ Operation kinds:
   approve_component, reject_component, define_component_prop,
   define_component_variant, map_flutter_component, rename_token,
   merge_tokens, split_token, set_asset_strategy, rename_i18n_key,
-  accept_i18n_key, define_i18n_placeholder, mark_non_i18n
+  accept_i18n_key, define_i18n_placeholder, merge_i18n_messages,
+  mark_non_i18n
 
 Outputs:
   studio_report.json

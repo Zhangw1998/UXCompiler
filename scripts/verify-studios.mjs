@@ -271,6 +271,53 @@ assert.equal(sequentialComponent.name, "SeqCard");
 assert.equal(sequentialComponent.props[0].name, "title");
 assert.ok(!sequentialProp.finalI18nManifest.messages.some((message) => message.key === "subtitle"));
 
+const duplicateI18nManifest = {
+  ...input.i18nManifest,
+  messages: [
+    ...input.i18nManifest.messages,
+    {
+      key: "button_label_duplicate",
+      value: "Sign in",
+      sourceNodeId: "duplicate:button",
+      description: "Duplicate button text from another node.",
+      confidence: 0.61
+    }
+  ]
+};
+const duplicateMerge = applyStudioOperations({
+  ...input,
+  i18nManifest: duplicateI18nManifest,
+  operations: [
+    {
+      id: "merge_duplicate_button_label",
+      kind: "merge_i18n_messages",
+      messageKey: "button_label_duplicate",
+      targetMessageKey: "button_label",
+      reason: "Merge duplicate button text into the canonical key."
+    }
+  ]
+});
+assert.equal(duplicateMerge.validationReport.issues.length, 0);
+assert.equal(duplicateMerge.finalI18nManifest.messages.some((message) => message.key === "button_label_duplicate"), false);
+assert.equal(duplicateMerge.finalArbFile.button_label, "Sign in");
+assert.equal(duplicateMerge.finalArbFile.button_label_duplicate, undefined);
+assert.ok(duplicateMerge.finalI18nManifest.warnings.some((warning) => warning.type === "merged_duplicate_text"));
+
+const invalidDuplicateMerge = applyStudioOperations({
+  ...input,
+  i18nManifest: duplicateI18nManifest,
+  operations: [
+    {
+      id: "merge_different_text",
+      kind: "merge_i18n_messages",
+      messageKey: "title",
+      targetMessageKey: "button_label",
+      reason: "Should be rejected because the source and target text differ."
+    }
+  ]
+});
+assert.ok(invalidDuplicateMerge.validationReport.issues.some((issue) => issue.code === "invalid_i18n_key"));
+
 writeFileSync(operationsPath, `${JSON.stringify(operations, null, 2)}\n`);
 execFileSync(
   "node",

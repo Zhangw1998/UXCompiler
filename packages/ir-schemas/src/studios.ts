@@ -102,6 +102,14 @@ export type StudioOperation =
     }
   | {
       id?: string;
+      kind: "merge_i18n_messages";
+      messageKey?: string;
+      sourceNodeId?: string;
+      targetMessageKey: string;
+      reason: string;
+    }
+  | {
+      id?: string;
       kind: "mark_non_i18n";
       messageKey?: string;
       sourceNodeId?: string;

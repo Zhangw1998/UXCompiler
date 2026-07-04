@@ -737,7 +737,7 @@ function renderI18n(model: WorkbenchModel): string {
     ${renderStudioRollbackPanel(canApplyStudio)}
     <section class="panel table-panel">
       <table class="data-table">
-        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Placeholder</th><th>Non-i18n Reason</th><th>Action</th></tr></thead>
+        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Placeholder</th><th>Merge Into</th><th>Non-i18n Reason</th><th>Action</th></tr></thead>
         <tbody>
           ${messages
             .map(
@@ -752,6 +752,8 @@ function renderI18n(model: WorkbenchModel): string {
                 const isNonI18nPending = state.pendingStudioOperation === nonI18nPendingKey;
                 const placeholderPendingKey = `define_i18n_placeholder:${sourceNodeId || key}`;
                 const isPlaceholderPending = state.pendingStudioOperation === placeholderPendingKey;
+                const mergePendingKey = `merge_i18n_messages:${sourceNodeId || key}`;
+                const isMergePending = state.pendingStudioOperation === mergePendingKey;
                 return `
                 <tr data-node-id="${escapeAttr(sourceNodeId)}" data-studio-row>
                   <td><input class="studio-input studio-input--wide" data-studio-field="i18n-key" value="${escapeAttr(key)}" ${canApplyStudio ? "" : "disabled"} /></td>
@@ -763,6 +765,7 @@ function renderI18n(model: WorkbenchModel): string {
                     <input class="studio-input studio-input--wide" data-studio-field="i18n-placeholder-type" value="String" ${canApplyStudio ? "" : "disabled"} />
                     <input class="studio-input studio-input--wide" data-studio-field="i18n-placeholder-example" value="${escapeAttr(stringFrom(message.value) ?? "")}" ${canApplyStudio ? "" : "disabled"} />
                   </td>
+                  <td><input class="studio-input studio-input--wide" data-studio-field="i18n-merge-target" value="" ${canApplyStudio ? "" : "disabled"} /></td>
                   <td><input class="studio-input studio-input--wide" data-studio-field="i18n-non-reason" value="Reviewed as non-translatable copy." ${canApplyStudio ? "" : "disabled"} /></td>
                   <td>
                     <button
@@ -805,6 +808,16 @@ function renderI18n(model: WorkbenchModel): string {
                       ${canApplyStudio && !isPlaceholderPending ? "" : "disabled"}
                     >
                       ${escapeHtml(isPlaceholderPending ? "Saving..." : "Placeholder")}
+                    </button>
+                    <button
+                      class="table-action"
+                      data-studio-operation="merge_i18n_messages"
+                      data-studio-key="${escapeAttr(mergePendingKey)}"
+                      data-message-key="${escapeAttr(key)}"
+                      data-source-node-id="${escapeAttr(sourceNodeId)}"
+                      ${canApplyStudio && !isMergePending ? "" : "disabled"}
+                    >
+                      ${escapeHtml(isMergePending ? "Saving..." : "Merge")}
                     </button>
                   </td>
                 </tr>
@@ -2086,6 +2099,21 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
         type,
         ...(example ? { example } : {})
       },
+      reason
+    };
+  }
+  if (kind === "merge_i18n_messages") {
+    const messageKey = button.dataset.messageKey ?? "";
+    const sourceNodeId = button.dataset.sourceNodeId ?? "";
+    const targetMessageKey = studioFieldValue(row, "i18n-merge-target").trim();
+    if (!messageKey && !sourceNodeId) throw new Error("i18n merge requires a message or source node target.");
+    if (!targetMessageKey) throw new Error("i18n merge requires a canonical target key.");
+    return {
+      id: `workbench_merge_i18n_${safeId(sourceNodeId || messageKey)}_${safeId(targetMessageKey)}`,
+      kind,
+      ...(messageKey ? { messageKey } : {}),
+      ...(sourceNodeId ? { sourceNodeId } : {}),
+      targetMessageKey,
       reason
     };
   }

@@ -37,6 +37,7 @@ export function applyStudioOperations(input: ApplyStudioOperationsInput): Studio
   const mutations: UxOverride[] = [];
   const componentRegistry = componentRegistryFromOverrides(baseOverrideSet);
   const nonI18n = nonI18nFromOverrides(input.i18nManifest, baseOverrideSet);
+  const i18nMerges = i18nMergesFromOverrides(input.i18nManifest, baseOverrideSet);
 
   for (const operation of input.operations) {
     const operationId = operation.id ?? operationFingerprint(operation);
@@ -50,6 +51,11 @@ export function applyStudioOperations(input: ApplyStudioOperationsInput): Studio
     if (operation.kind === "mark_non_i18n") {
       const message = findMessage(input.i18nManifest, operation);
       if (message) nonI18n.add(message.key);
+    }
+    if (operation.kind === "merge_i18n_messages") {
+      const source = findMessage(input.i18nManifest, operation);
+      const target = input.i18nManifest.messages.find((message) => message.key === operation.targetMessageKey);
+      if (source && target) i18nMerges.set(source.sourceNodeId, { sourceKey: source.key, targetKey: target.key });
     }
     mutations.push(toOverride(operation, operationId, input.actor ?? "user", now().toISOString(), input));
     validOperationIds.push(operationId);
@@ -66,7 +72,7 @@ export function applyStudioOperations(input: ApplyStudioOperationsInput): Studio
       overrides: [...baseOverrideSet.overrides, ...mutations]
     }
   });
-  const finalI18nManifest = removeNonI18nMessages(overrideResult.reviewedI18nManifest, nonI18n);
+  const finalI18nManifest = mergeI18nMessages(removeNonI18nMessages(overrideResult.reviewedI18nManifest, nonI18n), i18nMerges);
   const finalArbFile = renderArb(finalI18nManifest);
   const tokenRegistry = buildTokenRegistry(overrideResult.reviewedInferredTokens);
 
@@ -186,6 +192,20 @@ function validateOperation(
         addIssue(issues, operationId, "invalid_i18n_placeholder", "Placeholder type is required.");
       }
       return;
+    case "merge_i18n_messages":
+      {
+        const source = findMessage(input.i18nManifest, operation);
+        const target = input.i18nManifest.messages.find((message) => message.key === operation.targetMessageKey);
+        if (!source) addIssue(issues, operationId, "invalid_i18n_key", "i18n source target does not exist.");
+        if (!target) addIssue(issues, operationId, "invalid_i18n_key", `Target i18n key ${operation.targetMessageKey} does not exist.`);
+        if (source && target && source.key === target.key) {
+          addIssue(issues, operationId, "invalid_i18n_key", "Cannot merge an i18n message into itself.");
+        }
+        if (source && target && source.value !== target.value) {
+          addIssue(issues, operationId, "invalid_i18n_key", "Only duplicate i18n text values can be merged.");
+        }
+      }
+      return;
     case "mark_non_i18n":
       {
         const message = findMessage(input.i18nManifest, operation);
@@ -261,6 +281,21 @@ function nonI18nFromOverrides(manifest: I18nManifest, overrideSet: OverrideSet):
     if (key) keys.add(key);
   }
   return keys;
+}
+
+function i18nMergesFromOverrides(manifest: I18nManifest, overrideSet: OverrideSet): Map<string, { sourceKey: string; targetKey: string }> {
+  const merges = new Map<string, { sourceKey: string; targetKey: string }>();
+  for (const override of overrideSet.overrides) {
+    if (override.status !== "active" || override.type !== "i18n_key_override") continue;
+    const sourceNodeId = typeof override.payload.mergeDuplicateSourceNodeId === "string" ? override.payload.mergeDuplicateSourceNodeId : undefined;
+    const sourceKey = typeof override.payload.mergeDuplicateKey === "string" ? override.payload.mergeDuplicateKey : undefined;
+    const targetKey = typeof override.payload.mergeIntoKey === "string" ? override.payload.mergeIntoKey : undefined;
+    if (!sourceNodeId || !sourceKey || !targetKey) continue;
+    if (!manifest.messages.some((message) => message.sourceNodeId === sourceNodeId && message.key === sourceKey)) continue;
+    if (!manifest.messages.some((message) => message.key === targetKey)) continue;
+    merges.set(sourceNodeId, { sourceKey, targetKey });
+  }
+  return merges;
 }
 
 function isStudioOperation(value: unknown): value is StudioOperation {
@@ -384,6 +419,24 @@ function toOverride(
           reason: operation.reason
         }
       };
+    case "merge_i18n_messages":
+      {
+        const source = findMessage(input.i18nManifest, operation);
+        const target = input.i18nManifest.messages.find((message) => message.key === operation.targetMessageKey);
+        return {
+          ...base,
+          type: "i18n_key_override",
+          target: i18nTarget(operation),
+          payload: {
+            key: target?.key,
+            description: target?.description,
+            mergeIntoKey: target?.key,
+            mergeDuplicateKey: source?.key,
+            mergeDuplicateSourceNodeId: source?.sourceNodeId,
+            reason: operation.reason
+          }
+        };
+      }
     case "mark_non_i18n":
       {
         const message = findMessage(input.i18nManifest, operation);
@@ -438,6 +491,30 @@ function removeNonI18nMessages(manifest: I18nManifest, nonI18n: Set<string>): I1
       ...Array.from(nonI18n).map((key) => ({
         type: "non_i18n",
         message: `${key} was marked as non-i18n by Studio review.`
+      }))
+    ]
+  };
+}
+
+function mergeI18nMessages(manifest: I18nManifest, merges: Map<string, { sourceKey: string; targetKey: string }>): I18nManifest {
+  if (merges.size === 0) return manifest;
+  const removed: Array<{ sourceKey: string; targetKey: string; sourceNodeId: string }> = [];
+  const messages = manifest.messages.filter((message) => {
+    const merge = merges.get(message.sourceNodeId);
+    if (!merge) return true;
+    removed.push({ sourceKey: merge.sourceKey, targetKey: merge.targetKey, sourceNodeId: message.sourceNodeId });
+    return false;
+  });
+  if (removed.length === 0) return manifest;
+  return {
+    ...manifest,
+    messages,
+    warnings: [
+      ...manifest.warnings,
+      ...removed.map((entry) => ({
+        sourceNodeId: entry.sourceNodeId,
+        type: "merged_duplicate_text",
+        message: `${entry.sourceKey} was merged into ${entry.targetKey}.`
       }))
     ]
   };
