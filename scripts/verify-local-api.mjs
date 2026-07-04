@@ -115,6 +115,7 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "pipeline_run_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "local_api_snapshot_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "materialized_assets_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "flutter_preview_analyze_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "review_tasks.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "task_status_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "override_set.json")), true);
@@ -146,6 +147,9 @@ try {
   assert.equal(pipelineRunReport.source.sourceKind, "local_smoke");
   assert.equal(pipelineRunReport.steps.snapshot.materializedAssets, 3);
   assert.equal(pipelineRunReport.steps.snapshot.frameScreenshotFallback, false);
+  assert.equal(pipelineRunReport.steps.flutterAnalyze.status, "success");
+  assert.equal(pipelineRunReport.steps.flutterAnalyze.errors, 0);
+  assert.equal(pipelineRunReport.steps.flutterAnalyze.report, resolve(result.artifactDir, "flutter_preview_analyze_report.json"));
   assert.equal(pipelineRunReport.steps.flutterCapture.status, "success");
   assert.equal(pipelineRunReport.steps.visualDiff.status, "success");
   const diffReport = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/visual_diff_report.json"), "utf8"));

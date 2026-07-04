@@ -76,6 +76,7 @@ interface LocalPipelineRunReport {
       frameScreenshotFallback: boolean;
     };
     compile: { status: string; normalizedConfidence: number };
+    flutterAnalyze: { status: string; errors?: number; warnings?: number; report?: string; reason?: string };
     flutterCapture: { status: string; output?: string; report?: string; reason?: string; flutterVersion?: string };
     visualDiff: {
       status: string;
@@ -269,6 +270,7 @@ async function writePipelineArtifacts(
           "flutter_preview/test/preview_test.dart",
           "flutter_preview/test/golden_preview_test.dart",
           "flutter_preview_format_report.json",
+          "flutter_preview_analyze_report.json",
           "regions.json",
           "layout_candidates.json",
           "layout_decisions.json",
@@ -306,7 +308,11 @@ async function writePipelineArtifacts(
   const materializedAssetReport = await materializeSnapshotAssets(outDir, artifacts, options.assets ?? []);
   await writeJson(resolve(outDir, "materialized_assets_report.json"), materializedAssetReport);
   const formatReport = await formatFlutterPreview(previewDir);
-  await writeJson(resolve(outDir, "flutter_preview_format_report.json"), formatReport);
+  const analyzeReport = await analyzeFlutterPreview(previewDir);
+  await Promise.all([
+    writeJson(resolve(outDir, "flutter_preview_format_report.json"), formatReport),
+    writeJson(resolve(outDir, "flutter_preview_analyze_report.json"), analyzeReport)
+  ]);
   return materializedAssetReport;
 }
 
@@ -455,6 +461,7 @@ async function runLocalPipeline(
   const source = body.rawFigmaScene.source;
   const shouldRunPreview = body.runPreview ?? true;
   const shouldRunDiff = body.runDiff ?? true;
+  const flutterAnalyze = await readFlutterAnalyzeStep(resolve(artifactDir, "flutter_preview_analyze_report.json"));
   let flutterCapture: LocalPipelineRunReport["steps"]["flutterCapture"];
   let visualDiff: LocalPipelineRunReport["steps"]["visualDiff"];
 
@@ -546,6 +553,7 @@ async function runLocalPipeline(
         status: "success",
         normalizedConfidence: artifacts.normalizedDesignIR.confidence.overall
       },
+      flutterAnalyze,
       flutterCapture,
       visualDiff
     }
@@ -573,6 +581,46 @@ async function formatFlutterPreview(previewDir: string): Promise<Record<string, 
       };
     }
     throw new Error(`dart format failed: ${candidate.stderr ?? candidate.message}`);
+  }
+}
+
+async function analyzeFlutterPreview(previewDir: string): Promise<Record<string, unknown>> {
+  const command = "flutter pub get && flutter analyze";
+  try {
+    const pubGet = await execFileAsync("flutter", ["pub", "get"], { cwd: previewDir });
+    const analyze = await execFileAsync("flutter", ["analyze"], { cwd: previewDir });
+    const parsed = parseAnalyzeOutput(`${analyze.stdout}\n${analyze.stderr}`);
+    return {
+      status: "success",
+      command,
+      errors: parsed.errors,
+      warnings: parsed.warnings,
+      pubGet: {
+        stdout: pubGet.stdout,
+        stderr: pubGet.stderr
+      },
+      stdout: analyze.stdout,
+      stderr: analyze.stderr
+    };
+  } catch (error) {
+    const candidate = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string; code?: string | number };
+    if (candidate.code === "ENOENT") {
+      return {
+        status: "skipped",
+        command,
+        reason: "flutter command was not found"
+      };
+    }
+    const parsed = parseAnalyzeOutput(`${candidate.stdout ?? ""}\n${candidate.stderr ?? ""}`);
+    return {
+      status: "failed",
+      command,
+      exitCode: candidate.code,
+      errors: parsed.errors,
+      warnings: parsed.warnings,
+      stdout: candidate.stdout,
+      stderr: candidate.stderr
+    };
   }
 }
 
@@ -634,6 +682,24 @@ async function writeVisualDiffArtifacts(options: {
   return result.visualDiffReport;
 }
 
+async function readFlutterAnalyzeStep(path: string): Promise<LocalPipelineRunReport["steps"]["flutterAnalyze"]> {
+  try {
+    const report = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    return {
+      status: stringValue(report.status) ?? "unknown",
+      errors: numberValue(report.errors),
+      warnings: numberValue(report.warnings),
+      report: path,
+      reason: stringValue(report.reason)
+    };
+  } catch {
+    return {
+      status: "missing",
+      reason: "flutter_preview_analyze_report.json was not generated."
+    };
+  }
+}
+
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -679,6 +745,25 @@ function collectFontFamilies(artifacts: PipelineArtifacts): string[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseAnalyzeOutput(output: string): { errors: number; warnings: number } {
+  const result = { errors: 0, warnings: 0 };
+  if (!output.trim()) return result;
+  for (const line of output.split(/\r?\n/)) {
+    const lower = line.toLowerCase();
+    const errorSummary = lower.match(/\b(\d+)\s+errors?\b/);
+    const warningSummary = lower.match(/\b(\d+)\s+warnings?\b/);
+    if (errorSummary) result.errors = Math.max(result.errors, Number(errorSummary[1]));
+    if (warningSummary) result.warnings = Math.max(result.warnings, Number(warningSummary[1]));
+    if (/\berror\s*[•:-]/.test(lower) || /:\s*error\s*$/.test(lower)) result.errors += 1;
+    if (/\bwarning\s*[•:-]/.test(lower) || /:\s*warning\s*$/.test(lower)) result.warnings += 1;
+  }
+  return result;
 }
 
 function safeName(value: string): string {
