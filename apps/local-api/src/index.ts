@@ -76,7 +76,7 @@ interface LocalPipelineRunReport {
       frameScreenshotFallback: boolean;
     };
     compile: { status: string; normalizedConfidence: number };
-    flutterCapture: { status: string; output?: string; report?: string; reason?: string };
+    flutterCapture: { status: string; output?: string; report?: string; reason?: string; flutterVersion?: string };
     visualDiff: {
       status: string;
       pass?: boolean;
@@ -461,11 +461,12 @@ async function runLocalPipeline(
   if (shouldRunPreview) {
     try {
       const previewPath = resolve(artifactDir, "flutter_preview.png");
-      await captureFlutterPreview(resolve(artifactDir, "flutter_preview"), previewPath);
+      const captureReport = await captureFlutterPreview(resolve(artifactDir, "flutter_preview"), previewPath);
       flutterCapture = {
         status: "success",
         output: previewPath,
-        report: resolve(artifactDir, "flutter_preview_capture_report.json")
+        report: resolve(artifactDir, "flutter_preview_capture_report.json"),
+        flutterVersion: stringValue(captureReport.flutterVersion)
       };
     } catch (error) {
       flutterCapture = {
@@ -494,7 +495,9 @@ async function runLocalPipeline(
               height: source.viewport.height
             }
           : undefined,
-        dpr: source.viewport?.scale ?? 1
+        dpr: source.viewport?.scale ?? 1,
+        fonts: collectFontFamilies(artifacts),
+        flutterVersion: flutterCapture.flutterVersion
       });
       visualDiff = {
         status: "success",
@@ -575,6 +578,7 @@ async function formatFlutterPreview(previewDir: string): Promise<Record<string, 
 
 async function captureFlutterPreview(projectDir: string, outPath: string): Promise<Record<string, unknown>> {
   const goldenPath = resolve(projectDir, "test/goldens/flutter_preview.png");
+  const flutterVersion = await commandVersion("flutter", ["--version"]);
   await execFileAsync("flutter", ["pub", "get"], { cwd: projectDir });
   const testResult = await execFileAsync("flutter", ["test", "--update-goldens", "test/golden_preview_test.dart"], {
     cwd: projectDir
@@ -588,6 +592,7 @@ async function captureFlutterPreview(projectDir: string, outPath: string): Promi
     projectDir,
     output: outPath,
     goldenPath,
+    flutterVersion,
     stdout: testResult.stdout,
     stderr: testResult.stderr,
     generatedAt: new Date().toISOString()
@@ -603,6 +608,8 @@ async function writeVisualDiffArtifacts(options: {
   nodePixelMapPath?: string;
   viewport?: { width: number; height: number };
   dpr?: number;
+  fonts?: string[];
+  flutterVersion?: string;
 }): Promise<ReturnType<typeof runVisualDiff>["visualDiffReport"]> {
   const heatmapPath = resolve(options.outDir, "diff_heatmap.png");
   const nodePixelMap = options.nodePixelMapPath
@@ -616,7 +623,9 @@ async function writeVisualDiffArtifacts(options: {
     heatmapPath,
     nodePixelMap,
     viewport: options.viewport,
-    dpr: options.dpr
+    dpr: options.dpr,
+    fonts: options.fonts,
+    flutterVersion: options.flutterVersion
   });
   await mkdir(options.outDir, { recursive: true });
   await writeJson(resolve(options.outDir, "visual_diff_report.json"), result.visualDiffReport);
@@ -650,6 +659,26 @@ function setCors(response: ServerResponse): void {
   response.setHeader("access-control-allow-origin", "*");
   response.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
   response.setHeader("access-control-allow-headers", "content-type");
+}
+
+async function commandVersion(command: string, args: string[]): Promise<string | undefined> {
+  try {
+    const result = await execFileAsync(command, args);
+    return (result.stdout || result.stderr).split(/\r?\n/)[0] || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function collectFontFamilies(artifacts: PipelineArtifacts): string[] {
+  const typography = artifacts.reviewedNormalizedDesignIR.tokens?.typography ?? artifacts.normalizedDesignIR.tokens?.typography ?? [];
+  return [...new Set(typography.map((token) => token.fontFamily).filter((fontFamily) => typeof fontFamily === "string" && fontFamily.length > 0))].sort(
+    (left, right) => left.localeCompare(right)
+  );
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function safeName(value: string): string {

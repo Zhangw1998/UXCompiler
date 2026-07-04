@@ -108,6 +108,9 @@ try {
   assert.equal(pipelineRunReport.steps.snapshot.frameScreenshotFallback, false);
   assert.equal(pipelineRunReport.steps.flutterCapture.status, "success");
   assert.equal(pipelineRunReport.steps.visualDiff.status, "success");
+  const diffReport = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/visual_diff_report.json"), "utf8"));
+  assert.ok(diffReport.environment.fonts.length > 0, "Expected visual diff font metadata");
+  assert.match(diffReport.environment.flutterVersion, /^Flutter /);
   const reviewTasks = JSON.parse(readFileSync(resolve(result.artifactDir, "review_tasks.json"), "utf8"));
   const taskStatusReport = JSON.parse(readFileSync(resolve(result.artifactDir, "task_status_report.json"), "utf8"));
   const overrideSet = JSON.parse(readFileSync(resolve(result.artifactDir, "override_set.json"), "utf8"));

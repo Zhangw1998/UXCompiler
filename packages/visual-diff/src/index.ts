@@ -11,6 +11,8 @@ export interface RunVisualDiffOptions {
   nodePixelMap?: NodePixelMapEntry[];
   viewport?: { width: number; height: number };
   dpr?: number;
+  fonts?: string[];
+  flutterVersion?: string;
   threshold?: {
     visualScore?: number;
     pixelDiffRatio?: number;
@@ -44,6 +46,8 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
       environment: {
         viewport: options.viewport,
         dpr: options.dpr ?? 1,
+        fonts: normalizedFonts(options.fonts),
+        flutterVersion: options.flutterVersion,
         renderer: "png_pixelmatch"
       },
       page: {
@@ -108,6 +112,8 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
     environment: {
       viewport: options.viewport,
       dpr: options.dpr ?? 1,
+      fonts: normalizedFonts(options.fonts),
+      flutterVersion: options.flutterVersion,
       renderer: "png_pixelmatch"
     },
     page: {
@@ -124,6 +130,10 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
     nodeDiffReport: issues,
     heatmapPng: PNG.sync.write(heatmap)
   };
+}
+
+function normalizedFonts(fonts: string[] | undefined): string[] {
+  return [...new Set((fonts ?? []).map((font) => font.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
 }
 
 function buildNodeIssues(reference: PNG, candidate: PNG, nodePixelMap: NodePixelMapEntry[]): VisualDiffReport["issues"] {

@@ -702,6 +702,8 @@ function writeSyntheticVisualDiff(base) {
     environment: {
       viewport: { width: 390, height: 844 },
       dpr: 1,
+      fonts: ["Inter"],
+      flutterVersion: "Flutter smoke",
       renderer: "png_pixelmatch"
     },
     page: {

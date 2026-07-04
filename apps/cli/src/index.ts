@@ -126,6 +126,8 @@ interface WriteVisualDiffOptions {
   nodePixelMapPath?: string;
   viewport?: { width: number; height: number };
   dpr?: number;
+  fonts?: string[];
+  flutterVersion?: string;
 }
 
 interface ProjectCliOptions {
@@ -636,7 +638,9 @@ async function writeVisualDiffArtifacts(options: WriteVisualDiffOptions): Promis
     heatmapPath,
     nodePixelMap,
     viewport: options.viewport,
-    dpr: options.dpr
+    dpr: options.dpr,
+    fonts: options.fonts,
+    flutterVersion: options.flutterVersion
   });
 
   await mkdir(options.outDir, { recursive: true });
@@ -761,6 +765,7 @@ async function runProjectCommand(args: string[]): Promise<void> {
 
 async function captureFlutterPreview(projectDir: string, outPath: string): Promise<Record<string, unknown>> {
   const goldenPath = resolve(projectDir, "test/goldens/flutter_preview.png");
+  const flutterVersion = await commandVersion("flutter", ["--version"]);
   await execFileAsync("flutter", ["pub", "get"], { cwd: projectDir });
   const testResult = await execFileAsync("flutter", ["test", "--update-goldens", "test/golden_preview_test.dart"], {
     cwd: projectDir
@@ -774,6 +779,7 @@ async function captureFlutterPreview(projectDir: string, outPath: string): Promi
     projectDir,
     output: outPath,
     goldenPath,
+    flutterVersion: flutterVersion.ok ? flutterVersion.summary : undefined,
     stdout: testResult.stdout,
     stderr: testResult.stderr,
     generatedAt: new Date().toISOString()
@@ -916,7 +922,9 @@ async function runEndToEndPreview(
             height: extraction.rawFigmaScene.source.viewport.height
           }
         : undefined,
-      dpr: extraction.rawFigmaScene.source.viewport?.scale ?? 1
+      dpr: extraction.rawFigmaScene.source.viewport?.scale ?? 1,
+      fonts: collectFontFamilies(artifacts),
+      flutterVersion: stringValue(captureReport.flutterVersion)
     });
     diffStep = {
       status: "success",
@@ -1811,6 +1819,13 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function collectFontFamilies(artifacts: PipelineArtifacts): string[] {
+  const typography = artifacts.reviewedNormalizedDesignIR.tokens?.typography ?? artifacts.normalizedDesignIR.tokens?.typography ?? [];
+  return [...new Set(typography.map((token) => token.fontFamily).filter((fontFamily) => typeof fontFamily === "string" && fontFamily.length > 0))].sort(
+    (left, right) => left.localeCompare(right)
+  );
 }
 
 async function writeJsonFile(path: string, value: unknown): Promise<void> {

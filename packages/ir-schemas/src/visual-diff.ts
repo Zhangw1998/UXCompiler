@@ -27,6 +27,8 @@ export interface VisualDiffReport {
   environment: {
     viewport?: { width: number; height: number };
     dpr: number;
+    fonts: string[];
+    flutterVersion?: string;
     renderer: "png_pixelmatch";
   };
   page: {

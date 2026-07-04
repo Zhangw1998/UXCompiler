@@ -187,6 +187,8 @@ try {
   const diffReport = JSON.parse(readFileSync(resolve(outDir, "diff/visual_diff_report.json"), "utf8"));
   assert.equal(typeof diffReport.page.pass, "boolean");
   assert.equal(typeof diffReport.page.score.pixelDiffRatio, "number");
+  assert.ok(diffReport.environment.fonts.length > 0, "Expected visual diff font metadata");
+  assert.match(diffReport.environment.flutterVersion, /^Flutter /);
   const reviewTasks = JSON.parse(readFileSync(resolve(outDir, "review_tasks.json"), "utf8"));
   const taskStatusReport = JSON.parse(readFileSync(resolve(outDir, "task_status_report.json"), "utf8"));
   const overrideSet = JSON.parse(readFileSync(resolve(outDir, "override_set.json"), "utf8"));
