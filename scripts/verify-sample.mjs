@@ -25,6 +25,7 @@ const requiredFiles = [
   "override_conflict_report.json",
   "stale_override_report.json",
   "visual_ir.json",
+  "web_preview_state.json",
   "fidelity_generation_manifest.json",
   "node_pixel_map.json",
   "review_tasks.json",
@@ -58,6 +59,7 @@ const overrideSet = readJson("override_set.json");
 const reviewedNormalized = readJson("reviewed_normalized_design_ir.json");
 const staleOverrideReport = readJson("stale_override_report.json");
 const visualIR = readJson("visual_ir.json");
+const webPreviewState = readJson("web_preview_state.json");
 const nodePixelMap = readJson("node_pixel_map.json");
 const reviewTasks = readJson("review_tasks.json");
 const taskStatusReport = readJson("task_status_report.json");
@@ -82,6 +84,10 @@ assert.equal(reviewedNormalized.tree.id, normalized.tree.id);
 assert.equal(staleOverrideReport.staleOverrides.length, 0);
 assert.equal(visualIR.root.type, "scene");
 assert.ok(visualIR.root.children.length >= 10, "Expected VisualIR positioned children");
+assert.equal(webPreviewState.renderer, "web_canvas_state");
+assert.deepEqual(webPreviewState.viewport, { width: 390, height: 844 });
+assert.ok(webPreviewState.commands.length >= 10, "Expected web preview commands");
+assert.ok(webPreviewState.commands.some((command) => command.type === "text"), "Expected text web preview command");
 assert.ok(nodePixelMap.length >= 10, "Expected node pixel map entries");
 assert.ok(reviewTasks.length > 0, "Expected review tasks");
 assert.ok(reviewTasks.every((task) => task.status === "open"), "Expected open review tasks");

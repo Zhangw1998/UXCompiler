@@ -54,6 +54,7 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "reviewedNormalizedDesignIR", files: ["reviewed_normalized_design_ir.json"] },
   { key: "normalizedDesignIR", files: ["normalized_design_ir.json"] },
   { key: "visualIR", files: ["visual_ir.json"] },
+  { key: "webPreviewState", files: ["web_preview_state.json"] },
   { key: "reviewTasks", files: ["review_tasks.json", "incremental_review_tasks.json"] },
   { key: "taskStatusReport", files: ["task_status_report.json"] },
   { key: "overrideSet", files: ["override_set.json"] },
@@ -832,7 +833,9 @@ function renderI18n(model: WorkbenchModel): string {
 }
 
 function renderPreview(model: WorkbenchModel): string {
-  const visualPreview = renderVisualScene(state.artifacts.visualIR);
+  const visualPreview = state.artifacts.webPreviewState
+    ? renderWebPreviewState(state.artifacts.webPreviewState)
+    : renderVisualScene(state.artifacts.visualIR);
   const flutterPreview = state.artifacts.flutterPreviewUrl
     ? `<img class="flutter-preview-img" src="${escapeAttr(state.artifacts.flutterPreviewUrl)}" alt="Flutter preview" />`
     : renderEmpty("No Flutter preview image.");
@@ -844,7 +847,7 @@ function renderPreview(model: WorkbenchModel): string {
     <section class="view-header">
       <div>
         <h1>Preview & Diff</h1>
-        <p>${model.visualNodes.length} visual nodes · ${model.preview.hasDiffReport ? "diff loaded" : "diff pending"}</p>
+        <p>${model.visualNodes.length} visual nodes · ${model.preview.hasWebPreviewState ? "web state loaded" : "web state pending"} · ${model.preview.hasDiffReport ? "diff loaded" : "diff pending"}</p>
       </div>
       <div class="segmented-control">
         ${renderModeButton("side-by-side", "Side")}
@@ -1376,6 +1379,64 @@ function renderFileList(files: unknown[]): string {
 
 function renderEmpty(message: string): string {
   return `<div class="empty-inline">${escapeHtml(message)}</div>`;
+}
+
+function renderWebPreviewState(webPreviewState: unknown): string {
+  const stateRecord = asRecord(webPreviewState);
+  const viewport = asRecord(stateRecord.viewport);
+  const width = numberFrom(viewport.width) ?? 390;
+  const height = numberFrom(viewport.height) ?? 844;
+  const commands = asArray(stateRecord.commands).map(asRecord);
+  if (commands.length === 0) return renderEmpty("No web preview commands.");
+  return `
+    <div class="preview-stage" data-fit-stage>
+      <div class="visual-canvas" data-width="${width}" data-height="${height}" style="width:${width}px;height:${height}px;">
+        ${commands.map((command) => renderWebPreviewCommand(command)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderWebPreviewCommand(command: JsonRecord): string {
+  const type = stringFrom(command.type) ?? "node";
+  const sourceNodeId = stringFrom(command.sourceNodeId) ?? "";
+  const selected = sourceNodeId && state.selectedSourceNodeId === sourceNodeId ? " is-selected" : "";
+  const x = numberFrom(command.x) ?? 0;
+  const y = numberFrom(command.y) ?? 0;
+  const w = numberFrom(command.w) ?? 0;
+  const h = numberFrom(command.h) ?? 0;
+  const baseStyle = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;`;
+  const common = `data-node-id="${escapeAttr(sourceNodeId)}" title="${escapeAttr(sourceNodeId)}"`;
+
+  if (type === "text") {
+    const fontSize = numberFrom(command.fontSize) ?? 14;
+    const lineHeight = numberFrom(command.lineHeight) ?? Math.round(fontSize * 1.2);
+    const fontWeight = numberFrom(command.fontWeight) ?? 400;
+    const color = cssColor(stringFrom(command.color) ?? "#111111");
+    const fontFamily = stringFrom(command.fontFamily) ?? "Inter, system-ui, sans-serif";
+    return `
+      <div class="viz-node viz-text${selected}" ${common} style="${baseStyle}color:${color};font-size:${fontSize}px;line-height:${lineHeight}px;font-weight:${fontWeight};font-family:${escapeAttr(fontFamily)};">
+        ${escapeHtml(stringFrom(command.text) ?? "")}
+      </div>
+    `;
+  }
+
+  if (type === "image") {
+    return `
+      <div class="viz-node viz-image${selected}" ${common} style="${baseStyle}">
+        <span>${escapeHtml(stringFrom(command.mode) === "asset" ? "asset" : "image")}</span>
+      </div>
+    `;
+  }
+
+  const fill = cssColor(stringFrom(command.fill) ?? "#f8fafc");
+  const stroke = cssColor(stringFrom(command.stroke) ?? "rgba(17, 24, 39, 0.12)");
+  const strokeWidth = numberFrom(command.strokeWidth) ?? 1;
+  const radius = numberFrom(command.radius) ?? 0;
+  const opacity = numberFrom(command.opacity) ?? 1;
+  return `
+    <div class="viz-node viz-rect${selected}" ${common} style="${baseStyle}background:${fill};border:${strokeWidth}px solid ${stroke};border-radius:${radius}px;opacity:${opacity};"></div>
+  `;
 }
 
 function onAppClick(event: MouseEvent): void {

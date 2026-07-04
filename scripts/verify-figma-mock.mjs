@@ -144,6 +144,7 @@ try {
     "override_conflict_report.json",
     "stale_override_report.json",
     "visual_ir.json",
+    "web_preview_state.json",
     "fidelity_generation_manifest.json",
     "node_pixel_map.json",
     "review_tasks.json",
@@ -186,7 +187,10 @@ try {
   assert.equal(runReport.steps.flutterCapture.status, "success");
   assert.equal(runReport.steps.visualDiff.status, "success");
   const previewArtifact = JSON.parse(readFileSync(resolve(outDir, "preview_artifact.json"), "utf8"));
+  assert.equal(previewArtifact.files.webPreviewState, resolve(outDir, "web_preview_state.json"));
   assert.equal(previewArtifact.files.diffIssues, resolve(outDir, "diff/diff_issues.json"));
+  const webPreviewState = JSON.parse(readFileSync(resolve(outDir, "web_preview_state.json"), "utf8"));
+  assert.ok(webPreviewState.commands.length >= 10, "Expected Figma run web preview commands");
 
   const diffReport = JSON.parse(readFileSync(resolve(outDir, "diff/visual_diff_report.json"), "utf8"));
   assert.equal(typeof diffReport.page.pass, "boolean");

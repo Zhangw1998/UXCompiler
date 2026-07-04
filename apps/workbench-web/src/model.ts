@@ -5,6 +5,7 @@ export interface WorkbenchArtifacts {
   normalizedDesignIR?: unknown;
   reviewedNormalizedDesignIR?: unknown;
   visualIR?: unknown;
+  webPreviewState?: unknown;
   reviewTasks?: unknown;
   taskStatusReport?: unknown;
   overrideSet?: unknown;
@@ -107,6 +108,7 @@ export interface WorkbenchModel {
   };
   preview: {
     hasVisualIR: boolean;
+    hasWebPreviewState: boolean;
     hasFlutterPreview: boolean;
     hasDiffReport: boolean;
     hasHeatmap: boolean;
@@ -149,8 +151,10 @@ export function buildWorkbenchModel(artifacts: WorkbenchArtifacts): WorkbenchMod
   const sync = summarizeSync(artifacts.nodeRemapReport, artifacts.staleOverrideReport);
   const visualNodes = collectVisualNodes(visualIR);
   const treeRows = flattenDesignTree(tree);
+  const webPreviewCommands = asArray(asRecord(artifacts.webPreviewState).commands);
   const preview = {
     hasVisualIR: visualNodes.length > 0,
+    hasWebPreviewState: webPreviewCommands.length > 0,
     hasFlutterPreview: Boolean(artifacts.flutterPreviewUrl),
     hasDiffReport: Boolean(artifacts.visualDiffReport),
     hasHeatmap: Boolean(artifacts.diffHeatmapUrl)
@@ -190,6 +194,7 @@ export function buildWorkbenchModel(artifacts: WorkbenchArtifacts): WorkbenchMod
     artifactStatus: [
       artifactStatus("Reviewed Normalized IR", Boolean(normalized.tree), frameName),
       artifactStatus("Visual IR", visualNodes.length > 0, `${visualNodes.length} render nodes`),
+      artifactStatus("Web Preview", preview.hasWebPreviewState, `${webPreviewCommands.length} canvas commands`),
       artifactStatus("Review Tasks", reviewTasks.length > 0, `${reviewSummary.open} open`),
       artifactStatus("Override Set", Boolean(overrideSet.hash) || overrideCount > 0, `${overrideCount} overrides`),
       artifactStatus("Studio Review", Boolean(artifacts.studioReport), Boolean(artifacts.studioReport) ? "review applied" : "not applied"),

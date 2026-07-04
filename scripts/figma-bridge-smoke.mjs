@@ -65,6 +65,7 @@ try {
   assert.ok(result.artifactDir);
   assertArtifact(result.artifactDir, "raw_figma_scene.json");
   assertArtifact(result.artifactDir, "normalized_design_ir.json");
+  assertArtifact(result.artifactDir, "web_preview_state.json");
   assertArtifact(result.artifactDir, "flutter_preview.png");
   assertArtifact(result.artifactDir, "diff/visual_diff_report.json");
   assertArtifact(result.artifactDir, "preview_artifact.json");

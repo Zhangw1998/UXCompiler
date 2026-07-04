@@ -84,6 +84,7 @@ try {
     "raw_figma_scene.json",
     "figma_reference.png",
     "normalized_design_ir.json",
+    "web_preview_state.json",
     "flutter_preview.png",
     "diff/visual_diff_report.json",
     "diff/diff_issues.json",

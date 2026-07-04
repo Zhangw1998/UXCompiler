@@ -28,6 +28,7 @@ const artifacts = {
   reviewedNormalizedDesignIR: readJson(sampleDir, "reviewed_normalized_design_ir.json"),
   normalizedDesignIR: readJson(sampleDir, "normalized_design_ir.json"),
   visualIR: readJson(sampleDir, "visual_ir.json"),
+  webPreviewState: readJson(sampleDir, "web_preview_state.json"),
   reviewTasks: readJson(sampleDir, "review_tasks.json"),
   taskStatusReport: readJson(sampleDir, "task_status_report.json"),
   overrideSet: readJson(sampleDir, "override_set.json"),
@@ -55,8 +56,10 @@ assert.ok(model.tokenCounts.colors >= 4, "Expected color tokens");
 assert.ok(model.assetCount >= 8, "Expected asset decisions");
 assert.ok(model.i18nCount >= 6, "Expected i18n messages");
 assert.equal(model.preview.hasVisualIR, true);
+assert.equal(model.preview.hasWebPreviewState, true);
 assert.equal(model.preview.hasFlutterPreview, hasFlutterPreview);
 assert.ok(model.artifactStatus.some((entry) => entry.label === "Visual IR" && entry.present));
+assert.ok(model.artifactStatus.some((entry) => entry.label === "Web Preview" && entry.present));
 
 const server = spawn("node", ["scripts/workbench-web-server.mjs", "--port", "8798", "--artifacts", "/artifacts/workbench-web-smoke/sample"], {
   stdio: ["ignore", "pipe", "pipe"]

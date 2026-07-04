@@ -995,6 +995,7 @@ async function writePreviewArtifact(outDir: string, runReport: FigmaRunReport): 
     files: {
       flutterPreview: runReport.steps.flutterCapture.output,
       flutterCaptureReport: runReport.steps.flutterCapture.report,
+      webPreviewState: resolve(outDir, "web_preview_state.json"),
       visualDiffReport: runReport.steps.visualDiff.report,
       diffIssues: diffDir ? resolve(diffDir, "diff_issues.json") : undefined,
       nodeDiffReport: diffDir ? resolve(diffDir, "node_diff_report.json") : undefined,
@@ -1604,6 +1605,7 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
     ["override_conflict_report.json", artifacts.overrideConflictReport],
     ["stale_override_report.json", artifacts.staleOverrideReport],
     ["visual_ir.json", artifacts.visualIR],
+    ["web_preview_state.json", createWebPreviewState(artifacts.visualIR)],
     ["fidelity_generation_manifest.json", artifacts.fidelityGenerationManifest],
     ["node_pixel_map.json", artifacts.nodePixelMap],
     ["review_tasks.json", artifacts.reviewTasks],
@@ -1639,6 +1641,7 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
           "override_conflict_report.json",
           "stale_override_report.json",
           "visual_ir.json",
+          "web_preview_state.json",
           "fidelity_generation_manifest.json",
           "node_pixel_map.json",
           "review_tasks.json",
@@ -1839,6 +1842,107 @@ function parseAnalyzeOutput(output: string): { errors: number; warnings: number 
     if (/\bwarning\s*[•:-]/.test(lower) || /:\s*warning\s*$/.test(lower)) result.warnings += 1;
   }
   return result;
+}
+
+function createWebPreviewState(visualIR: unknown): Record<string, unknown> {
+  const root = objectValue(objectValue(visualIR)?.root);
+  const size = objectValue(root?.size);
+  const viewport = {
+    width: numberValue(size?.w) ?? 0,
+    height: numberValue(size?.h) ?? 0
+  };
+  const warnings: Array<{ type: string; message: string; sourceNodeId?: string }> = [];
+  const commands: Array<Record<string, unknown>> = [];
+  for (const child of arrayValue(root?.children) ?? []) {
+    collectWebPreviewCommands(child, 0, 0, commands, warnings);
+  }
+  if (commands.length === 0) {
+    warnings.push({ type: "empty_preview", message: "VisualIR did not contain drawable web preview nodes." });
+  }
+  return {
+    version: "0.1.0",
+    generatedAt: new Date().toISOString(),
+    renderer: "web_canvas_state",
+    viewport,
+    commands,
+    warnings
+  };
+}
+
+function collectWebPreviewCommands(
+  nodeValue: unknown,
+  offsetX: number,
+  offsetY: number,
+  commands: Array<Record<string, unknown>>,
+  warnings: Array<{ type: string; message: string; sourceNodeId?: string }>
+): void {
+  const node = objectValue(nodeValue);
+  if (!node) return;
+  const type = stringValue(node.type);
+  if (type === "positioned") {
+    const x = offsetX + (numberValue(node.x) ?? 0);
+    const y = offsetY + (numberValue(node.y) ?? 0);
+    collectWebPreviewCommands(node.child, x, y, commands, warnings);
+    return;
+  }
+  if (type === "stack" || type === "scene") {
+    for (const child of arrayValue(node.children) ?? []) collectWebPreviewCommands(child, offsetX, offsetY, commands, warnings);
+    return;
+  }
+  const sourceNodeId = stringValue(node.sourceNodeId);
+  const w = numberValue(node.w) ?? 0;
+  const h = numberValue(node.h) ?? 0;
+  if (w <= 0 || h <= 0) {
+    warnings.push({ type: "invalid_bounds", message: "Skipped a web preview node with non-positive bounds.", sourceNodeId });
+    return;
+  }
+  if (type === "rect") {
+    commands.push({
+      type: "rect",
+      sourceNodeId,
+      x: offsetX,
+      y: offsetY,
+      w,
+      h,
+      fill: stringValue(node.fill) ?? "#ffffff",
+      stroke: stringValue(node.stroke),
+      strokeWidth: numberValue(node.strokeWidth),
+      radius: numberValue(node.radius),
+      opacity: numberValue(node.opacity)
+    });
+    return;
+  }
+  if (type === "text") {
+    commands.push({
+      type: "text",
+      sourceNodeId,
+      x: offsetX,
+      y: offsetY,
+      w,
+      h,
+      text: stringValue(node.text) ?? "",
+      color: stringValue(node.color) ?? "#111111",
+      fontFamily: stringValue(node.fontFamily) ?? "Inter, system-ui, sans-serif",
+      fontSize: numberValue(node.fontSize) ?? 14,
+      fontWeight: numberValue(node.fontWeight) ?? 400,
+      lineHeight: numberValue(node.lineHeight)
+    });
+    return;
+  }
+  if (type === "image") {
+    commands.push({
+      type: "image",
+      sourceNodeId,
+      x: offsetX,
+      y: offsetY,
+      w,
+      h,
+      mode: stringValue(node.mode) ?? "placeholder",
+      assetPath: stringValue(node.assetPath)
+    });
+    return;
+  }
+  warnings.push({ type: "unsupported_node", message: `Skipped unsupported VisualIR node type: ${type ?? "unknown"}.`, sourceNodeId });
 }
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
