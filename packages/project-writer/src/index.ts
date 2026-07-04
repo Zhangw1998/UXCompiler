@@ -154,6 +154,28 @@ async function writeOneGeneratedFile(options: {
   }
 
   const existing = await readOptionalText(target);
+  if ((plan.action === "modify" || plan.action === "unchanged") && existing === undefined) {
+    return {
+      path: plan.path,
+      action: plan.action,
+      status: "blocked",
+      reason: `Target file was missing during write, but review expected ${plan.action === "modify" ? "an update" : "an unchanged file"}.`
+    };
+  }
+  if ((plan.action === "modify" || plan.action === "unchanged") && plan.existingHash && existing !== undefined) {
+    const currentHash = hashText(existing);
+    if (currentHash !== plan.existingHash) {
+      return buildReviewDriftResult({
+        path: plan.path,
+        action: plan.action,
+        existing,
+        content: options.content,
+        mergeBaseHash: plan.existingHash,
+        currentHash,
+        generatedHash: plan.hash
+      });
+    }
+  }
   if (plan.action === "unchanged") {
     return {
       path: plan.path,
@@ -188,7 +210,8 @@ async function writeOneGeneratedFile(options: {
     };
   }
 
-  if (existing === undefined) {
+  const existingText = existing;
+  if (existingText === undefined) {
     return {
       path: plan.path,
       action: plan.action,
@@ -196,15 +219,7 @@ async function writeOneGeneratedFile(options: {
       reason: "Target file was missing during write, but review expected an update."
     };
   }
-  if (plan.existingHash && hashText(existing) !== plan.existingHash) {
-    return {
-      path: plan.path,
-      action: plan.action,
-      status: "blocked",
-      reason: "Target file changed after codegen review; regenerate review before writing."
-    };
-  }
-  if (!hasGeneratedMarker(existing)) {
+  if (!hasGeneratedMarker(existingText)) {
     return {
       path: plan.path,
       action: plan.action,
@@ -212,7 +227,7 @@ async function writeOneGeneratedFile(options: {
       reason: "Target file has no UXCompiler generated markers."
     };
   }
-  if (existing === options.content) {
+  if (existingText === options.content) {
     return {
       path: plan.path,
       action: plan.action,
@@ -222,7 +237,7 @@ async function writeOneGeneratedFile(options: {
   }
   const backupPath = resolveSafe(options.backupRoot, plan.path);
   if (!options.dryRun) {
-    await writeText(backupPath, existing);
+    await writeText(backupPath, existingText);
     await writeText(target, options.content);
   }
   return {
@@ -231,6 +246,31 @@ async function writeOneGeneratedFile(options: {
     status: "updated",
     backupPath,
     reason: options.dryRun ? "Dry run: generated file would be updated with backup." : "Generated file updated with backup."
+  };
+}
+
+function buildReviewDriftResult(options: {
+  path: string;
+  action: CodegenFilePlan["action"];
+  existing: string;
+  content: string;
+  mergeBaseHash: string;
+  currentHash: string;
+  generatedHash: string;
+}): ProjectWriteFileResult {
+  const generatedFile = hasGeneratedMarker(options.existing);
+  return {
+    path: options.path,
+    action: options.action,
+    status: "blocked",
+    mergeStatus: generatedFile ? "conflict_patch" : "manual_conflict",
+    mergeBaseHash: options.mergeBaseHash,
+    currentHash: options.currentHash,
+    generatedHash: options.generatedHash,
+    patch: buildUnifiedDiff(options.path, options.existing, options.content),
+    reason: generatedFile
+      ? "Target generated file changed after codegen review; conflict patch was generated instead of overwriting."
+      : "Target manual file changed after codegen review; patch review is required before writing."
   };
 }
 
@@ -468,6 +508,19 @@ async function readOptionalBuffer(path: string): Promise<Buffer | undefined> {
 
 function hashText(value: string): string {
   return `sha256_${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function buildUnifiedDiff(path: string, before: string, after: string): string {
+  const beforeLines = before.replace(/\n$/, "").split("\n");
+  const afterLines = after.replace(/\n$/, "").split("\n");
+  return [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,${beforeLines.length} +1,${afterLines.length} @@`,
+    ...beforeLines.map((line) => `-${line}`),
+    ...afterLines.map((line) => `+${line}`),
+    ""
+  ].join("\n");
 }
 
 function safeId(value: string): string {

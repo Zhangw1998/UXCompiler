@@ -11,6 +11,7 @@ const projectDir = resolve(root, "flutter-project");
 const dryProjectDir = resolve(root, "dry-project");
 const conflictProjectDir = resolve(root, "conflict-project");
 const conflictReviewDir = resolve(root, "conflict-review");
+const driftReviewDir = resolve(root, "drift-review");
 rmSync(root, { recursive: true, force: true });
 mkdirSync(root, { recursive: true });
 
@@ -62,6 +63,43 @@ const second = await writeCodegenToProject({
   assetRoots: [resolve(reviewDir, "assets")]
 });
 assert.equal(second.report.files.every((file) => file.status === "unchanged"), true);
+
+execFileSync(
+  "node",
+  [
+    "apps/cli/dist/index.js",
+    "codegen",
+    "review",
+    "--artifacts",
+    baseDir,
+    "--out",
+    driftReviewDir,
+    "--project-path",
+    projectDir
+  ],
+  { stdio: "pipe" }
+);
+const mainPath = resolve(projectDir, "lib/main.dart");
+const reviewedMain = readFileSync(mainPath, "utf8");
+writeFile(mainPath, reviewedMain.replace("// @uxc-generated:end", "  // manual generated-region tweak\n// @uxc-generated:end"));
+const drift = await writeCodegenToProject({
+  projectPath: projectDir,
+  codegenReview: readJson(driftReviewDir, "codegen_review.json"),
+  generatedFiles: readGeneratedFiles(resolve(driftReviewDir, "generated")),
+  arbPatch: readJson(driftReviewDir, "arb_patch.json"),
+  pubspecPatch: readJson(driftReviewDir, "pubspec_patch.json"),
+  assetRoots: [resolve(driftReviewDir, "assets")]
+});
+const driftFile = drift.report.files.find((file) => file.path === "lib/main.dart");
+assert.equal(driftFile.status, "blocked");
+assert.equal(driftFile.action, "unchanged");
+assert.equal(driftFile.mergeStatus, "conflict_patch");
+assert.match(driftFile.mergeBaseHash, /^sha256_[a-f0-9]{64}$/);
+assert.match(driftFile.currentHash, /^sha256_[a-f0-9]{64}$/);
+assert.match(driftFile.generatedHash, /^sha256_[a-f0-9]{64}$/);
+assert.match(driftFile.patch, /manual generated-region tweak/);
+assert.match(driftFile.patch, /--- a\/lib\/main\.dart/);
+assert.equal(readFileSync(mainPath, "utf8").includes("manual generated-region tweak"), true);
 
 execFileSync(
   "node",

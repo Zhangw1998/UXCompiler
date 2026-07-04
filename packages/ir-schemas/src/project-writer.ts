@@ -9,6 +9,11 @@ export interface ProjectWriteFileResult {
   action: CodegenFileAction;
   status: ProjectWriteStatus;
   backupPath?: string;
+  mergeStatus?: "conflict_patch" | "manual_conflict";
+  mergeBaseHash?: string;
+  currentHash?: string;
+  generatedHash?: string;
+  patch?: string;
   reason: string;
 }
 
