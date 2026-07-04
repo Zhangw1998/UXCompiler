@@ -225,6 +225,51 @@ try {
   assert.equal(finalArb.loginTitle, "Welcome back");
   assert.equal(reviewedArb.loginTitle, "Welcome back");
 
+  const projectPath = resolve(root, "target-flutter-project");
+  const codegenReviewResponse = await fetch(`${base}/api/workbench/codegen-review`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      projectPath,
+      projectId: "workbench_smoke",
+      normalizedIrId: "nir_workbench_smoke",
+      allowLowVisualScore: true
+    })
+  });
+  assert.equal(codegenReviewResponse.ok, true);
+  const codegenReviewResult = await codegenReviewResponse.json();
+  assert.equal(codegenReviewResult.ok, true);
+  assert.equal(codegenReviewResult.report.projectPath, projectPath);
+  assert.equal(codegenReviewResult.report.filesToCreate > 0, true);
+  const codegenReview = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/codegen_review.json`);
+  const codegenReviewReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_codegen_review_report.json`);
+  const generatedMain = await fetchText(`${base}/artifacts/workbench-web-smoke/sample/generated/lib/main.dart`);
+  assert.equal(codegenReview.projectId, "workbench_smoke");
+  assert.equal(codegenReviewReport.buildId, codegenReview.buildId);
+  assert.match(generatedMain, /@uxc-generated:start/);
+
+  const codegenWriteResponse = await fetch(`${base}/api/workbench/codegen-write`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      projectPath,
+      dryRun: true,
+      allowBlocked: true
+    })
+  });
+  assert.equal(codegenWriteResponse.ok, true);
+  const codegenWriteResult = await codegenWriteResponse.json();
+  assert.equal(codegenWriteResult.ok, true);
+  assert.equal(codegenWriteResult.report.mode, "dry_run");
+  assert.equal(codegenWriteResult.report.wrote, false);
+  const projectWriteReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/project_write_report.json`);
+  const workbenchWriteReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_codegen_write_report.json`);
+  assert.equal(projectWriteReport.mode, "dry_run");
+  assert.equal(workbenchWriteReport.buildId, codegenReview.buildId);
+  assert.equal(projectWriteReport.files.some((file) => file.status === "created"), true);
+
   console.log("workbench-web verification passed");
 } finally {
   server.kill("SIGTERM");

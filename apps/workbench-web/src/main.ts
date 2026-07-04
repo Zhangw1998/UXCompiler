@@ -32,6 +32,8 @@ interface AppState {
   pendingAction?: string;
   pendingTreeOperation?: string;
   pendingStudioOperation?: string;
+  pendingCodegenOperation?: string;
+  codegenProjectPath?: string;
 }
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
@@ -63,6 +65,8 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "componentRegistry", files: ["component_registry.json"] },
   { key: "studioReport", files: ["studio_report.json"] },
   { key: "codegenReview", files: ["codegen_review.json"] },
+  { key: "workbenchCodegenReviewReport", files: ["workbench_codegen_review_report.json"] },
+  { key: "projectWriteReport", files: ["project_write_report.json"] },
   { key: "nodeRemapReport", files: ["node_remap_report.json"] },
   { key: "staleOverrideReport", files: ["stale_override_report.json"] },
   { key: "overrideConflictReport", files: ["override_conflict_report.json"] },
@@ -96,10 +100,12 @@ const state: AppState = {
   artifactRoot: initialArtifactRoot,
   artifacts: { artifactRoot: initialArtifactRoot },
   loading: true,
-  previewMode: "side-by-side"
+  previewMode: "side-by-side",
+  codegenProjectPath: savedCodegenProjectPath(initialArtifactRoot)
 };
 
 app.addEventListener("click", onAppClick);
+app.addEventListener("input", onAppInput);
 artifactInput.addEventListener("change", () => {
   void handleArtifactDirectory(artifactInput.files);
 });
@@ -115,9 +121,11 @@ window.addEventListener("hashchange", () => {
 void loadFromArtifactRoot(initialArtifactRoot);
 
 async function loadFromArtifactRoot(root: string): Promise<void> {
+  const previousRoot = state.artifactRoot;
   state.loading = true;
   state.error = undefined;
   state.artifactRoot = root;
+  if (root !== previousRoot) state.codegenProjectPath = savedCodegenProjectPath(root);
   state.artifacts = { artifactRoot: root };
   render();
 
@@ -746,6 +754,10 @@ function renderCodegen(model: WorkbenchModel): string {
   const blockers = asArray(gates.blockers).map(asRecord);
   const createFiles = asArray(review.filesToCreate);
   const modifyFiles = asArray(review.filesToModify);
+  const writeReport = asRecord(state.artifacts.projectWriteReport);
+  const workbenchReviewReport = asRecord(state.artifacts.workbenchCodegenReviewReport);
+  const writeFiles = asArray(writeReport.files).map(asRecord);
+  const canRunCodegen = state.artifactRoot !== "selected directory";
   const sync = asRecord(state.artifacts.nodeRemapReport);
   return `
     <section class="view-header">
@@ -754,6 +766,37 @@ function renderCodegen(model: WorkbenchModel): string {
         <p>${escapeHtml(model.codegen.status)} · ${model.codegen.filesToCreate} creates · ${model.codegen.filesToModify} modifies</p>
       </div>
       <span class="status-pill status-pill--${statusTone(model.codegen.status)}">${escapeHtml(model.codegen.status)}</span>
+    </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
+    <section class="panel codegen-control-panel">
+      <div class="panel-header"><h2>Write Control</h2></div>
+      <div class="codegen-controls">
+        <label class="codegen-field codegen-field--wide">
+          <span>Project Path</span>
+          <input class="studio-input codegen-input" data-codegen-field="project-path" value="${escapeAttr(state.codegenProjectPath || stringFrom(writeReport.projectPath) || stringFrom(workbenchReviewReport.projectPath) || "")}" placeholder="apps/flutter-app" ${canRunCodegen ? "" : "disabled"} />
+        </label>
+        <label class="codegen-toggle">
+          <input type="checkbox" data-codegen-field="allow-low-visual-score" />
+          <span>Low score</span>
+        </label>
+        <label class="codegen-toggle">
+          <input type="checkbox" data-codegen-field="allow-blocked" />
+          <span>Blocked gate</span>
+        </label>
+        <label class="codegen-toggle">
+          <input type="checkbox" data-codegen-field="confirm-write" />
+          <span>Write files</span>
+        </label>
+        ${renderCodegenButton("review", "Review", canRunCodegen)}
+        ${renderCodegenButton("dry-run", "Dry Run", canRunCodegen && Boolean(state.artifacts.codegenReview))}
+        ${renderCodegenButton("write", "Write", canRunCodegen && Boolean(state.artifacts.codegenReview))}
+      </div>
+      <div class="codegen-summary">
+        <div><strong>${escapeHtml(stringFrom(writeReport.mode) ?? "not-run")}</strong><span>Mode</span></div>
+        <div><strong>${escapeHtml(String(booleanFrom(writeReport.wrote) ?? false))}</strong><span>Wrote</span></div>
+        <div><strong>${writeFiles.filter((file) => stringFrom(file.status) === "created" || stringFrom(file.status) === "updated").length}</strong><span>Changed</span></div>
+        <div><strong>${asArray(writeReport.blockers).length}</strong><span>Blockers</span></div>
+      </div>
     </section>
     <section class="two-column">
       <div class="panel">
@@ -948,6 +991,15 @@ function renderTreeActionButton(operation: string, label: string, enabled: boole
   `;
 }
 
+function renderCodegenButton(operation: string, label: string, enabled: boolean): string {
+  const isPending = state.pendingCodegenOperation === operation;
+  return `
+    <button class="action-button" data-codegen-operation="${escapeAttr(operation)}" ${enabled && !isPending ? "" : "disabled"}>
+      ${escapeHtml(isPending ? "Running..." : label)}
+    </button>
+  `;
+}
+
 function renderKeyValues(value: Record<string, number>): string {
   const entries = Object.entries(value);
   if (entries.length === 0) return `<div class="kv-row"><strong>none</strong><span>0</span></div>`;
@@ -1052,6 +1104,12 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const codegenOperationButton = target.closest<HTMLButtonElement>("[data-codegen-operation]");
+  if (codegenOperationButton?.dataset.codegenOperation) {
+    void applyCodegenOperation(codegenOperationButton.dataset.codegenOperation);
+    return;
+  }
+
   const modeButton = target.closest<HTMLElement>("[data-preview-mode]");
   if (modeButton?.dataset.previewMode) {
     state.previewMode = modeButton.dataset.previewMode as PreviewMode;
@@ -1069,6 +1127,15 @@ function onAppClick(event: MouseEvent): void {
     state.selectedNormalizedNodeId = normalizedNodeId || undefined;
     if (state.activeView !== "preview" && target.closest(".task-list")) state.activeView = "preview";
     render();
+  }
+}
+
+function onAppInput(event: Event): void {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.dataset.codegenField === "project-path") {
+    state.codegenProjectPath = target.value;
+    saveCodegenProjectPath(state.artifactRoot, target.value);
   }
 }
 
@@ -1209,6 +1276,54 @@ async function applyStudioOperation(button: HTMLButtonElement): Promise<void> {
   }
 }
 
+async function applyCodegenOperation(operation: string): Promise<void> {
+  const payload = buildCodegenPayload(operation);
+  if (payload.error) {
+    state.actionMessage = { tone: "bad", text: payload.error };
+    render();
+    return;
+  }
+  state.pendingCodegenOperation = operation;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const endpoint = operation === "review" ? "/api/workbench/codegen-review" : "/api/workbench/codegen-write";
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload.body)
+    });
+    const result = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      report?: {
+        gateStatus?: string;
+        mode?: string;
+        wrote?: boolean;
+        filesToCreate?: number;
+        filesToModify?: number;
+        blockers?: number | unknown[];
+      };
+    };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Codegen ${operation} failed with ${response.status}`);
+    }
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.actionMessage = {
+      tone: result.report?.gateStatus === "blocked" ? "warn" : "good",
+      text: codegenResultMessage(operation, result.report)
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingCodegenOperation = undefined;
+    render();
+  }
+}
+
 function buildTreeOperation(kind: string, selected: WorkbenchModel["treeRows"][number], target: Record<string, string>, reason: string): Record<string, unknown> {
   const operationId = `workbench_${kind}_${safeId(selected.id)}`;
   const safeReason = reason || "Reviewed in Workbench Tree Editor.";
@@ -1312,6 +1427,53 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
   throw new Error(`Unsupported Studio operation: ${kind}`);
 }
 
+function buildCodegenPayload(operation: string): { body?: Record<string, unknown>; error?: string } {
+  const enteredProjectPath = inputValue("[data-codegen-field='project-path']").trim();
+  const writeReport = asRecord(state.artifacts.projectWriteReport);
+  const workbenchReviewReport = asRecord(state.artifacts.workbenchCodegenReviewReport);
+  const projectPath =
+    enteredProjectPath || state.codegenProjectPath || stringFrom(writeReport.projectPath) || stringFrom(workbenchReviewReport.projectPath) || "";
+  state.codegenProjectPath = projectPath || state.codegenProjectPath;
+  if (state.codegenProjectPath) saveCodegenProjectPath(state.artifactRoot, state.codegenProjectPath);
+  const allowLowVisualScore = checkedValue("[data-codegen-field='allow-low-visual-score']");
+  const allowBlocked = checkedValue("[data-codegen-field='allow-blocked']");
+  const confirmWrite = checkedValue("[data-codegen-field='confirm-write']");
+  if ((operation === "dry-run" || operation === "write") && !projectPath) {
+    return { error: "Project path is required for Codegen write." };
+  }
+  if (operation === "write" && !confirmWrite) {
+    return { error: "Enable Write files before running an actual project write." };
+  }
+  if (operation === "review") {
+    return {
+      body: {
+        artifactRoot: state.artifactRoot,
+        ...(projectPath ? { projectPath } : {}),
+        allowLowVisualScore
+      }
+    };
+  }
+  if (operation === "dry-run" || operation === "write") {
+    return {
+      body: {
+        artifactRoot: state.artifactRoot,
+        projectPath,
+        dryRun: operation !== "write",
+        allowBlocked
+      }
+    };
+  }
+  return { error: `Unsupported Codegen operation: ${operation}` };
+}
+
+function codegenResultMessage(operation: string, report: { gateStatus?: string; mode?: string; wrote?: boolean; filesToCreate?: number; filesToModify?: number; blockers?: number | unknown[] } | undefined): string {
+  if (operation === "review") {
+    return `Codegen review ${report?.gateStatus ?? "updated"}; ${report?.filesToCreate ?? 0} creates, ${report?.filesToModify ?? 0} modifies.`;
+  }
+  const blockerCount = Array.isArray(report?.blockers) ? report?.blockers.length : report?.blockers ?? 0;
+  return `Codegen ${report?.mode ?? operation} finished; wrote ${String(report?.wrote ?? false)}, ${blockerCount} blockers.`;
+}
+
 function studioFieldValue(row: HTMLElement, fieldName: string): string {
   const field = row.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-studio-field='${fieldName}']`);
   return field?.value ?? "";
@@ -1328,6 +1490,11 @@ function tokenTypeForGroup(group: string): string {
 function inputValue(selector: string): string {
   const field = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
   return field?.value ?? "";
+}
+
+function checkedValue(selector: string): boolean {
+  const field = document.querySelector<HTMLInputElement>(selector);
+  return field?.checked ?? false;
 }
 
 function fitPreviewStages(): void {
@@ -1461,6 +1628,28 @@ function revokeObjectUrls(): void {
 
 function normalizeView(value: string): ViewId | undefined {
   return navItems.some((item) => item.id === value) ? (value as ViewId) : undefined;
+}
+
+function savedCodegenProjectPath(artifactRoot: string): string | undefined {
+  try {
+    return window.sessionStorage.getItem(codegenProjectPathKey(artifactRoot)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveCodegenProjectPath(artifactRoot: string, value: string): void {
+  try {
+    const key = codegenProjectPathKey(artifactRoot);
+    if (value) window.sessionStorage.setItem(key, value);
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // The in-memory state still preserves the current edit if storage is unavailable.
+  }
+}
+
+function codegenProjectPathKey(artifactRoot: string): string {
+  return `uxcompiler:codegen-project-path:${artifactRoot}`;
 }
 
 function escapeHtml(value: string): string {

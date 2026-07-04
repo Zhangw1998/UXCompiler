@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 import { createServer } from "node:http";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, relative, resolve, sep } from "node:path";
+import { createCodegenReview } from "../packages/codegen-review/dist/index.js";
 import { applyOverrides } from "../packages/override-engine/dist/index.js";
+import { writeCodegenToProject } from "../packages/project-writer/dist/index.js";
 import { generateReviewTasks } from "../packages/review-task-engine/dist/index.js";
 import { applyStudioOperations } from "../packages/studios/dist/index.js";
 import { applyTreeEdits } from "../packages/tree-editor/dist/index.js";
@@ -90,6 +92,34 @@ const server = createServer(async (request, response) => {
       }
       const body = await readJsonBody(request);
       const result = await applyWorkbenchStudioOperation(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workbench/codegen-review") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyWorkbenchCodegenReview(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workbench/codegen-write") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyWorkbenchCodegenWrite(body);
       sendJson(response, 200, {
         ok: true,
         ...result
@@ -400,6 +430,88 @@ async function applyWorkbenchStudioOperation(body) {
   };
 }
 
+async function applyWorkbenchCodegenReview(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const projectPath = stringValue(body.projectPath) ? resolveLocalPath(stringValue(body.projectPath)) : undefined;
+  const now = new Date().toISOString();
+  const flutterPreviewFiles = await readTextFilesRecursively(resolve(artifactDir, "flutter_preview"));
+  const existingProjectFiles = projectPath ? await readExistingProjectFiles(projectPath, Object.keys(flutterPreviewFiles)) : undefined;
+  const result = createCodegenReview({
+    normalizedDesignIR: await readFirstJson([
+      resolve(artifactDir, "reviewed_normalized_design_ir.json"),
+      resolve(artifactDir, "normalized_design_ir.json")
+    ]),
+    assetManifest: await readFirstJson([
+      resolve(artifactDir, "final_asset_manifest.json"),
+      resolve(artifactDir, "reviewed_asset_manifest.json"),
+      resolve(artifactDir, "asset_manifest.json")
+    ]),
+    i18nManifest: await readFirstJson([
+      resolve(artifactDir, "final_i18n_manifest.json"),
+      resolve(artifactDir, "reviewed_i18n_manifest.json"),
+      resolve(artifactDir, "i18n_manifest.json")
+    ]),
+    existingArbFile: projectPath ? await readOptionalJson(resolve(projectPath, "lib/l10n/app_en.arb"), undefined) : undefined,
+    flutterPreviewFiles,
+    existingProjectFiles,
+    previousManifest: await readOptionalJson(resolve(artifactDir, "codegen_review.json"), undefined),
+    reviewTasks: await readOptionalJson(resolve(artifactDir, "review_tasks.json"), undefined),
+    taskStatusReport: await readOptionalJson(resolve(artifactDir, "task_status_report.json"), undefined),
+    visualDiffReport:
+      (await readOptionalJson(resolve(artifactDir, "visual_diff_report.json"), undefined)) ??
+      (await readOptionalJson(resolve(artifactDir, "diff/visual_diff_report.json"), undefined)),
+    fidelityGenerationManifest: await readOptionalJson(resolve(artifactDir, "fidelity_generation_manifest.json"), undefined),
+    nodePixelMap: await readOptionalJson(resolve(artifactDir, "node_pixel_map.json"), undefined),
+    overrideSet: await readOptionalJson(resolve(artifactDir, "override_set.json"), undefined),
+    staleOverrideReport: await readOptionalJson(resolve(artifactDir, "stale_override_report.json"), undefined),
+    projectId: stringValue(body.projectId),
+    buildId: stringValue(body.buildId),
+    normalizedIrId: stringValue(body.normalizedIrId),
+    allowLowVisualScore: Boolean(body.allowLowVisualScore)
+  });
+  await writeCodegenReviewArtifacts(artifactDir, result);
+  const report = {
+    version: "0.1.0",
+    generatedAt: now,
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    projectPath,
+    buildId: result.codegenReview.buildId,
+    gateStatus: result.codegenReview.gates.status,
+    blockers: result.codegenReview.gates.blockers.length,
+    filesToCreate: result.filesToCreate.length,
+    filesToModify: result.filesToModify.length,
+    assetsToAdd: result.assetsToAdd.length,
+    arbKeysToAdd: result.codegenReview.arbKeysToAdd.length
+  };
+  await writeJson(resolve(artifactDir, "workbench_codegen_review_report.json"), report);
+  return {
+    report,
+    codegenReview: result.codegenReview
+  };
+}
+
+async function applyWorkbenchCodegenWrite(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const projectPath = resolveLocalPath(stringValue(body.projectPath));
+  const dryRun = body.dryRun !== false;
+  const assetRoots = stringArray(body.assetRoots).map(resolveLocalPath);
+  const result = await writeCodegenToProject({
+    projectPath,
+    codegenReview: await readJson(resolve(artifactDir, "codegen_review.json")),
+    generatedFiles: await readGeneratedFiles(resolve(artifactDir, "generated")),
+    arbPatch: await readOptionalJson(resolve(artifactDir, "arb_patch.json"), undefined),
+    pubspecPatch: await readOptionalJson(resolve(artifactDir, "pubspec_patch.json"), undefined),
+    assetRoots: [...assetRoots, resolve(artifactDir, "assets"), artifactDir],
+    dryRun,
+    allowBlocked: Boolean(body.allowBlocked)
+  });
+  await writeJson(resolve(artifactDir, "project_write_report.json"), result.report);
+  await writeJson(resolve(artifactDir, "workbench_codegen_write_report.json"), result.report);
+  return {
+    report: result.report
+  };
+}
+
 async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedPatch = {}) {
   const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
   const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
@@ -454,6 +566,23 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedP
   await writeJson(resolve(artifactDir, "review_tasks.json"), reviewResult.reviewTasks);
   await writeJson(resolve(artifactDir, "task_status_report.json"), reviewResult.taskStatusReport);
   return { overrideResult, reviewResult };
+}
+
+async function writeCodegenReviewArtifacts(artifactDir, result) {
+  await Promise.all([
+    writeJson(resolve(artifactDir, "codegen_review.json"), result.codegenReview),
+    writeJson(resolve(artifactDir, "flutter_generation_manifest.json"), result.codegenReview),
+    writeJson(resolve(artifactDir, "files_to_create.json"), result.filesToCreate),
+    writeJson(resolve(artifactDir, "files_to_modify.json"), result.filesToModify),
+    writeJson(resolve(artifactDir, "assets_to_add.json"), result.assetsToAdd),
+    writeJson(resolve(artifactDir, "arb_patch.json"), result.arbPatch),
+    writeText(resolve(artifactDir, "pubspec.yaml.patch"), result.pubspecPatch.patch),
+    writeJson(resolve(artifactDir, "pubspec_patch.json"), result.pubspecPatch),
+    writeJson(resolve(artifactDir, "merge_report.json"), result.mergeReport),
+    writeJson(resolve(artifactDir, "incremental_sync_report.json"), result.incrementalSyncReport),
+    ...result.generatedFiles.map((file) => writeText(resolve(artifactDir, "generated", file.path), file.content)),
+    ...result.filePatches.map((patch) => writeText(resolve(artifactDir, patch.patchPath), patch.patch))
+  ]);
 }
 
 function buildOverrideFromAction({ task, action, actionIndex, actor, now }) {
@@ -547,6 +676,11 @@ function resolveArtifactRoot(value) {
   return artifactDir;
 }
 
+function resolveLocalPath(value) {
+  if (!value) throw new Error("Missing local path.");
+  return resolve(root, value);
+}
+
 async function readJsonBody(request) {
   const chunks = [];
   for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -569,6 +703,65 @@ async function readOptionalJson(path, fallback) {
 async function writeJson(path, value) {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function writeText(path, value) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, value, "utf8");
+}
+
+async function readFirstJson(paths) {
+  const attempted = [];
+  for (const path of paths) {
+    attempted.push(path);
+    try {
+      return await readJson(path);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  throw new Error(`Missing required JSON artifact. Tried: ${attempted.join(", ")}`);
+}
+
+async function readTextFilesRecursively(rootPath) {
+  const files = {};
+  async function walk(dir, prefix) {
+    const entries = await readdir(dir, { withFileTypes: true });
+    await Promise.all(
+      entries.map(async (entry) => {
+        const fullPath = resolve(dir, entry.name);
+        const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          await walk(fullPath, relativePath);
+        } else if (entry.isFile()) {
+          files[relativePath] = await readFile(fullPath, "utf8");
+        }
+      })
+    );
+  }
+  await walk(rootPath, "");
+  return files;
+}
+
+async function readExistingProjectFiles(projectPath, paths) {
+  const files = {};
+  await Promise.all(
+    paths.map(async (path) => {
+      try {
+        files[path] = await readFile(resolve(projectPath, path), "utf8");
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    })
+  );
+  return files;
+}
+
+async function readGeneratedFiles(generatedRoot) {
+  const files = await readTextFilesRecursively(generatedRoot);
+  return Object.entries(files)
+    .map(([path, content]) => ({ path, content }))
+    .sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function sendJson(response, status, value) {

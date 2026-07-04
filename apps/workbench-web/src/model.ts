@@ -20,6 +20,8 @@ export interface WorkbenchArtifacts {
   componentRegistry?: unknown;
   studioReport?: unknown;
   codegenReview?: unknown;
+  workbenchCodegenReviewReport?: unknown;
+  projectWriteReport?: unknown;
   nodeRemapReport?: unknown;
   staleOverrideReport?: unknown;
   overrideConflictReport?: unknown;

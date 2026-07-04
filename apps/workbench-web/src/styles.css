@@ -698,6 +698,76 @@ button {
   gap: 8px;
 }
 
+.codegen-control-panel {
+  margin-bottom: 16px;
+}
+
+.codegen-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(3, auto) repeat(3, minmax(86px, auto));
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+}
+
+.codegen-field {
+  display: grid;
+  gap: 5px;
+}
+
+.codegen-field span,
+.codegen-toggle span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.codegen-input {
+  width: 100%;
+}
+
+.codegen-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.codegen-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.codegen-summary div {
+  min-height: 54px;
+  padding: 9px;
+  border: 1px solid #edf0f5;
+  border-radius: 7px;
+  background: #fbfcfe;
+}
+
+.codegen-summary strong,
+.codegen-summary span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codegen-summary strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.codegen-summary span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .token-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -981,6 +1051,18 @@ button {
   .split-view,
   .token-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .codegen-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .codegen-field--wide {
+    grid-column: 1 / -1;
+  }
+
+  .codegen-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .detail-panel {
