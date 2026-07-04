@@ -125,6 +125,18 @@ const operations = [
     reason: "Use project i18n key naming."
   },
   {
+    id: "button_label_placeholder",
+    kind: "define_i18n_placeholder",
+    sourceNodeId: "1:14",
+    placeholder: {
+      name: "ctaLabel",
+      type: "String",
+      example: "Sign in",
+      description: "Resolved submit button label."
+    },
+    reason: "Track typed ARB placeholder metadata for generated localization."
+  },
+  {
     id: "subtitle_non_i18n",
     kind: "mark_non_i18n",
     messageKey: "subtitle",
@@ -162,7 +174,9 @@ assert.equal(divider.excludeTextNodes, true);
 
 assert.ok(result.finalI18nManifest.messages.some((message) => message.key === "loginSubmitLabel"));
 assert.ok(!result.finalI18nManifest.messages.some((message) => message.key === "subtitle"));
+assert.equal(result.finalI18nManifest.messages.find((message) => message.key === "loginSubmitLabel").placeholders.ctaLabel.type, "String");
 assert.equal(result.finalArbFile.loginSubmitLabel, "Sign in");
+assert.equal(result.finalArbFile["@loginSubmitLabel"].placeholders.ctaLabel.example, "Sign in");
 assert.equal(result.finalArbFile.subtitle, undefined);
 assert.ok(result.overrideConflictReport.warnings.some((warning) => warning.type === "unsupported_override" && warning.overrideId.includes("approve_primary_button")));
 
@@ -183,12 +197,23 @@ const invalid = applyStudioOperations({
       messageKey: "title",
       key: "BadKey",
       reason: "Should be rejected because the key is not lowerCamelCase."
+    },
+    {
+      id: "bad_i18n_placeholder",
+      kind: "define_i18n_placeholder",
+      messageKey: "title",
+      placeholder: {
+        name: "BadPlaceholder",
+        type: ""
+      },
+      reason: "Should be rejected because placeholder name and type are invalid."
     }
   ]
 });
 assert.equal(invalid.overrideMutations.length, 0);
 assert.ok(invalid.validationReport.issues.some((issue) => issue.code === "invalid_component"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.code === "invalid_i18n_key"));
+assert.ok(invalid.validationReport.issues.some((issue) => issue.code === "invalid_i18n_placeholder"));
 
 const sequentialApprove = applyStudioOperations({
   ...input,

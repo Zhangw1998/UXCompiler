@@ -1,4 +1,4 @@
-import type { AssetManifest, I18nManifest } from "./asset-i18n.js";
+import type { AssetManifest, I18nManifest, I18nPlaceholder } from "./asset-i18n.js";
 import type { InferredTokens } from "./tokens.js";
 import type { OverrideConflictReport, OverrideSet, StaleOverrideReport, UxOverride } from "./override.js";
 
@@ -87,6 +87,14 @@ export type StudioOperation =
     }
   | {
       id?: string;
+      kind: "define_i18n_placeholder";
+      messageKey?: string;
+      sourceNodeId?: string;
+      placeholder: I18nPlaceholderDefinition;
+      reason: string;
+    }
+  | {
+      id?: string;
       kind: "mark_non_i18n";
       messageKey?: string;
       sourceNodeId?: string;
@@ -109,6 +117,10 @@ export interface FlutterComponentMapping {
   import: string;
   constructor: string;
   props?: Record<string, unknown>;
+}
+
+export interface I18nPlaceholderDefinition extends I18nPlaceholder {
+  name: string;
 }
 
 export interface ComponentRegistryEntry {
@@ -156,7 +168,8 @@ export interface StudioValidationIssue {
     | "invalid_token"
     | "duplicate_token"
     | "invalid_asset"
-    | "invalid_i18n_key";
+    | "invalid_i18n_key"
+    | "invalid_i18n_placeholder";
   message: string;
 }
 

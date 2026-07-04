@@ -28,7 +28,7 @@ execFileSync(
 const input = {
   normalizedDesignIR: readJson(baseDir, "reviewed_normalized_design_ir.json"),
   assetManifest: readJson(baseDir, "reviewed_asset_manifest.json"),
-  i18nManifest: readJson(baseDir, "reviewed_i18n_manifest.json"),
+  i18nManifest: withPlaceholder(readJson(baseDir, "reviewed_i18n_manifest.json")),
   flutterPreviewFiles: readTextFiles(resolve(baseDir, "flutter_preview")),
   reviewTasks: readJson(baseDir, "review_tasks.json"),
   taskStatusReport: readJson(baseDir, "task_status_report.json"),
@@ -50,6 +50,7 @@ assert.ok(result.filesToCreate.some((file) => file.path === "lib/generated/fidel
 assert.ok(result.generatedFiles.every((file) => file.content.includes("@uxc-generated:start")));
 assert.ok(result.assetsToAdd.some((asset) => asset.path === "assets/icons/divider_dot.svg"));
 assert.ok(result.arbPatch.keysToAdd.some((message) => message.key === "button_label"));
+assert.equal(result.arbPatch.patch["@button_label"].placeholders.ctaLabel.type, "String");
 assert.match(result.pubspecPatch.patch, /assets\/icons\/divider_dot\.svg/);
 assert.equal(result.incrementalSyncReport.mode, "initial_generation");
 
@@ -151,6 +152,20 @@ console.log("codegen review verification passed");
 
 function readJson(base, file) {
   return JSON.parse(readFileSync(resolve(base, file), "utf8"));
+}
+
+function withPlaceholder(manifest) {
+  const copy = JSON.parse(JSON.stringify(manifest));
+  const message = copy.messages.find((entry) => entry.key === "button_label");
+  assert.ok(message, "Expected button_label i18n message");
+  message.placeholders = {
+    ctaLabel: {
+      type: "String",
+      example: "Sign in",
+      description: "Button label placeholder metadata."
+    }
+  };
+  return copy;
 }
 
 function readTextFiles(rootDir, prefix = "") {

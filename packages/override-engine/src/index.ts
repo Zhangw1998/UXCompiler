@@ -411,12 +411,14 @@ function applyAsset(context: ApplyContext): void {
 function applyI18n(context: ApplyContext): void {
   const message = findMessage(context.i18nManifest, context.override.target);
   const key = stringValue(context.override.payload.key);
-  if (!message || !key) {
-    addStale(context, "Target i18n message does not exist or key is missing.");
+  if (!message) {
+    addStale(context, "Target i18n message does not exist.");
     return;
   }
-  message.key = key;
+  if (key) message.key = key;
   message.description = stringValue(context.override.payload.description) ?? message.description;
+  const placeholders = placeholdersValue(context.override.payload.placeholders);
+  if (placeholders) message.placeholders = { ...(message.placeholders ?? {}), ...placeholders };
   message.confidence = 1;
   context.appliedOverrideIds.push(context.override.id);
 }
@@ -642,11 +644,13 @@ function unionBounds(nodes: NormalizedNode[]): NormalizedNode["bounds"] {
 function renderArb(manifest: I18nManifest): Record<string, unknown> {
   const arb: Record<string, unknown> = { "@@locale": manifest.locale };
   for (const message of manifest.messages) {
-    arb[message.key] = message.value;
-    arb[`@${message.key}`] = {
+    const metadata: Record<string, unknown> = {
       description: message.description,
       sourceNodeId: message.sourceNodeId
     };
+    if (message.placeholders && Object.keys(message.placeholders).length > 0) metadata.placeholders = message.placeholders;
+    arb[message.key] = message.value;
+    arb[`@${message.key}`] = metadata;
   }
   return arb;
 }
@@ -727,6 +731,23 @@ function boundsValue(value: unknown): AssetManifestEntry["cropBounds"] | undefin
   const h = numberValue(record.h);
   if (w <= 0 || h <= 0) return undefined;
   return { x, y, w, h };
+}
+
+function placeholdersValue(value: unknown): I18nMessage["placeholders"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const placeholders: NonNullable<I18nMessage["placeholders"]> = {};
+  for (const [name, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^[a-z][A-Za-z0-9]*$/.test(name) || !entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const type = stringValue(record.type);
+    if (!type) continue;
+    placeholders[name] = {
+      type,
+      ...(stringValue(record.example) ? { example: stringValue(record.example) } : {}),
+      ...(stringValue(record.description) ? { description: stringValue(record.description) } : {})
+    };
+  }
+  return Object.keys(placeholders).length > 0 ? placeholders : undefined;
 }
 
 function tokenGroup(tokens: InferredTokens, tokenType: string): Array<Record<string, unknown>> | undefined {

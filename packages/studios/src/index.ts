@@ -174,6 +174,15 @@ function validateOperation(
         addIssue(issues, operationId, "invalid_i18n_key", `i18n key ${operation.key} already exists.`);
       }
       return;
+    case "define_i18n_placeholder":
+      if (!findMessage(input.i18nManifest, operation)) addIssue(issues, operationId, "invalid_i18n_key", "i18n target does not exist.");
+      if (!/^[a-z][A-Za-z0-9]*$/.test(operation.placeholder.name)) {
+        addIssue(issues, operationId, "invalid_i18n_placeholder", `Placeholder ${operation.placeholder.name} must be lowerCamelCase.`);
+      }
+      if (!operation.placeholder.type.trim()) {
+        addIssue(issues, operationId, "invalid_i18n_placeholder", "Placeholder type is required.");
+      }
+      return;
     case "mark_non_i18n":
       {
         const message = findMessage(input.i18nManifest, operation);
@@ -346,6 +355,22 @@ function toOverride(
         target: i18nTarget(operation),
         payload: { key: operation.key, description: operation.description, reason: operation.reason }
       };
+    case "define_i18n_placeholder":
+      return {
+        ...base,
+        type: "i18n_key_override",
+        target: i18nTarget(operation),
+        payload: {
+          placeholders: {
+            [operation.placeholder.name]: {
+              type: operation.placeholder.type,
+              example: operation.placeholder.example,
+              description: operation.placeholder.description
+            }
+          },
+          reason: operation.reason
+        }
+      };
     case "mark_non_i18n":
       {
         const message = findMessage(input.i18nManifest, operation);
@@ -408,11 +433,13 @@ function removeNonI18nMessages(manifest: I18nManifest, nonI18n: Set<string>): I1
 function renderArb(manifest: I18nManifest): Record<string, unknown> {
   const arb: Record<string, unknown> = { "@@locale": manifest.locale };
   for (const message of manifest.messages) {
-    arb[message.key] = message.value;
-    arb[`@${message.key}`] = {
+    const metadata: Record<string, unknown> = {
       description: message.description,
       sourceNodeId: message.sourceNodeId
     };
+    if (message.placeholders && Object.keys(message.placeholders).length > 0) metadata.placeholders = message.placeholders;
+    arb[message.key] = message.value;
+    arb[`@${message.key}`] = metadata;
   }
   return arb;
 }

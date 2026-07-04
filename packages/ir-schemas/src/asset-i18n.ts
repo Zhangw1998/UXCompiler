@@ -33,7 +33,14 @@ export interface I18nMessage {
   value: string;
   sourceNodeId: string;
   description: string;
+  placeholders?: Record<string, I18nPlaceholder>;
   confidence: number;
+}
+
+export interface I18nPlaceholder {
+  type: string;
+  example?: string;
+  description?: string;
 }
 
 export interface I18nManifest {

@@ -289,6 +289,36 @@ try {
   assert.equal(finalArb.loginTitle, "Welcome back");
   assert.equal(reviewedArb.loginTitle, "Welcome back");
 
+  const studioPlaceholderResponse = await fetch(`${base}/api/workbench/studio-operation`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_title_placeholder",
+        kind: "define_i18n_placeholder",
+        sourceNodeId: "1:3",
+        placeholder: {
+          name: "titleText",
+          type: "String",
+          example: "Welcome back",
+          description: "Resolved login title text."
+        },
+        reason: "Verify Workbench Studio i18n placeholder writeback."
+      }
+    })
+  });
+  assert.equal(studioPlaceholderResponse.ok, true);
+  const studioPlaceholderResult = await studioPlaceholderResponse.json();
+  assert.equal(studioPlaceholderResult.ok, true);
+  assert.deepEqual(studioPlaceholderResult.report.overrideIds, ["ovr_studio_verify_title_placeholder"]);
+  const placeholderI18n = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/final_i18n_manifest.json`);
+  const placeholderArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/arb/app_en.arb`);
+  const placeholderOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  assert.equal(placeholderOverrideSet.overrides.length, 8);
+  assert.equal(findMessageByKey(placeholderI18n, "loginTitle").placeholders.titleText.type, "String");
+  assert.equal(placeholderArb["@loginTitle"].placeholders.titleText.example, "Welcome back");
+
   const studioNonI18nResponse = await fetch(`${base}/api/workbench/studio-operation`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -309,7 +339,7 @@ try {
   const nonI18nFinal = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/final_i18n_manifest.json`);
   const nonI18nArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/arb/app_en.arb`);
   const nonI18nOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(nonI18nOverrideSet.overrides.length, 8);
+  assert.equal(nonI18nOverrideSet.overrides.length, 9);
   assert.equal(Boolean(findMessageByKey(nonI18nFinal, "subtitle")), false);
   assert.equal(nonI18nArb.subtitle, undefined);
 
@@ -397,7 +427,7 @@ try {
   const componentRegistry = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/component_registry.json`);
   const componentOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   const workbenchSubmit = findComponentById(componentRegistry, "cmp_workbench_submit");
-  assert.equal(componentOverrideSet.overrides.length, 12);
+  assert.equal(componentOverrideSet.overrides.length, 13);
   assert.equal(workbenchSubmit.name, "WorkbenchSubmit");
   assert.equal(workbenchSubmit.props[0].sourceSelector, "sourceNodeId:1:14");
   assert.equal(workbenchSubmit.variants[0].values.includes("disabled"), true);
@@ -570,7 +600,7 @@ try {
   assert.equal(issueRepairPatch.rollback.type, "disable_override");
   assert.equal(issueRepairPatch.afterOverride.payload.strategy, "asset_slice");
   assert.equal(issueRepairLog.iterations.some((entry) => entry.event === "applied" && entry.overrideId === "ovr_diff_diff_verify_region_asset_slice"), true);
-  assert.equal(issueRepairOverrideSet.overrides.length, 13);
+  assert.equal(issueRepairOverrideSet.overrides.length, 14);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_page"), true);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_verify_region"), false);
 
@@ -609,7 +639,7 @@ try {
   assert.equal(issueRepairAgainResult.report.overrideId, "ovr_diff_diff_verify_region_asset_slice");
   const issueRepairAgainOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   const activeIssueOverride = issueRepairAgainOverrideSet.overrides.find((entry) => entry.id === "ovr_diff_diff_verify_region_asset_slice");
-  assert.equal(issueRepairAgainOverrideSet.overrides.length, 13);
+  assert.equal(issueRepairAgainOverrideSet.overrides.length, 14);
   assert.equal(activeIssueOverride.status, "active");
 
   const pageRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
@@ -627,7 +657,7 @@ try {
   assert.equal(pageRepairResult.report.overrideId, "ovr_diff_page_frame_fallback");
   const pageRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const pageRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(pageRepairOverrideSet.overrides.length, 14);
+  assert.equal(pageRepairOverrideSet.overrides.length, 15);
   assert.equal(pageRepairTasks.some((task) => task.type === "visual_diff_failed"), false);
 
   const studioRollbackResponse = await fetch(`${base}/api/workbench/studio-rollback`, {

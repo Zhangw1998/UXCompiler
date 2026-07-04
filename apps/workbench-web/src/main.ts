@@ -737,7 +737,7 @@ function renderI18n(model: WorkbenchModel): string {
     ${renderStudioRollbackPanel(canApplyStudio)}
     <section class="panel table-panel">
       <table class="data-table">
-        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Non-i18n Reason</th><th>Action</th></tr></thead>
+        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Placeholder</th><th>Non-i18n Reason</th><th>Action</th></tr></thead>
         <tbody>
           ${messages
             .map(
@@ -748,12 +748,19 @@ function renderI18n(model: WorkbenchModel): string {
                 const isPending = state.pendingStudioOperation === pendingKey;
                 const nonI18nPendingKey = `mark_non_i18n:${sourceNodeId || key}`;
                 const isNonI18nPending = state.pendingStudioOperation === nonI18nPendingKey;
+                const placeholderPendingKey = `define_i18n_placeholder:${sourceNodeId || key}`;
+                const isPlaceholderPending = state.pendingStudioOperation === placeholderPendingKey;
                 return `
                 <tr data-node-id="${escapeAttr(sourceNodeId)}" data-studio-row>
                   <td><input class="studio-input studio-input--wide" data-studio-field="i18n-key" value="${escapeAttr(key)}" ${canApplyStudio ? "" : "disabled"} /></td>
                   <td>${escapeHtml(stringFrom(message.value) ?? "-")}</td>
                   <td>${escapeHtml(stringFrom(message.sourceNodeId) ?? "-")}</td>
                   <td>${formatConfidence(numberFrom(message.confidence))}</td>
+                  <td>
+                    <input class="studio-input studio-input--wide" data-studio-field="i18n-placeholder-name" value="value" ${canApplyStudio ? "" : "disabled"} />
+                    <input class="studio-input studio-input--wide" data-studio-field="i18n-placeholder-type" value="String" ${canApplyStudio ? "" : "disabled"} />
+                    <input class="studio-input studio-input--wide" data-studio-field="i18n-placeholder-example" value="${escapeAttr(stringFrom(message.value) ?? "")}" ${canApplyStudio ? "" : "disabled"} />
+                  </td>
                   <td><input class="studio-input studio-input--wide" data-studio-field="i18n-non-reason" value="Reviewed as non-translatable copy." ${canApplyStudio ? "" : "disabled"} /></td>
                   <td>
                     <button
@@ -776,6 +783,16 @@ function renderI18n(model: WorkbenchModel): string {
                       ${canApplyStudio && !isNonI18nPending ? "" : "disabled"}
                     >
                       ${escapeHtml(isNonI18nPending ? "Saving..." : "Non-i18n")}
+                    </button>
+                    <button
+                      class="table-action"
+                      data-studio-operation="define_i18n_placeholder"
+                      data-studio-key="${escapeAttr(placeholderPendingKey)}"
+                      data-message-key="${escapeAttr(key)}"
+                      data-source-node-id="${escapeAttr(sourceNodeId)}"
+                      ${canApplyStudio && !isPlaceholderPending ? "" : "disabled"}
+                    >
+                      ${escapeHtml(isPlaceholderPending ? "Saving..." : "Placeholder")}
                     </button>
                   </td>
                 </tr>
@@ -2024,6 +2041,27 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
       ...(sourceNodeId ? { sourceNodeId } : {}),
       key,
       description: button.dataset.description || undefined,
+      reason
+    };
+  }
+  if (kind === "define_i18n_placeholder") {
+    const messageKey = button.dataset.messageKey ?? "";
+    const sourceNodeId = button.dataset.sourceNodeId ?? "";
+    const name = studioFieldValue(row, "i18n-placeholder-name").trim();
+    const type = studioFieldValue(row, "i18n-placeholder-type").trim();
+    const example = studioFieldValue(row, "i18n-placeholder-example").trim();
+    if (!messageKey && !sourceNodeId) throw new Error("i18n placeholder requires a message or source node target.");
+    if (!name || !type) throw new Error("i18n placeholder requires a name and type.");
+    return {
+      id: `workbench_i18n_placeholder_${safeId(sourceNodeId || messageKey)}_${safeId(name)}`,
+      kind,
+      ...(messageKey ? { messageKey } : {}),
+      ...(sourceNodeId ? { sourceNodeId } : {}),
+      placeholder: {
+        name,
+        type,
+        ...(example ? { example } : {})
+      },
       reason
     };
   }

@@ -298,8 +298,10 @@ function buildArbPatch(i18nManifest: I18nManifest, existingArbFile?: Record<stri
       continue;
     }
     const current = existingArbFile?.[message.key];
+    const metadata: Record<string, unknown> = { description: message.description };
+    if (message.placeholders && Object.keys(message.placeholders).length > 0) metadata.placeholders = message.placeholders;
     patch[message.key] = message.value;
-    patch[`@${message.key}`] = { description: message.description };
+    patch[`@${message.key}`] = metadata;
     if (current === undefined) {
       keysToAdd.push(message);
     } else if (current !== message.value) {

@@ -162,11 +162,13 @@ function renderArb(manifest: I18nManifest): Record<string, unknown> {
     "@@locale": manifest.locale
   };
   for (const message of manifest.messages) {
-    arb[message.key] = message.value;
-    arb[`@${message.key}`] = {
+    const metadata: Record<string, unknown> = {
       description: message.description,
       sourceNodeId: message.sourceNodeId
     };
+    if (message.placeholders && Object.keys(message.placeholders).length > 0) metadata.placeholders = message.placeholders;
+    arb[message.key] = message.value;
+    arb[`@${message.key}`] = metadata;
   }
   return arb;
 }
