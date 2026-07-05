@@ -158,6 +158,9 @@ function validateOperation(
       if (operation.tokens.length === 0) addIssue(issues, operationId, "invalid_token", "Token split requires output tokens.");
       return;
     case "set_asset_strategy":
+      if (!operation.assetId && !operation.sourceNodeId) {
+        addIssue(issues, operationId, "invalid_asset", "Asset Studio operations require assetId or sourceNodeId.");
+      }
       if (!findAsset(input.assetManifest, operation)) {
         addIssue(issues, operationId, "invalid_asset", "Asset target does not exist.");
       }

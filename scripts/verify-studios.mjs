@@ -220,6 +220,39 @@ const invalid = applyStudioOperations({
       kind: "accept_i18n_key",
       messageKey: "missingKey",
       reason: "Should be rejected because the i18n message target is missing."
+    },
+    {
+      id: "bad_asset_missing_target",
+      kind: "set_asset_strategy",
+      strategy: "image_asset",
+      path: "assets/images/missing_target.png",
+      reason: "Should be rejected because assetId or sourceNodeId is required."
+    },
+    {
+      id: "bad_asset_duplicate_path",
+      kind: "set_asset_strategy",
+      assetId: "asset_1_2",
+      strategy: "image_asset",
+      path: "assets/icons/divider_dot.svg",
+      reason: "Should be rejected because another asset already uses this path."
+    },
+    {
+      id: "bad_asset_scale",
+      kind: "set_asset_strategy",
+      assetId: "asset_1_2",
+      strategy: "image_asset",
+      path: "assets/images/hero.png",
+      scale: 8,
+      reason: "Should be rejected because the export scale is out of range."
+    },
+    {
+      id: "bad_asset_crop",
+      kind: "set_asset_strategy",
+      assetId: "asset_1_2",
+      strategy: "image_asset",
+      path: "assets/images/hero_crop.png",
+      cropBounds: { x: 0, y: 0, w: 0, h: 12 },
+      reason: "Should be rejected because crop bounds must have positive dimensions."
     }
   ]
 });
@@ -227,6 +260,10 @@ assert.equal(invalid.overrideMutations.length, 0);
 assert.ok(invalid.validationReport.issues.some((issue) => issue.code === "invalid_component"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.code === "invalid_i18n_key"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.code === "invalid_i18n_placeholder"));
+assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_missing_target" && issue.code === "invalid_asset"));
+assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_duplicate_path" && issue.code === "invalid_asset"));
+assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_scale" && issue.code === "invalid_asset"));
+assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_crop" && issue.code === "invalid_asset"));
 
 const sequentialApprove = applyStudioOperations({
   ...input,
