@@ -552,6 +552,41 @@ function applyI18n(context: ApplyContext): void {
     addStale(context, "Target i18n message does not exist.");
     return;
   }
+  const mergeIntoKey = stringValue(context.override.payload.mergeIntoKey);
+  if (mergeIntoKey) {
+    const target = context.i18nManifest.messages.find((candidate) => candidate.key === mergeIntoKey);
+    if (!target) {
+      addStale(context, `Target i18n merge key ${mergeIntoKey} does not exist.`);
+      return;
+    }
+    if (target.sourceNodeId === message.sourceNodeId) {
+      addConflict(context, "invalid_payload", "Cannot merge an i18n message into itself.");
+      return;
+    }
+    if (target.value !== message.value) {
+      addConflict(context, "invalid_payload", "Only duplicate i18n text values can be merged.");
+      return;
+    }
+    removeMessage(context.i18nManifest, message);
+    context.i18nManifest.warnings.push({
+      sourceNodeId: message.sourceNodeId,
+      type: "merged_duplicate_text",
+      message: `${message.key} was merged into ${target.key}.`
+    });
+    context.appliedOverrideIds.push(context.override.id);
+    return;
+  }
+  const nonI18nReason = stringValue(context.override.payload.nonI18nReason);
+  if (nonI18nReason) {
+    removeMessage(context.i18nManifest, message);
+    context.i18nManifest.warnings.push({
+      sourceNodeId: message.sourceNodeId,
+      type: "non_i18n",
+      message: `${message.key} was marked as non-i18n by ${context.override.id}: ${nonI18nReason}`
+    });
+    context.appliedOverrideIds.push(context.override.id);
+    return;
+  }
   if (key) message.key = key;
   message.description = stringValue(context.override.payload.description) ?? message.description;
   const placeholders = placeholdersValue(context.override.payload.placeholders);
@@ -788,6 +823,10 @@ function findMessage(manifest: I18nManifest, target: OverrideTarget): I18nMessag
     if (target.sourceNodeId && message.sourceNodeId === target.sourceNodeId) return true;
     return false;
   });
+}
+
+function removeMessage(manifest: I18nManifest, message: I18nMessage): void {
+  manifest.messages = manifest.messages.filter((candidate) => candidate.sourceNodeId !== message.sourceNodeId || candidate.key !== message.key);
 }
 
 function removeNode(root: NormalizedNode, nodeId: string): NormalizedNode | undefined {

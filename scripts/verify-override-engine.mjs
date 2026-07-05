@@ -35,6 +35,11 @@ writeFileSync(
           }
         ),
         override("ovr_i18n_title", "i18n_key_override", { kind: "i18n_message", messageKey: "title" }, { key: "loginTitle" }),
+        override("ovr_i18n_subtitle_non", "i18n_key_override", { kind: "i18n_message", messageKey: "subtitle" }, {
+          key: "subtitle",
+          nonI18nReason: "Subtitle copy is managed outside this generated screen.",
+          reason: "Mark subtitle as non-i18n."
+        }),
         override("ovr_token_radius", "token_rename_override", { kind: "token", tokenName: "radius_18" }, { from: "radius_18", to: "radius_cta" }),
         override("ovr_component_button", "component_candidate_override", { kind: "page" }, {
           kind: "approve_component",
@@ -138,7 +143,10 @@ assert.deepEqual(dividerAsset.cropBounds, { x: 180, y: 620, w: 22, h: 22 });
 assert.equal(dividerAsset.excludeTextNodes, true);
 
 assert.ok(i18nManifest.messages.some((message) => message.key === "loginTitle" && message.sourceNodeId === "1:3"));
+assert.equal(i18nManifest.messages.some((message) => message.key === "subtitle"), false);
+assert.ok(i18nManifest.warnings.some((warning) => warning.type === "non_i18n" && warning.sourceNodeId === "1:4"));
 assert.equal(arb.loginTitle, "Welcome back");
+assert.equal(arb.subtitle, undefined);
 assert.ok(tokens.radii.some((token) => token.name === "radius_cta" && token.confidence === 1));
 const primaryButton = reviewed.components.find((component) => component.componentId === "cmp_primary_button");
 assert.equal(primaryButton.name, "PrimaryButton");

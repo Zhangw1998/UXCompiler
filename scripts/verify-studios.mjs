@@ -201,8 +201,12 @@ assert.equal(replayedComponent.props[0].name, "label");
 assert.equal(replayedComponent.variants[0].name, "state");
 assert.equal(replayedComponent.flutter.constructor, "AppButton.primary");
 assert.equal(replayedComponent.verified, true);
+assert.equal(replayed.reviewedI18nManifest.messages.some((message) => message.key === "subtitle"), false);
+assert.equal(replayed.reviewedArbFile.subtitle, undefined);
+assert.ok(replayed.reviewedI18nManifest.warnings.some((warning) => warning.type === "non_i18n" && warning.sourceNodeId === "1:4"));
 assert.ok(replayed.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_approve_primary_button"));
 assert.ok(replayed.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_primary_button_flutter_mapping"));
+assert.ok(replayed.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_subtitle_non_i18n"));
 
 const invalid = applyStudioOperations({
   ...input,
@@ -356,6 +360,17 @@ assert.equal(duplicateMerge.finalI18nManifest.messages.some((message) => message
 assert.equal(duplicateMerge.finalArbFile.button_label, "Sign in");
 assert.equal(duplicateMerge.finalArbFile.button_label_duplicate, undefined);
 assert.ok(duplicateMerge.finalI18nManifest.warnings.some((warning) => warning.type === "merged_duplicate_text"));
+const duplicateReplay = applyOverrides({
+  normalizedDesignIR: input.normalizedDesignIR,
+  assetManifest: input.assetManifest,
+  i18nManifest: duplicateI18nManifest,
+  inferredTokens: input.inferredTokens,
+  overrideSet: duplicateMerge.overrideSet
+});
+assert.equal(duplicateReplay.reviewedI18nManifest.messages.some((message) => message.key === "button_label_duplicate"), false);
+assert.equal(duplicateReplay.reviewedArbFile.button_label_duplicate, undefined);
+assert.ok(duplicateReplay.reviewedI18nManifest.warnings.some((warning) => warning.type === "merged_duplicate_text" && warning.sourceNodeId === "duplicate:button"));
+assert.ok(duplicateReplay.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_merge_duplicate_button_label"));
 
 const invalidDuplicateMerge = applyStudioOperations({
   ...input,
