@@ -61,6 +61,7 @@ interface RemapDecision {
 
 const autoReapplyThreshold = 0.9;
 const reviewReapplyThreshold = 0.7;
+const sourceNodeIdArrayKeys = new Set(["sourceNodeIds", "instances", "sourceInstances"]);
 
 export function runIncrementalSync(input: RunIncrementalSyncInput): IncrementalSyncRemapResult {
   const now = input.now ?? (() => new Date());
@@ -414,7 +415,7 @@ function rewriteTarget(target: OverrideTarget, remap: Map<string, NodeRemapMatch
 
 function rewritePayload(value: unknown, remap: Map<string, NodeRemapMatch>, key?: string): unknown {
   if (Array.isArray(value)) {
-    if (key === "sourceNodeIds") {
+    if (key && sourceNodeIdArrayKeys.has(key)) {
       return value.map((entry) => (typeof entry === "string" ? remap.get(entry)?.newSourceNodeId ?? entry : entry));
     }
     return value.map((entry) => rewritePayload(entry, remap));
@@ -438,7 +439,7 @@ function sourceNodeIdsForOverride(override: UxOverride): string[] {
 
 function collectSourceNodeIds(value: unknown, ids: Set<string>, key?: string): void {
   if (Array.isArray(value)) {
-    if (key === "sourceNodeIds") {
+    if (key && sourceNodeIdArrayKeys.has(key)) {
       for (const entry of value) if (typeof entry === "string") ids.add(entry);
     } else {
       for (const entry of value) collectSourceNodeIds(entry, ids);

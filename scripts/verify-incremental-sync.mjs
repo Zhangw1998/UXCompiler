@@ -34,7 +34,25 @@ const overrideSet = {
     override("ovr_subtitle_render", "render_strategy_override", { kind: "source_node", sourceNodeId: "1:4" }, { strategy: "semantic_widget" }),
     override("ovr_button_layout", "layout_strategy_override", { kind: "source_node", sourceNodeId: "1:12" }, { strategy: "stack" }),
     override("ovr_divider_ignore", "ignore_node_override", { kind: "source_node", sourceNodeId: "1:17" }, { reason: "Decorative divider." }),
-    override("ovr_header_region", "region_create_override", { kind: "page" }, { regionId: "region_header", name: "Header", sourceNodeIds: ["1:3", "1:12"] })
+    override("ovr_header_region", "region_create_override", { kind: "page" }, { regionId: "region_header", name: "Header", sourceNodeIds: ["1:3", "1:12"] }),
+    override("ovr_component_header", "component_candidate_override", { kind: "page" }, {
+      kind: "approve_component",
+      componentId: "cmp_login_header",
+      name: "LoginHeader",
+      instances: ["1:3", "1:4"],
+      sourceInstances: ["1:3", "1:4"],
+      reason: "Approve header copy as a reusable component."
+    }),
+    override("ovr_component_header_title", "component_prop_override", { kind: "page" }, {
+      kind: "define_component_prop",
+      componentId: "cmp_login_header",
+      prop: {
+        name: "title",
+        type: "text",
+        sourceSelector: "sourceNodeId:1:3"
+      },
+      reason: "Expose the header title text."
+    })
   ]
 };
 
@@ -108,6 +126,14 @@ assert.ok(result.incrementalReviewTasks.some((task) => task.evidence.overrideId 
 
 const regionOverride = result.overrideSet.overrides.find((entry) => entry.id === "ovr_header_region");
 assert.deepEqual(regionOverride.payload.sourceNodeIds, ["2:3", "1:12"]);
+const componentOverride = result.overrideSet.overrides.find((entry) => entry.id === "ovr_component_header");
+assert.deepEqual(componentOverride.payload.instances, ["2:3", "2:4"]);
+assert.deepEqual(componentOverride.payload.sourceInstances, ["2:3", "2:4"]);
+assert.ok(result.reappliedOverrides.some((entry) => entry.overrideId === "ovr_component_header" && entry.reviewRequired));
+assert.ok(result.incrementalReviewTasks.some((task) => task.evidence.overrideId === "ovr_component_header"));
+const componentPropOverride = result.overrideSet.overrides.find((entry) => entry.id === "ovr_component_header_title");
+assert.equal(componentPropOverride.payload.prop.sourceSelector, "sourceNodeId:2:3");
+assert.ok(result.reappliedOverrides.some((entry) => entry.overrideId === "ovr_component_header_title" && !entry.reviewRequired));
 
 execFileSync(
   "node",
