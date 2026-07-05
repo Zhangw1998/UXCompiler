@@ -267,7 +267,11 @@ function buildReviewDriftResult(options: {
     mergeBaseHash: options.mergeBaseHash,
     currentHash: options.currentHash,
     generatedHash: options.generatedHash,
-    patch: buildUnifiedDiff(options.path, options.existing, options.content),
+    patch: buildUnifiedDiff(options.path, options.existing, options.content, {
+      mergeBaseHash: options.mergeBaseHash,
+      currentHash: options.currentHash,
+      generatedHash: options.generatedHash
+    }),
     reason: generatedFile
       ? "Target generated file changed after codegen review; conflict patch was generated instead of overwriting."
       : "Target manual file changed after codegen review; patch review is required before writing."
@@ -510,10 +514,16 @@ function hashText(value: string): string {
   return `sha256_${createHash("sha256").update(value).digest("hex")}`;
 }
 
-function buildUnifiedDiff(path: string, before: string, after: string): string {
+function buildUnifiedDiff(
+  path: string,
+  before: string,
+  after: string,
+  metadata?: { mergeBaseHash?: string; currentHash?: string; generatedHash?: string }
+): string {
   const beforeLines = before.replace(/\n$/, "").split("\n");
   const afterLines = after.replace(/\n$/, "").split("\n");
   return [
+    ...patchMetadataLines(metadata),
     `--- a/${path}`,
     `+++ b/${path}`,
     `@@ -1,${beforeLines.length} +1,${afterLines.length} @@`,
@@ -521,6 +531,16 @@ function buildUnifiedDiff(path: string, before: string, after: string): string {
     ...afterLines.map((line) => `+${line}`),
     ""
   ].join("\n");
+}
+
+function patchMetadataLines(metadata?: { mergeBaseHash?: string; currentHash?: string; generatedHash?: string }): string[] {
+  if (!metadata) return [];
+  return [
+    "# UXCompiler project-writer patch metadata",
+    `# mergeBaseHash: ${metadata.mergeBaseHash ?? "none"}`,
+    `# currentHash: ${metadata.currentHash ?? "none"}`,
+    `# generatedHash: ${metadata.generatedHash ?? "none"}`
+  ];
 }
 
 function safeId(value: string): string {

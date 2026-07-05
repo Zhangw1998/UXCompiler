@@ -101,6 +101,9 @@ assert.match(driftFile.mergeBaseHash, /^sha256_[a-f0-9]{64}$/);
 assert.match(driftFile.currentHash, /^sha256_[a-f0-9]{64}$/);
 assert.match(driftFile.generatedHash, /^sha256_[a-f0-9]{64}$/);
 assert.match(driftFile.patch, /manual generated-region tweak/);
+assert.match(driftFile.patch, /# mergeBaseHash: sha256_[a-f0-9]{64}/);
+assert.match(driftFile.patch, /# currentHash: sha256_[a-f0-9]{64}/);
+assert.match(driftFile.patch, /# generatedHash: sha256_[a-f0-9]{64}/);
 assert.match(driftFile.patch, /--- a\/lib\/main\.dart/);
 assert.equal(readFileSync(mainPath, "utf8").includes("manual generated-region tweak"), true);
 
