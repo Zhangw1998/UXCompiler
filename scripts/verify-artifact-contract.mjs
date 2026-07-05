@@ -28,6 +28,8 @@ const requiredJsonFiles = [
   "render_strategy_manifest.json",
   "fidelity_generation_manifest.json",
   "visual_diff_report.json",
+  "repair_patch.json",
+  "repair_iteration_log.json",
   "compile_manifest.json"
 ];
 
@@ -65,6 +67,8 @@ const normalizationReport = json("normalization_report.json");
 const renderStrategyManifest = json("render_strategy_manifest.json");
 const fidelityManifest = json("fidelity_generation_manifest.json");
 const visualDiffReport = json("visual_diff_report.json");
+const repairPatch = json("repair_patch.json");
+const repairIterationLog = json("repair_iteration_log.json");
 const compileManifest = json("compile_manifest.json");
 const materializedAssetReport = parsedJsonFiles.get("materialized_assets_report.json");
 
@@ -146,6 +150,7 @@ assert.ok(Array.isArray(visualDiffReport.environment.fonts), "visual diff report
 assert.equal(typeof visualDiffReport.environment.renderer, "string", "visual diff report must record renderer.");
 assertScore(visualDiffReport.page.score.visualScore, "visual_diff_report.page.score.visualScore");
 assertScore(visualDiffReport.page.score.pixelDiffRatio, "visual_diff_report.page.score.pixelDiffRatio");
+assertRepairArtifacts(repairPatch, repairIterationLog);
 
 console.log("artifact contract verification passed");
 
@@ -371,6 +376,30 @@ function assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport
     assert.ok(afterScore >= threshold, `Accepted uplift ${decision.regionId ?? ""} afterScore must meet threshold.`);
     assert.equal(comparison.accepted, true, `Accepted uplift ${decision.regionId ?? ""} diff comparison must be accepted.`);
   }
+}
+
+function assertRepairArtifacts(repairPatch, repairIterationLog) {
+  assert.equal(typeof repairPatch.version, "string", "repair_patch.version must be present.");
+  assert.equal(typeof repairPatch.generatedAt, "string", "repair_patch.generatedAt must be present.");
+  assert.ok(["applied", "rolled_back", "proposed", "not_needed"].includes(repairPatch.status), "repair_patch.status must be known.");
+  if (Array.isArray(repairPatch.patches)) {
+    for (const patch of repairPatch.patches) {
+      assert.equal(patch.target, "override_set", `repair patch ${patch.patchId ?? patch.issueId} must target override_set.`);
+      assert.equal(patch.operation, "add_override", `repair patch ${patch.patchId ?? patch.issueId} must add an override.`);
+      assert.ok(patch.override?.id, `repair patch ${patch.patchId ?? patch.issueId} must include override metadata.`);
+      assert.equal(patch.rollback?.type, "disable_override", `repair patch ${patch.patchId ?? patch.issueId} must include rollback metadata.`);
+      assert.equal(patch.rollback.overrideId, patch.override.id, `repair patch ${patch.patchId ?? patch.issueId} rollback must target its override.`);
+    }
+  } else {
+    assert.ok(repairPatch.overrideId, "workbench repair_patch must include overrideId.");
+    assert.ok(repairPatch.afterOverride?.id || repairPatch.rollbackReport, "workbench repair_patch must include applied override or rollback report.");
+    assert.equal(repairPatch.rollback?.type, "disable_override", "workbench repair_patch must be rollbackable.");
+    assert.equal(repairPatch.rollback.overrideId, repairPatch.overrideId, "workbench repair rollback must target the patch override.");
+  }
+
+  assert.equal(typeof repairIterationLog.version, "string", "repair_iteration_log.version must be present.");
+  assert.ok(Array.isArray(repairIterationLog.iterations), "repair_iteration_log.iterations must be an array.");
+  assert.ok(repairIterationLog.iterations.length > 0, "repair_iteration_log must record at least one iteration.");
 }
 
 function findUpliftComparison(comparisons, decision) {

@@ -1,4 +1,5 @@
 import type { Bounds } from "./canonical-scene.js";
+import type { UxOverride } from "./override.js";
 
 export interface VisualDiffScore {
   visualScore: number;
@@ -61,9 +62,49 @@ export interface VisualDiffManualReviewReport {
   suggestedActions: Array<{ label: string; reason: string; payload: Record<string, unknown> }>;
 }
 
+export interface VisualDiffRepairPatchOperation {
+  patchId: string;
+  issueId: string;
+  target: "override_set";
+  operation: "add_override";
+  sourceNodeId?: string;
+  override: UxOverride;
+  rollback: {
+    type: "disable_override";
+    overrideId: string;
+  };
+  reason: string;
+}
+
+export interface VisualDiffRepairPatch {
+  version: string;
+  generatedAt: string;
+  status: "not_needed" | "proposed";
+  inputs: VisualDiffReport["inputs"];
+  page: VisualDiffReport["page"];
+  patches: VisualDiffRepairPatchOperation[];
+}
+
+export interface VisualDiffRepairIterationLog {
+  version: string;
+  generatedAt: string;
+  maxIterations: number;
+  iterations: Array<{
+    iteration: number;
+    status: "not_run" | "proposed";
+    visualScore: number;
+    pixelDiffRatio: number;
+    repairPatchPath: string;
+    rollbackAvailable: boolean;
+    reason: string;
+  }>;
+}
+
 export interface VisualDiffResult {
   visualDiffReport: VisualDiffReport;
   nodeDiffReport: NodeDiffIssue[];
   heatmapPng: Uint8Array;
+  repairPatch: VisualDiffRepairPatch;
+  repairIterationLog: VisualDiffRepairIterationLog;
   manualReviewReport?: VisualDiffManualReviewReport;
 }

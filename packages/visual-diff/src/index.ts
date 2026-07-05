@@ -3,6 +3,8 @@ import { PNG } from "pngjs";
 import type {
   NodePixelMapEntry,
   VisualDiffManualReviewReport,
+  VisualDiffRepairIterationLog,
+  VisualDiffRepairPatch,
   VisualDiffReport,
   VisualDiffResult,
   VisualDiffScore
@@ -29,6 +31,7 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
   const reference = PNG.sync.read(Buffer.from(options.referencePng));
   const candidate = PNG.sync.read(Buffer.from(options.candidatePng));
   const warnings: VisualDiffReport["warnings"] = [];
+  const generatedAt = new Date().toISOString();
   const threshold = {
     visualScore: options.threshold?.visualScore ?? 0.99,
     pixelDiffRatio: options.threshold?.pixelDiffRatio ?? 0.01
@@ -43,7 +46,7 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
     const score = scoreFromDiff(totalPixels, totalPixels);
     const report: VisualDiffReport = {
       version: "2.0",
-      generatedAt: new Date().toISOString(),
+      generatedAt,
       inputs: {
         reference: options.referencePath,
         candidate: options.candidatePath,
@@ -88,6 +91,8 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
       visualDiffReport: report,
       nodeDiffReport: report.issues,
       heatmapPng: PNG.sync.write(heatmap),
+      repairPatch: buildRepairPatch(report),
+      repairIterationLog: buildRepairIterationLog(report),
       manualReviewReport: buildManualReviewReport(report)
     };
   }
@@ -110,7 +115,7 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
 
   const report: VisualDiffReport = {
     version: "2.0",
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     inputs: {
       reference: options.referencePath,
       candidate: options.candidatePath,
@@ -136,6 +141,8 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
     visualDiffReport: report,
     nodeDiffReport: issues,
     heatmapPng: PNG.sync.write(heatmap),
+    repairPatch: buildRepairPatch(report),
+    repairIterationLog: buildRepairIterationLog(report),
     manualReviewReport: report.page.pass ? undefined : buildManualReviewReport(report)
   };
 }
@@ -168,6 +175,94 @@ function buildManualReviewReport(report: VisualDiffReport): VisualDiffManualRevi
           visualScore: report.page.score.visualScore,
           pixelDiffRatio: report.page.score.pixelDiffRatio
         }
+      }
+    ]
+  };
+}
+
+function buildRepairPatch(report: VisualDiffReport): VisualDiffRepairPatch {
+  const patches: VisualDiffRepairPatch["patches"] = [];
+  if (!report.page.pass) {
+    for (const issue of report.issues.filter((entry) => entry.sourceNodeId)) {
+      const sourceNodeId = issue.sourceNodeId as string;
+      const overrideId = `ovr_diff_${safeId(issue.issueId)}_asset_slice`;
+      patches.push({
+        patchId: `repair_${safeId(issue.issueId)}_asset_slice`,
+        issueId: issue.issueId,
+        target: "override_set",
+        operation: "add_override",
+        sourceNodeId,
+        override: {
+          id: overrideId,
+          type: "render_strategy_override",
+          target: { kind: "source_node", sourceNodeId },
+          payload: {
+            sourceNodeId,
+            strategy: "asset_slice",
+            diffIssueId: issue.issueId,
+            reason: "Visual diff repair proposes an asset-slice fallback for this localized mismatch."
+          },
+          status: "active",
+          createdBy: "agent",
+          createdAt: report.generatedAt,
+          scope: "snapshot"
+        },
+        rollback: { type: "disable_override", overrideId },
+        reason: "Use a localized asset slice for this visual mismatch; rollback disables the generated override."
+      });
+    }
+
+    const pageOverrideId = "ovr_diff_page_frame_fallback";
+    patches.push({
+      patchId: "repair_page_frame_fallback",
+      issueId: "page",
+      target: "override_set",
+      operation: "add_override",
+      override: {
+        id: pageOverrideId,
+        type: "render_strategy_override",
+        target: { kind: "page" },
+        payload: {
+          strategy: "frame_screenshot_asset",
+          diffIssueId: "page",
+          reason: "Visual diff repair proposes a full-frame fallback for a page-level failure."
+        },
+        status: "active",
+        createdBy: "agent",
+        createdAt: report.generatedAt,
+        scope: "snapshot"
+      },
+      rollback: { type: "disable_override", overrideId: pageOverrideId },
+      reason: "Use a full-frame fallback when localized repairs are insufficient; rollback disables the generated override."
+    });
+  }
+
+  return {
+    version: "2.0",
+    generatedAt: report.generatedAt,
+    status: patches.length > 0 ? "proposed" : "not_needed",
+    inputs: report.inputs,
+    page: report.page,
+    patches
+  };
+}
+
+function buildRepairIterationLog(report: VisualDiffReport): VisualDiffRepairIterationLog {
+  return {
+    version: "2.0",
+    generatedAt: report.generatedAt,
+    maxIterations: 3,
+    iterations: [
+      {
+        iteration: 0,
+        status: report.page.pass ? "not_run" : "proposed",
+        visualScore: report.page.score.visualScore,
+        pixelDiffRatio: report.page.score.pixelDiffRatio,
+        repairPatchPath: "repair_patch.json",
+        rollbackAvailable: !report.page.pass,
+        reason: report.page.pass
+          ? "Visual diff passed; no repair iteration was needed."
+          : "Visual diff failed; proposed rollbackable override patches before any automatic repair iteration is applied."
       }
     ]
   };
@@ -260,4 +355,8 @@ function fillHeatmapForSizeMismatch(heatmap: PNG): void {
 
 function round(value: number): number {
   return Math.round(value * 1000000) / 1000000;
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "repair";
 }

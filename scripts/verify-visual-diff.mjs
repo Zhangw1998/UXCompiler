@@ -40,6 +40,10 @@ assert.equal(passing.visualDiffReport.page.score.visualScore, 1);
 assert.deepEqual(passing.visualDiffReport.environment.fonts, ["Inter", "Roboto"]);
 assert.equal(passing.nodeDiffReport.length, 0);
 assert.equal(passing.manualReviewReport, undefined);
+assert.equal(passing.repairPatch.status, "not_needed");
+assert.equal(passing.repairPatch.patches.length, 0);
+assert.equal(passing.repairIterationLog.iterations[0].status, "not_run");
+assert.equal(passing.repairIterationLog.iterations[0].rollbackAvailable, false);
 assert.equal(PNG.sync.read(Buffer.from(passing.heatmapPng)).width, 4);
 
 const failing = runVisualDiff({
@@ -64,6 +68,12 @@ assert.deepEqual(
 assert.ok(failing.nodeDiffReport.every((issue) => issue.suggestedFixes.length > 0));
 assert.equal(failing.manualReviewReport?.required, true);
 assert.equal(failing.manualReviewReport?.severity, "P0");
+assert.equal(failing.repairPatch.status, "proposed");
+assert.ok(failing.repairPatch.patches.some((patch) => patch.sourceNodeId === "node:black" && patch.rollback.type === "disable_override"));
+assert.ok(failing.repairPatch.patches.some((patch) => patch.sourceNodeId === "node:blue" && patch.override.payload.strategy === "asset_slice"));
+assert.ok(failing.repairPatch.patches.some((patch) => patch.issueId === "page" && patch.override.target.kind === "page"));
+assert.equal(failing.repairIterationLog.iterations[0].status, "proposed");
+assert.equal(failing.repairIterationLog.iterations[0].rollbackAvailable, true);
 assert.deepEqual(
   failing.manualReviewReport?.issues.map((issue) => issue.sourceNodeId),
   ["node:black", "node:blue"]
@@ -80,6 +90,8 @@ assert.equal(sizeMismatch.visualDiffReport.page.pass, false);
 assert.equal(sizeMismatch.nodeDiffReport[0].type, "size_mismatch");
 assert.equal(sizeMismatch.visualDiffReport.warnings[0].type, "size_mismatch");
 assert.equal(sizeMismatch.manualReviewReport?.issues[0].type, "size_mismatch");
+assert.equal(sizeMismatch.repairPatch.status, "proposed");
+assert.ok(sizeMismatch.repairPatch.patches.some((patch) => patch.issueId === "page" && patch.rollback.overrideId === "ovr_diff_page_frame_fallback"));
 const mismatchHeatmap = PNG.sync.read(Buffer.from(sizeMismatch.heatmapPng));
 assert.equal(mismatchHeatmap.width, 4);
 assert.equal(mismatchHeatmap.height, 5);
@@ -106,10 +118,18 @@ execFileSync(
 assert.equal(existsSync(resolve(root, "cli/visual_diff_report.json")), true);
 assert.equal(existsSync(resolve(root, "cli/node_diff_report.json")), true);
 assert.equal(existsSync(resolve(root, "cli/diff_heatmap.png")), true);
+assert.equal(existsSync(resolve(root, "cli/repair_patch.json")), true);
+assert.equal(existsSync(resolve(root, "cli/repair_iteration_log.json")), true);
 assert.equal(existsSync(resolve(root, "cli/manual_review_report.json")), true);
 const cliManualReview = JSON.parse(readFileSync(resolve(root, "cli/manual_review_report.json"), "utf8"));
+const cliRepairPatch = JSON.parse(readFileSync(resolve(root, "cli/repair_patch.json"), "utf8"));
+const cliRepairLog = JSON.parse(readFileSync(resolve(root, "cli/repair_iteration_log.json"), "utf8"));
 assert.equal(cliManualReview.required, true);
 assert.equal(cliManualReview.issues[0].sourceNodeId, "node:black");
+assert.equal(cliRepairPatch.status, "proposed");
+assert.ok(cliRepairPatch.patches.every((patch) => patch.rollback?.type === "disable_override"));
+assert.equal(cliRepairLog.iterations[0].repairPatchPath, "repair_patch.json");
+assert.equal(cliRepairLog.iterations[0].rollbackAvailable, true);
 
 console.log("visual diff verification passed");
 

@@ -23,6 +23,30 @@ visualDiffReport.environment = {
   renderer: "uplift_contract_negative_fixture"
 };
 writeJson(resolve(invalidRoot, "visual_diff_report.json"), visualDiffReport);
+writeJson(resolve(invalidRoot, "repair_patch.json"), {
+  version: "2.0",
+  generatedAt: visualDiffReport.generatedAt,
+  status: "not_needed",
+  inputs: visualDiffReport.inputs,
+  page: visualDiffReport.page,
+  patches: []
+});
+writeJson(resolve(invalidRoot, "repair_iteration_log.json"), {
+  version: "2.0",
+  generatedAt: visualDiffReport.generatedAt,
+  maxIterations: 3,
+  iterations: [
+    {
+      iteration: 0,
+      status: "not_run",
+      visualScore: visualDiffReport.page.score.visualScore,
+      pixelDiffRatio: visualDiffReport.page.score.pixelDiffRatio,
+      repairPatchPath: "repair_patch.json",
+      rollbackAvailable: false,
+      reason: "Negative uplift contract fixture does not exercise visual diff repair."
+    }
+  ]
+});
 
 const decisions = readJson(resolve(invalidRoot, "uplift_decisions.json"));
 decisions.decisions[0] = {
