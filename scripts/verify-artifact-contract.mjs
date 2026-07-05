@@ -14,6 +14,8 @@ const requiredJsonFiles = [
   "normalized_design_ir.json",
   "visual_ir.json",
   "semantic_ir.json",
+  "uplift_decisions.json",
+  "uplift_diff_report.json",
   "semantic_labels.json",
   "normalization_report.json",
   "render_strategy_manifest.json",
@@ -43,6 +45,8 @@ const i18nManifest = json("i18n_manifest.json");
 const normalized = json("normalized_design_ir.json");
 const semanticLabels = json("semantic_labels.json");
 const semanticIR = json("semantic_ir.json");
+const upliftDecisions = json("uplift_decisions.json");
+const upliftDiffReport = json("uplift_diff_report.json");
 const normalizationReport = json("normalization_report.json");
 const renderStrategyManifest = json("render_strategy_manifest.json");
 const fidelityManifest = json("fidelity_generation_manifest.json");
@@ -71,6 +75,7 @@ assertSourceRefs(rawSourceNodeIds, "semantic_labels.i18n", semanticLabels.i18n, 
 assertSourceRefs(rawSourceNodeIds, "render_strategy_manifest.regions", renderStrategyManifest.regions, (entry) => entry.sourceNodeIds ?? []);
 assertVisibleTextI18nCoverage(canonical, i18nManifest);
 assertAssetManifestPaths(assetManifest, materializedAssetReport);
+assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR);
 
 walkNormalizedNode(normalized.tree, (node) => {
   assert.ok(node.sourceNodeIds.length > 0, `Normalized node ${node.id} must include sourceNodeIds.`);
@@ -200,6 +205,40 @@ function assertAssetManifestPaths(manifest, materializedReport) {
   }
 }
 
+function assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR) {
+  assert.ok(Array.isArray(upliftDecisions.decisions), "uplift_decisions.decisions must be an array.");
+  assert.ok(Array.isArray(upliftDiffReport.comparisons), "uplift_diff_report.comparisons must be an array.");
+  const accepted = upliftDecisions.decisions.filter((decision) => decision.accepted === true);
+  if (accepted.length === 0) return;
+  assert.equal(semanticIR.status, "uplift_ready", "semantic_ir.status must be uplift_ready when accepted uplift decisions exist.");
+  for (const decision of accepted) {
+    assertScore(decision.confidence, `uplift_decisions.${decision.regionId ?? decision.sourceNodeIds?.join("_")}.confidence`);
+    assert.ok(decision.reason, `Accepted uplift ${decision.regionId ?? decision.sourceNodeIds?.join(",")} must include a reason.`);
+    const comparison = findUpliftComparison(upliftDiffReport.comparisons, decision);
+    assert.ok(
+      comparison,
+      `Accepted uplift ${decision.regionId ?? decision.sourceNodeIds?.join(",")} must have a matching diff comparison.`
+    );
+    const beforeScore = scoreValue(comparison.beforeScore ?? comparison.visualScoreBefore);
+    const afterScore = scoreValue(comparison.afterScore ?? comparison.visualScoreAfter);
+    const threshold = scoreValue(comparison.threshold ?? comparison.visualScoreThreshold ?? 0.99);
+    assertScore(beforeScore, `uplift_diff_report.${decision.regionId ?? "comparison"}.beforeScore`);
+    assertScore(afterScore, `uplift_diff_report.${decision.regionId ?? "comparison"}.afterScore`);
+    assertScore(threshold, `uplift_diff_report.${decision.regionId ?? "comparison"}.threshold`);
+    assert.ok(afterScore >= threshold, `Accepted uplift ${decision.regionId ?? ""} afterScore must meet threshold.`);
+    assert.equal(comparison.accepted, true, `Accepted uplift ${decision.regionId ?? ""} diff comparison must be accepted.`);
+  }
+}
+
+function findUpliftComparison(comparisons, decision) {
+  return comparisons.find((comparison) => {
+    if (decision.regionId && comparison.regionId === decision.regionId) return true;
+    const decisionSourceIds = new Set(decision.sourceNodeIds ?? []);
+    if (decisionSourceIds.size === 0) return false;
+    return (comparison.sourceNodeIds ?? []).some((sourceNodeId) => decisionSourceIds.has(sourceNodeId));
+  });
+}
+
 function walkNormalizedNode(node, visit) {
   visit(node);
   for (const child of node.children ?? []) walkNormalizedNode(child, visit);
@@ -237,4 +276,8 @@ function assertScore(value, label) {
   assert.equal(typeof value, "number", `${label} must be a number.`);
   assert.ok(Number.isFinite(value), `${label} must be finite.`);
   assert.ok(value >= 0 && value <= 1, `${label} must be between 0 and 1.`);
+}
+
+function scoreValue(value) {
+  return typeof value === "number" ? value : Number.NaN;
 }
