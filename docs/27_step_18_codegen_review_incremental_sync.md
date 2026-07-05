@@ -244,6 +244,7 @@ asset_change
 
 Token 大量变化：
 - 生成 token migration report。
+- 输出 token_migration_report.json，记录颜色、字体、圆角等 token-like 值的 added / removed / value_changed 明细。
 
 代码冲突：
 - 只输出 patch，不写入文件。

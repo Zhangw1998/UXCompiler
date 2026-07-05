@@ -725,6 +725,7 @@ try {
   nextRaw.source.version = "workbench_smoke_next";
   renameRawNode(nextRaw.root, "1:3", "2:3", { name: "Login Heading" });
   removeRawNode(nextRaw.root, "1:17");
+  setRawSolidFillColor(nextRaw.root, "1:13", { r: 0.1686, g: 0.4275, b: 0.902 });
   writeFileSync(nextRawPath, `${JSON.stringify(nextRaw, null, 2)}\n`);
   const syncRemapResponse = await fetch(`${base}/api/workbench/sync-remap`, {
     method: "POST",
@@ -741,14 +742,19 @@ try {
   assert.equal(syncRemapResult.report.staleOverrides > 0, true);
   const syncRemapReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_sync_remap_report.json`);
   const nodeRemapReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/node_remap_report.json`);
+  const tokenMigrationReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/token_migration_report.json`);
   const reappliedOverrides = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reapplied_overrides.json`);
   const staleOverrides = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/stale_overrides.json`);
   const reviewTasksAfterSync = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   assert.equal(syncRemapReport.newSnapshotId, "workbench_smoke_next");
+  assert.notEqual(syncRemapReport.tokenMigrationStatus, "unchanged");
   assert.equal(syncRemapReport.visualDiffChange.status, "missing_new");
   assert.equal(syncRemapReport.visualDiffChange.oldVisualScore, 0.82);
   assert.equal(nodeRemapReport.matches.some((entry) => entry.oldSourceNodeId === "1:3" && entry.newSourceNodeId === "2:3"), true);
+  assert.equal(nodeRemapReport.matches.some((entry) => entry.oldSourceNodeId === "1:13" && entry.changeType === "token_value_change"), true);
   assert.equal(nodeRemapReport.visualDiffChange.status, "missing_new");
+  assert.notEqual(tokenMigrationReport.status, "unchanged");
+  assert.equal(tokenMigrationReport.summary.valueChanged > 0, true);
   assert.equal(reappliedOverrides.some((entry) => entry.overrideId === "ovr_tree_verify_rename_title"), true);
   assert.equal(staleOverrides.length > 0, true);
   assert.equal(reviewTasksAfterSync.some((task) => task.id.startsWith("task_incremental_remap_")), true);
@@ -846,6 +852,14 @@ function removeRawNode(root, id) {
     return true;
   }
   return root.children.some((child) => removeRawNode(child, id));
+}
+
+function setRawSolidFillColor(root, id, color) {
+  const node = findRawNode(root, id);
+  assert.ok(node, `Missing raw node ${id}`);
+  assert.equal(Array.isArray(node.fills), true, `Raw node ${id} has no fills`);
+  assert.equal(node.fills[0]?.type, "SOLID", `Raw node ${id} first fill is not SOLID`);
+  node.fills[0].color = color;
 }
 
 function findRawNode(root, id) {

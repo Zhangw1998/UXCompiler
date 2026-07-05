@@ -503,6 +503,7 @@ async function runSyncCommand(args: string[]): Promise<void> {
   await Promise.all([
     writeJsonFile(resolve(outDir, "override_set.json"), result.overrideSet),
     writeJsonFile(resolve(outDir, "node_remap_report.json"), result.nodeRemapReport),
+    writeJsonFile(resolve(outDir, "token_migration_report.json"), result.tokenMigrationReport),
     writeJsonFile(resolve(outDir, "reapplied_overrides.json"), result.reappliedOverrides),
     writeJsonFile(resolve(outDir, "stale_overrides.json"), result.staleOverrides),
     writeJsonFile(resolve(outDir, "incremental_review_tasks.json"), result.incrementalReviewTasks)
@@ -511,6 +512,7 @@ async function runSyncCommand(args: string[]): Promise<void> {
   console.log(`UXCompiler incremental sync remap completed.`);
   console.log(`Reapplied overrides: ${result.reappliedOverrides.length}`);
   console.log(`Stale overrides: ${result.staleOverrides.length}`);
+  console.log(`Token migration: ${result.tokenMigrationReport.status}`);
   console.log(`Review tasks: ${result.incrementalReviewTasks.length}`);
   console.log(`Artifacts: ${outDir}`);
 }
@@ -2370,6 +2372,7 @@ Options:
 Outputs:
   override_set.json
   node_remap_report.json
+  token_migration_report.json
   reapplied_overrides.json
   stale_overrides.json
   incremental_review_tasks.json

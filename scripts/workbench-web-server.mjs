@@ -678,11 +678,13 @@ async function applyWorkbenchSyncRemap(body) {
     reappliedOverrides: result.reappliedOverrides.length,
     staleOverrides: result.staleOverrides.length,
     reviewTasks: result.incrementalReviewTasks.length,
+    tokenMigrationStatus: result.tokenMigrationReport.status,
     visualDiffChange: result.nodeRemapReport.visualDiffChange,
     overrideHash: result.overrideSet.hash
   };
   await writeJson(resolve(artifactDir, "override_set.json"), result.overrideSet);
   await writeJson(resolve(artifactDir, "node_remap_report.json"), result.nodeRemapReport);
+  await writeJson(resolve(artifactDir, "token_migration_report.json"), result.tokenMigrationReport);
   await writeJson(resolve(artifactDir, "reapplied_overrides.json"), result.reappliedOverrides);
   await writeJson(resolve(artifactDir, "stale_overrides.json"), result.staleOverrides);
   await writeJson(resolve(artifactDir, "incremental_review_tasks.json"), result.incrementalReviewTasks);
@@ -692,6 +694,7 @@ async function applyWorkbenchSyncRemap(body) {
     report,
     overrideSet: result.overrideSet,
     nodeRemapReport: result.nodeRemapReport,
+    tokenMigrationReport: result.tokenMigrationReport,
     reviewTasks: mergedReviewTasks
   };
 }

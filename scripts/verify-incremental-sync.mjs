@@ -20,6 +20,7 @@ newRaw.source.version = "snap_002";
 renameNode(newRaw.root, "1:3", "2:3");
 renameNode(newRaw.root, "1:4", "2:4", { name: "Subtitle Copy" });
 removeNode(newRaw.root, "1:17");
+setSolidFillColor(newRaw.root, "1:13", { r: 0.1686, g: 0.4275, b: 0.902 });
 
 const overrideSet = {
   id: "ovset_incremental_smoke",
@@ -76,6 +77,18 @@ const buttonMatch = matchFor(result, "1:12");
 assert.equal(buttonMatch.newSourceNodeId, "1:12");
 assert.equal(buttonMatch.method, "node_id_exact");
 
+const buttonBackgroundMatch = matchFor(result, "1:13");
+assert.equal(buttonBackgroundMatch.newSourceNodeId, "1:13");
+assert.equal(buttonBackgroundMatch.changeType, "token_value_change");
+assert.equal(result.tokenMigrationReport.oldSnapshotId, "snap_001");
+assert.equal(result.tokenMigrationReport.newSnapshotId, "snap_002");
+assert.notEqual(result.tokenMigrationReport.status, "unchanged");
+assert.equal(result.tokenMigrationReport.summary.valueChanged > 0, true);
+assert.equal(
+  result.tokenMigrationReport.changes.some((entry) => entry.kind === "color" && entry.changeType === "value_changed" && entry.key.includes("Button Background")),
+  true
+);
+
 const dividerMatch = matchFor(result, "1:17");
 assert.equal(dividerMatch.method, "unmatched");
 assert.equal(result.staleOverrides.some((entry) => entry.overrideId === "ovr_divider_ignore"), true);
@@ -116,6 +129,7 @@ execFileSync(
 for (const file of [
   "override_set.json",
   "node_remap_report.json",
+  "token_migration_report.json",
   "reapplied_overrides.json",
   "stale_overrides.json",
   "incremental_review_tasks.json"
@@ -125,6 +139,9 @@ for (const file of [
 const cliReport = JSON.parse(readFileSync(resolve(outDir, "node_remap_report.json"), "utf8"));
 assert.equal(cliReport.matches.some((entry) => entry.oldSourceNodeId === "1:3" && entry.newSourceNodeId === "2:3"), true);
 assert.equal(cliReport.visualDiffChange.visualScoreDelta, -0.05);
+const cliTokenMigrationReport = JSON.parse(readFileSync(resolve(outDir, "token_migration_report.json"), "utf8"));
+assert.notEqual(cliTokenMigrationReport.status, "unchanged");
+assert.equal(cliTokenMigrationReport.summary.valueChanged > 0, true);
 
 console.log("incremental sync verification passed");
 
@@ -161,6 +178,14 @@ function removeNode(root, id) {
     return true;
   }
   return root.children.some((child) => removeNode(child, id));
+}
+
+function setSolidFillColor(root, id, color) {
+  const node = findNode(root, id);
+  assert.ok(node, `Missing node ${id}`);
+  assert.equal(Array.isArray(node.fills), true, `Node ${id} has no fills`);
+  assert.equal(node.fills[0]?.type, "SOLID", `Node ${id} first fill is not SOLID`);
+  node.fills[0].color = color;
 }
 
 function findNode(root, id) {

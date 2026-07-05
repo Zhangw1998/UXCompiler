@@ -10,6 +10,7 @@ import type {
   ReappliedOverride,
   ReviewTask,
   StaleOverride,
+  TokenMigrationReport,
   VisualDiffChange,
   VisualDiffReport,
   UxOverride
@@ -36,10 +37,19 @@ interface NodeProfile {
   siblingContext: string;
   textHash: string;
   visualHash: string;
+  tokenHash: string;
   stableKey: string;
   text: string;
   bounds?: { x: number; y: number; width: number; height: number };
   childrenCount: number;
+}
+
+interface TokenObservation {
+  kind: "color" | "typography" | "radius";
+  key: string;
+  slot: string;
+  value: string | number;
+  sourceNodeId: string;
 }
 
 interface RemapDecision {
@@ -56,6 +66,11 @@ export function runIncrementalSync(input: RunIncrementalSyncInput): IncrementalS
   const oldProfiles = indexScene(input.oldRawScene);
   const newProfiles = indexScene(input.newRawScene);
   const matches = buildMatches(oldProfiles, newProfiles);
+  const tokenMigrationReport = buildTokenMigrationReport(input.oldRawScene, input.newRawScene, matches, {
+    generatedAt,
+    oldSnapshotId: input.oldSnapshotId,
+    newSnapshotId: input.newSnapshotId
+  });
   const remap = new Map(matches.filter((match) => match.newSourceNodeId && match.matchScore >= reviewReapplyThreshold).map((match) => [match.oldSourceNodeId, match]));
   const staleOverrides: StaleOverride[] = [];
   const reappliedOverrides: ReappliedOverride[] = [];
@@ -109,6 +124,7 @@ export function runIncrementalSync(input: RunIncrementalSyncInput): IncrementalS
       hash: ""
     }),
     nodeRemapReport,
+    tokenMigrationReport,
     reappliedOverrides,
     staleOverrides,
     incrementalReviewTasks
@@ -187,6 +203,7 @@ function scoreProfiles(oldProfile: NodeProfile, newProfile: NodeProfile): number
 
 function toMatch(oldProfile: NodeProfile, newProfile: NodeProfile, score: number, method: NodeRemapMatch["method"]): NodeRemapMatch {
   const textChanged = oldProfile.textHash !== newProfile.textHash;
+  const tokenChanged = oldProfile.tokenHash !== newProfile.tokenHash;
   const visualChanged = oldProfile.visualHash !== newProfile.visualHash;
   const layoutChanged = boundsSimilarity(oldProfile.bounds, newProfile.bounds) < 0.98;
   return {
@@ -194,7 +211,15 @@ function toMatch(oldProfile: NodeProfile, newProfile: NodeProfile, score: number
     newSourceNodeId: newProfile.id,
     matchScore: round(score),
     method,
-    changeType: textChanged ? "text_change" : layoutChanged ? "layout_change" : visualChanged ? "visual_only_change" : "unchanged",
+    changeType: textChanged
+      ? "text_change"
+      : tokenChanged
+        ? "token_value_change"
+        : layoutChanged
+          ? "layout_change"
+          : visualChanged
+            ? "visual_only_change"
+            : "unchanged",
     overrideReapplied: false,
     reviewRequired: score < autoReapplyThreshold,
     evidence: {
@@ -226,6 +251,99 @@ function toMissingMatch(oldProfile: NodeProfile): NodeRemapMatch {
       textSimilarity: 0,
       siblingContextSimilarity: 0
     }
+  };
+}
+
+function buildTokenMigrationReport(
+  oldScene: RawFigmaScene,
+  newScene: RawFigmaScene,
+  matches: NodeRemapMatch[],
+  metadata: { generatedAt: string; oldSnapshotId?: string; newSnapshotId?: string }
+): TokenMigrationReport {
+  const oldTokens = collectSceneTokens(oldScene);
+  const newTokens = collectSceneTokens(newScene);
+  const oldByKey = groupTokensByKey(oldTokens);
+  const newByKey = groupTokensByKey(newTokens);
+  const changes: TokenMigrationReport["changes"] = [];
+
+  for (const key of [...new Set([...oldByKey.keys(), ...newByKey.keys()])].sort()) {
+    const oldEntries = oldByKey.get(key) ?? [];
+    const newEntries = newByKey.get(key) ?? [];
+    const oldValue = mostCommonValue(oldEntries);
+    const newValue = mostCommonValue(newEntries);
+    const kind = oldEntries[0]?.kind ?? newEntries[0]?.kind ?? "color";
+    if (oldValue !== undefined && newValue !== undefined && oldValue !== newValue) {
+      changes.push({
+        kind,
+        changeType: "value_changed",
+        key,
+        oldValue,
+        newValue,
+        oldSourceNodeIds: uniqueSorted(oldEntries.map((entry) => entry.sourceNodeId)),
+        newSourceNodeIds: uniqueSorted(newEntries.map((entry) => entry.sourceNodeId)),
+        confidence: 0.9,
+        reason: "Same token-like slot exists in both snapshots but its value changed."
+      });
+    } else if (oldValue === undefined && newValue !== undefined) {
+      changes.push({
+        kind,
+        changeType: "added",
+        key,
+        newValue,
+        oldSourceNodeIds: [],
+        newSourceNodeIds: uniqueSorted(newEntries.map((entry) => entry.sourceNodeId)),
+        confidence: 0.82,
+        reason: "Token-like value appears only in the new snapshot."
+      });
+    } else if (oldValue !== undefined && newValue === undefined) {
+      changes.push({
+        kind,
+        changeType: "removed",
+        key,
+        oldValue,
+        oldSourceNodeIds: uniqueSorted(oldEntries.map((entry) => entry.sourceNodeId)),
+        newSourceNodeIds: [],
+        confidence: 0.82,
+        reason: "Token-like value appears only in the old snapshot."
+      });
+    }
+  }
+
+  const valueChanged = changes.filter((entry) => entry.changeType === "value_changed").length;
+  const added = changes.filter((entry) => entry.changeType === "added").length;
+  const removed = changes.filter((entry) => entry.changeType === "removed").length;
+  const matchedTokenChanges = matches.filter((match) => match.changeType === "token_value_change").length;
+  const changeCount = added + removed + valueChanged;
+  const oldTokenLikeValues = oldByKey.size;
+  const changeRatio = oldTokenLikeValues > 0 ? changeCount / oldTokenLikeValues : changeCount;
+  const status =
+    changeCount === 0
+      ? "unchanged"
+      : changeCount >= 6 || changeRatio >= 0.3 || matchedTokenChanges >= 3
+        ? "migration_recommended"
+        : "changed";
+
+  return {
+    version: "0.1.0",
+    generatedAt: metadata.generatedAt,
+    oldSnapshotId: metadata.oldSnapshotId,
+    newSnapshotId: metadata.newSnapshotId,
+    status,
+    summary: {
+      oldTokenLikeValues,
+      newTokenLikeValues: newByKey.size,
+      added,
+      removed,
+      valueChanged
+    },
+    changes,
+    warnings: [
+      {
+        type: "conservative_extraction",
+        message:
+          "Token migration report is derived from raw Figma color, text style, and radius values; spacing token inference is intentionally omitted until canonical token binding data is available."
+      }
+    ]
   };
 }
 
@@ -374,6 +492,7 @@ function indexScene(scene: RawFigmaScene): Map<string, NodeProfile> {
       cornerRadius: node.cornerRadius,
       opacity: node.opacity
     };
+    const tokenSignature = collectNodeTokens(node, path).map(({ kind, slot, value }) => ({ kind, slot, value }));
     const profile: NodeProfile = {
       id: node.id,
       type: node.type,
@@ -383,6 +502,7 @@ function indexScene(scene: RawFigmaScene): Map<string, NodeProfile> {
       siblingContext,
       textHash: hashStable(text),
       visualHash: hashStable(visual),
+      tokenHash: hashStable(tokenSignature),
       stableKey: hashStable({
         type: node.type,
         name: node.name,
@@ -400,6 +520,96 @@ function indexScene(scene: RawFigmaScene): Map<string, NodeProfile> {
   };
   walk(scene.root, []);
   return index;
+}
+
+function collectSceneTokens(scene: RawFigmaScene): TokenObservation[] {
+  const tokens: TokenObservation[] = [];
+  const walk = (node: RawFigmaNode, ancestors: RawFigmaNode[]): void => {
+    const path = [...ancestors.map((ancestor) => ancestor.name), node.name].join("/");
+    tokens.push(...collectNodeTokens(node, path));
+    for (const child of node.children ?? []) walk(child, [...ancestors, node]);
+  };
+  walk(scene.root, []);
+  return tokens;
+}
+
+function collectNodeTokens(node: RawFigmaNode, path: string): TokenObservation[] {
+  const tokens: TokenObservation[] = [];
+  collectPaintTokens(node, path, "fills", node.fills, tokens);
+  collectPaintTokens(node, path, "strokes", node.strokes, tokens);
+  if (node.type === "TEXT" && node.style) {
+    const fontName = typeof node.style.fontName === "string" ? node.style.fontName : [node.style.fontName?.family, node.style.fontName?.style].filter(Boolean).join("/");
+    const fontFamily = node.style.fontFamily ?? fontName;
+    const lineHeight = typeof node.style.lineHeight === "number" ? node.style.lineHeight : node.style.lineHeight?.value;
+    const letterSpacing = typeof node.style.letterSpacing === "number" ? node.style.letterSpacing : node.style.letterSpacing?.value;
+    tokens.push({
+      kind: "typography",
+      key: `typography:${path}:style`,
+      slot: "style",
+      value: [fontFamily || "unknown", node.style.fontSize ?? "auto", node.style.fontWeight ?? "auto", node.style.lineHeightPx ?? lineHeight ?? "auto", letterSpacing ?? "auto"].join("|"),
+      sourceNodeId: node.id
+    });
+  }
+  if (typeof node.cornerRadius === "number") {
+    tokens.push({
+      kind: "radius",
+      key: `radius:${path}:cornerRadius`,
+      slot: "cornerRadius",
+      value: round(node.cornerRadius),
+      sourceNodeId: node.id
+    });
+  }
+  if (Array.isArray(node.rectangleCornerRadii) && node.rectangleCornerRadii.some((entry) => typeof entry === "number")) {
+    tokens.push({
+      kind: "radius",
+      key: `radius:${path}:rectangleCornerRadii`,
+      slot: "rectangleCornerRadii",
+      value: node.rectangleCornerRadii.map((entry) => round(entry)).join("|"),
+      sourceNodeId: node.id
+    });
+  }
+  return tokens;
+}
+
+function collectPaintTokens(node: RawFigmaNode, path: string, group: "fills" | "strokes", paints: RawFigmaNode["fills"], tokens: TokenObservation[]): void {
+  paints?.forEach((paint, index) => {
+    if (paint.visible === false || paint.type !== "SOLID" || !paint.color) return;
+    tokens.push({
+      kind: "color",
+      key: `color:${path}:${group}[${index}]`,
+      slot: `${group}[${index}]`,
+      value: colorValue(paint.color, paint.opacity),
+      sourceNodeId: node.id
+    });
+  });
+}
+
+function colorValue(color: { r: number; g: number; b: number; a?: number }, opacity?: number): string {
+  const alpha = color.a ?? opacity ?? 1;
+  const hex = [color.r, color.g, color.b].map((channel) => Math.round(Math.max(0, Math.min(1, channel)) * 255).toString(16).padStart(2, "0")).join("");
+  return alpha >= 1 ? `#${hex}` : `#${hex}/${round(alpha)}`;
+}
+
+function groupTokensByKey(tokens: TokenObservation[]): Map<string, TokenObservation[]> {
+  const grouped = new Map<string, TokenObservation[]>();
+  for (const token of tokens) {
+    grouped.set(token.key, [...(grouped.get(token.key) ?? []), token]);
+  }
+  return grouped;
+}
+
+function mostCommonValue(tokens: TokenObservation[]): string | number | undefined {
+  const counts = new Map<string, { value: string | number; count: number }>();
+  for (const token of tokens) {
+    const key = String(token.value);
+    const existing = counts.get(key);
+    counts.set(key, { value: token.value, count: (existing?.count ?? 0) + 1 });
+  }
+  return [...counts.values()].sort((left, right) => right.count - left.count || String(left.value).localeCompare(String(right.value)))[0]?.value;
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort();
 }
 
 function boundsSimilarity(left?: NodeProfile["bounds"], right?: NodeProfile["bounds"]): number {
