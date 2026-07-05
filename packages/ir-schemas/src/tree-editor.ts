@@ -80,6 +80,7 @@ export interface TreeEditValidationIssue {
     | "missing_reason"
     | "missing_target"
     | "missing_source"
+    | "duplicate_source"
     | "duplicate_region"
     | "invalid_parent"
     | "cycle"

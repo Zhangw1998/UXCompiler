@@ -101,6 +101,7 @@ function validateOperation(
     case "create_region":
       validateRegionId(operation.regionId, operationId, tree, reservedRegionIds, issues);
       validateName(operation.name, operationId, issues);
+      validateUniqueValues(operation.sourceNodeIds, operationId, "duplicate_source", "Create region source nodes must be unique.", issues);
       validateSourceNodes(operation.sourceNodeIds, operationId, tree, issues);
       validateLayout(operation.layout, operationId, issues);
       return;
@@ -108,6 +109,7 @@ function validateOperation(
       validateRegionId(operation.targetRegionId, operationId, tree, reservedRegionIds, issues, operation.sourceRegionIds);
       validateName(operation.name, operationId, issues);
       validateLayout(operation.layout, operationId, issues);
+      validateUniqueValues(operation.sourceRegionIds, operationId, "duplicate_source", "Merge source regions must be unique.", issues);
       if (operation.sourceRegionIds.length < 2) addIssue(issues, operationId, "missing_source", "Merge requires at least two regions.");
       for (const regionId of operation.sourceRegionIds) {
         const node = findNode(tree, { kind: "normalized_node", normalizedNodeId: regionId });
@@ -124,6 +126,7 @@ function validateOperation(
           addIssue(issues, operationId, "missing_target", `Source region ${operation.sourceRegionId} does not exist.`);
           return;
         }
+        validateUniqueValues(operation.sourceNodeIds, operationId, "duplicate_source", "Split region source nodes must be unique.", issues);
         validateSourceNodes(operation.sourceNodeIds, operationId, sourceRegion, issues);
       }
       return;
@@ -181,6 +184,7 @@ function validateSourceNodes(sourceNodeIds: string[], operationId: string, tree:
 }
 
 function validateMove(operation: Extract<TreeEditOperation, { kind: "move_node" }>, operationId: string, tree: NormalizedNode, issues: TreeEditValidationIssue[]): void {
+  validateOperationTargetShape(operation, operationId, issues);
   const node = findOperationTarget(tree, operation);
   const parent = findNode(tree, { kind: "normalized_node", normalizedNodeId: operation.targetNormalizedParentId });
   if (!node || node === tree) addIssue(issues, operationId, "missing_target", "Move target node does not exist or is the page root.");
@@ -196,8 +200,39 @@ function validateTarget(
   tree: NormalizedNode,
   issues: TreeEditValidationIssue[]
 ): void {
+  validateOperationTargetShape(operation, operationId, issues);
   const node = findOperationTarget(tree, operation);
   if (!node || node === tree) addIssue(issues, operationId, "missing_target", "Target node does not exist or is the page root.");
+}
+
+function validateOperationTargetShape(
+  operation: { normalizedNodeId?: string; sourceNodeId?: string },
+  operationId: string,
+  issues: TreeEditValidationIssue[]
+): void {
+  const hasNormalizedTarget = typeof operation.normalizedNodeId === "string" && operation.normalizedNodeId.trim().length > 0;
+  const hasSourceTarget = typeof operation.sourceNodeId === "string" && operation.sourceNodeId.trim().length > 0;
+  if (!hasNormalizedTarget && !hasSourceTarget) {
+    addIssue(issues, operationId, "missing_target", "Operation must include normalizedNodeId or sourceNodeId.");
+  }
+}
+
+function validateUniqueValues(
+  values: string[],
+  operationId: string,
+  code: TreeEditValidationIssue["code"],
+  message: string,
+  issues: TreeEditValidationIssue[]
+): void {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!value.trim()) continue;
+    if (seen.has(value)) {
+      addIssue(issues, operationId, code, message);
+      return;
+    }
+    seen.add(value);
+  }
 }
 
 function validateName(name: string, operationId: string, issues: TreeEditValidationIssue[]): void {

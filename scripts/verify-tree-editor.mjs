@@ -150,6 +150,75 @@ const invalidTextSlice = applyTreeEdits({
 assert.equal(invalidTextSlice.overrideMutations.length, 0);
 assert.ok(invalidTextSlice.validationReport.issues.some((issue) => issue.code === "invalid_render_strategy"));
 
+const invalidDuplicateCreateSources = applyTreeEdits({
+  ...input,
+  operations: [
+    {
+      id: "duplicate_create_sources",
+      kind: "create_region",
+      regionId: "region_duplicate_sources",
+      name: "DuplicateSources",
+      role: "content",
+      sourceNodeIds: ["1:3", "1:3"],
+      layout: "column",
+      reason: "This should be rejected because source nodes are repeated."
+    }
+  ]
+});
+assert.equal(invalidDuplicateCreateSources.overrideMutations.length, 0);
+assert.ok(invalidDuplicateCreateSources.validationReport.issues.some((issue) => issue.code === "duplicate_source"));
+
+const invalidDuplicateSplitSources = applyTreeEdits({
+  ...input,
+  operations: [
+    {
+      id: "duplicate_split_sources",
+      kind: "split_region",
+      sourceRegionId: "n_1_5",
+      regionId: "region_duplicate_split",
+      name: "DuplicateSplit",
+      role: "content",
+      sourceNodeIds: ["1:6", "1:6"],
+      layout: "column",
+      reason: "This should be rejected because split source nodes are repeated."
+    }
+  ]
+});
+assert.equal(invalidDuplicateSplitSources.overrideMutations.length, 0);
+assert.ok(invalidDuplicateSplitSources.validationReport.issues.some((issue) => issue.code === "duplicate_source"));
+
+const invalidDuplicateMergeRegions = applyTreeEdits({
+  ...input,
+  operations: [
+    {
+      id: "duplicate_merge_regions",
+      kind: "merge_regions",
+      sourceRegionIds: ["n_1_5", "n_1_5"],
+      targetRegionId: "region_duplicate_merge",
+      name: "DuplicateMerge",
+      role: "content",
+      layout: "stack",
+      reason: "This should be rejected because merge source regions are repeated."
+    }
+  ]
+});
+assert.equal(invalidDuplicateMergeRegions.overrideMutations.length, 0);
+assert.ok(invalidDuplicateMergeRegions.validationReport.issues.some((issue) => issue.code === "duplicate_source"));
+
+const invalidMissingTarget = applyTreeEdits({
+  ...input,
+  operations: [
+    {
+      id: "missing_target_id",
+      kind: "rename_node",
+      name: "NoTarget",
+      reason: "This should be rejected because no target id was provided."
+    }
+  ]
+});
+assert.equal(invalidMissingTarget.overrideMutations.length, 0);
+assert.ok(invalidMissingTarget.validationReport.issues.some((issue) => issue.code === "missing_target"));
+
 writeFileSync(operationsPath, `${JSON.stringify(operations, null, 2)}\n`);
 execFileSync(
   "node",
