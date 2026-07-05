@@ -96,6 +96,10 @@ assertSourceRefs(rawSourceNodeIds, "regions", regions, (entry) => entry.sourceNo
 assertLayoutArtifacts(rawSourceNodeIds, traceableIds, layoutCandidates, layoutDecisions);
 assertSourceRefs(rawSourceNodeIds, "asset_manifest.assets", assetManifest.assets, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "i18n_manifest.messages", i18nManifest.messages, (entry) => [entry.sourceNodeId]);
+assertI18nManifestWarnings(rawSourceNodeIds, i18nManifest, "i18n_manifest");
+for (const optionalI18nPath of ["reviewed_i18n_manifest.json", "final_i18n_manifest.json"]) {
+  if (parsedJsonFiles.has(optionalI18nPath)) assertI18nManifestWarnings(rawSourceNodeIds, parsedJsonFiles.get(optionalI18nPath), optionalI18nPath);
+}
 assertSourceRefs(rawSourceNodeIds, "semantic_labels.regions", semanticLabels.regions, (entry) => entry.sourceNodeIds ?? []);
 assertSourceRefs(rawSourceNodeIds, "semantic_labels.nodes", semanticLabels.nodes, (entry) => entry.sourceNodeIds ?? []);
 assertSourceRefs(rawSourceNodeIds, "semantic_labels.assets", semanticLabels.assets, (entry) => [entry.sourceNodeId]);
@@ -219,6 +223,17 @@ function assertVisibleTextI18nCoverage(canonicalScene, manifest) {
     );
     if (message) assert.equal(message.value, content, `i18n message ${message.key} must match visible text ${node.sourceNodeId}.`);
   });
+}
+
+function assertI18nManifestWarnings(rawSourceNodeIds, manifest, label) {
+  assert.ok(Array.isArray(manifest.messages), `${label}.messages must be an array.`);
+  assert.ok(Array.isArray(manifest.warnings), `${label}.warnings must be an array.`);
+  for (const warning of manifest.warnings) {
+    if (warning.type !== "non_i18n") continue;
+    assert.ok(warning.sourceNodeId, `${label} non_i18n warning must include sourceNodeId.`);
+    assert.equal(rawSourceNodeIds.has(warning.sourceNodeId), true, `${label} non_i18n warning references unknown sourceNodeId ${warning.sourceNodeId}.`);
+    assert.ok(warning.message, `${label} non_i18n warning must include a reason message.`);
+  }
 }
 
 function assertRawExtractionContract(rawScene, report) {

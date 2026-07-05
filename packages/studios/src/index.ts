@@ -50,7 +50,7 @@ export function applyStudioOperations(input: ApplyStudioOperationsInput): Studio
     applyComponentRegistryOperation(componentRegistry, operation);
     if (operation.kind === "mark_non_i18n") {
       const message = findMessage(input.i18nManifest, operation);
-      if (message) nonI18n.add(message.key);
+      if (message) nonI18n.set(message.key, { sourceNodeId: message.sourceNodeId, reason: operation.reason });
     }
     if (operation.kind === "merge_i18n_messages") {
       const source = findMessage(input.i18nManifest, operation);
@@ -102,7 +102,7 @@ function validateOperation(
   operationId: string,
   input: ApplyStudioOperationsInput,
   componentRegistry: ComponentRegistry,
-  nonI18n: Set<string>,
+  nonI18n: Map<string, { sourceNodeId?: string; reason?: string }>,
   issues: StudioValidationIssue[]
 ): void {
   if (!operation.reason.trim()) {
@@ -271,8 +271,8 @@ function componentRegistryFromOverrides(overrideSet: OverrideSet): ComponentRegi
   return registry;
 }
 
-function nonI18nFromOverrides(manifest: I18nManifest, overrideSet: OverrideSet): Set<string> {
-  const keys = new Set<string>();
+function nonI18nFromOverrides(manifest: I18nManifest, overrideSet: OverrideSet): Map<string, { sourceNodeId?: string; reason?: string }> {
+  const keys = new Map<string, { sourceNodeId?: string; reason?: string }>();
   for (const override of overrideSet.overrides) {
     if (override.status !== "active" || override.type !== "i18n_key_override") continue;
     if (typeof override.payload.nonI18nReason !== "string" || override.payload.nonI18nReason.length === 0) continue;
@@ -281,7 +281,7 @@ function nonI18nFromOverrides(manifest: I18nManifest, overrideSet: OverrideSet):
       sourceNodeId: typeof override.target.sourceNodeId === "string" ? override.target.sourceNodeId : undefined
     });
     const key = message?.key ?? (typeof override.payload.key === "string" ? override.payload.key : undefined);
-    if (key) keys.add(key);
+    if (key) keys.set(key, { sourceNodeId: message?.sourceNodeId ?? override.target.sourceNodeId, reason: override.payload.nonI18nReason });
   }
   return keys;
 }
@@ -485,16 +485,17 @@ function tokenEntry(type: TokenRegistryEntry["type"], token: { name: string; con
   };
 }
 
-function removeNonI18nMessages(manifest: I18nManifest, nonI18n: Set<string>): I18nManifest {
+function removeNonI18nMessages(manifest: I18nManifest, nonI18n: Map<string, { sourceNodeId?: string; reason?: string }>): I18nManifest {
   if (nonI18n.size === 0) return manifest;
   return {
     ...manifest,
     messages: manifest.messages.filter((message) => !nonI18n.has(message.key)),
     warnings: [
       ...manifest.warnings,
-      ...Array.from(nonI18n).map((key) => ({
+      ...Array.from(nonI18n).map(([key, metadata]) => ({
+        sourceNodeId: metadata.sourceNodeId,
         type: "non_i18n",
-        message: `${key} was marked as non-i18n by Studio review.`
+        message: `${key} was marked as non-i18n by Studio review${metadata.reason ? `: ${metadata.reason}` : "."}`
       }))
     ]
   };

@@ -607,6 +607,7 @@ try {
   const nonI18nOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   assert.equal(nonI18nOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_subtitle_non_i18n" && entry.type === "i18n_key_override"), true);
   assert.equal(Boolean(findMessageByKey(nonI18nFinal, "subtitle")), false);
+  assert.equal(nonI18nFinal.warnings.every((warning) => warning.type !== "non_i18n" || Boolean(warning.sourceNodeId)), true);
   assert.equal(nonI18nArb.subtitle, undefined);
 
   const componentApproveResponse = await fetch(`${base}/api/workbench/studio-operation`, {

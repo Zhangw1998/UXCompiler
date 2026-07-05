@@ -185,6 +185,7 @@ assert.equal(dividerOverride.payload.sourceName, "Divider Dot Slice");
 
 assert.ok(result.finalI18nManifest.messages.some((message) => message.key === "loginSubmitLabel"));
 assert.ok(!result.finalI18nManifest.messages.some((message) => message.key === "subtitle"));
+assert.ok(result.finalI18nManifest.warnings.every((warning) => warning.type !== "non_i18n" || warning.sourceNodeId));
 assert.equal(result.finalI18nManifest.messages.find((message) => message.key === "loginSubmitLabel").placeholders.ctaLabel.type, "String");
 assert.equal(result.finalI18nManifest.messages.find((message) => message.key === "title").confidence, 1);
 assert.equal(result.finalArbFile.loginSubmitLabel, "Sign in");
@@ -332,6 +333,7 @@ const sequentialComponent = sequentialProp.componentRegistry.components.find((ca
 assert.equal(sequentialComponent.name, "SeqCard");
 assert.equal(sequentialComponent.props[0].name, "title");
 assert.ok(!sequentialProp.finalI18nManifest.messages.some((message) => message.key === "subtitle"));
+assert.ok(sequentialProp.finalI18nManifest.warnings.every((warning) => warning.type !== "non_i18n" || warning.sourceNodeId));
 
 const duplicateI18nManifest = {
   ...input.i18nManifest,
