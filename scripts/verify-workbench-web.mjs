@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { buildWorkbenchModel } from "../apps/workbench-web/dist/model.js";
 
 const root = "artifacts/workbench-web-smoke";
 const sampleDir = resolve(root, "sample");
+const bulkDir = resolve(root, "bulk-sample");
+const p0BulkDir = resolve(root, "p0-bulk-sample");
 rmSync(root, { recursive: true, force: true });
 
 execFileSync(
@@ -20,6 +22,31 @@ execFileSync(
   ],
   { stdio: "pipe" }
 );
+cpSync(sampleDir, bulkDir, { recursive: true });
+cpSync(sampleDir, p0BulkDir, { recursive: true });
+const p0BulkTasks = readJson(p0BulkDir, "review_tasks.json");
+p0BulkTasks.unshift({
+  id: "task_verify_p0_bulk_guard",
+  type: "visual_diff_failed",
+  priority: "P0",
+  target: { normalizedNodeId: "c_1_1", sourceNodeIds: ["1:1"] },
+  title: "Verify P0 bulk close guard",
+  description: "P0 tasks must not be closed through bulk low-risk handling.",
+  confidence: 0.1,
+  evidence: { source: "verify-workbench-web" },
+  suggestedActions: [
+    {
+      label: "Keep blocked",
+      override: {
+        type: "render_strategy_override",
+        payload: { action: "keep_blocked" },
+        reason: "P0 review tasks require explicit single-task resolution."
+      }
+    }
+  ],
+  status: "open"
+});
+writeJson(p0BulkDir, "review_tasks.json", p0BulkTasks);
 
 const flutterPreviewPath = resolve(sampleDir, "flutter_preview.png");
 const hasFlutterPreview = existsSync(flutterPreviewPath);
@@ -85,6 +112,47 @@ try {
     assert.equal(previewPng.ok, true);
     assert.equal(previewPng.headers.get("content-type"), "image/png");
   }
+
+  const bulkTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/bulk-sample/review_tasks.json`);
+  const bulkTaskIds = bulkTasks.filter((task) => task.status === "open" && task.priority === "P2").slice(0, 2).map((task) => task.id);
+  assert.ok(bulkTaskIds.length > 0, "Expected P2 tasks for bulk close smoke");
+  const bulkCloseResponse = await fetch(`${base}/api/workbench/task-bulk-close`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/bulk-sample",
+      taskIds: bulkTaskIds,
+      reason: "Verify P2 bulk close smoke."
+    })
+  });
+  assert.equal(bulkCloseResponse.ok, true);
+  const bulkCloseResult = await bulkCloseResponse.json();
+  assert.equal(bulkCloseResult.ok, true);
+  assert.equal(bulkCloseResult.report.closedTaskCount, bulkTaskIds.length);
+  assert.equal(bulkCloseResult.report.afterOpenTasks, bulkCloseResult.report.beforeOpenTasks - bulkTaskIds.length);
+  const bulkUpdatedTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/bulk-sample/review_tasks.json`);
+  const bulkTaskStatusReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/bulk-sample/task_status_report.json`);
+  const bulkClosureLog = await fetchJson(`${base}/artifacts/workbench-web-smoke/bulk-sample/review_task_closure_log.json`);
+  assert.equal(bulkTaskIds.every((taskId) => !bulkUpdatedTasks.some((task) => task.id === taskId)), true);
+  assert.equal(bulkTaskStatusReport.open, bulkUpdatedTasks.filter((task) => task.status === "open").length);
+  assert.equal(bulkClosureLog.slice(-bulkTaskIds.length).every((entry) => entry.bulkClosed === true), true);
+  assert.equal(bulkClosureLog.at(-1).taskSnapshot.closedReason, "Verify P2 bulk close smoke.");
+
+  const p0BulkCloseResponse = await fetch(`${base}/api/workbench/task-bulk-close`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/p0-bulk-sample",
+      taskIds: ["task_verify_p0_bulk_guard"],
+      reason: "This P0 task must not close in bulk."
+    })
+  });
+  assert.equal(p0BulkCloseResponse.status, 500);
+  const p0BulkCloseResult = await p0BulkCloseResponse.json();
+  assert.equal(p0BulkCloseResult.ok, false);
+  assert.match(p0BulkCloseResult.error, /P0 review task cannot be bulk closed/);
+  const p0BulkTasksAfter = await fetchJson(`${base}/artifacts/workbench-web-smoke/p0-bulk-sample/review_tasks.json`);
+  assert.equal(p0BulkTasksAfter.some((task) => task.id === "task_verify_p0_bulk_guard" && task.status === "open"), true);
 
   assert.equal(artifacts.reviewTasks.some((task) => task.type === "semantic_uplift_pending"), true);
   const tokenTask = artifacts.reviewTasks.find((task) => task.type === "token_conflict" && task.target?.tokenName === "radius_18");
@@ -785,6 +853,10 @@ try {
 
 function readJson(base, file) {
   return JSON.parse(readFileSync(resolve(base, file), "utf8"));
+}
+
+function writeJson(base, file, value) {
+  writeFileSync(resolve(base, file), `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function writeSyntheticVisualDiff(base) {

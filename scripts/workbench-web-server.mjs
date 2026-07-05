@@ -72,6 +72,20 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/workbench/task-bulk-close") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await applyReviewTaskBulkClose(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/workbench/tree-edit") {
       if (request.method !== "POST") {
         sendJson(response, 405, { ok: false, error: "Method not allowed" });
@@ -396,6 +410,83 @@ async function applyReviewTaskAction(body) {
     overrideSet: overrideResult.overrideSet,
     taskStatusReport: reviewResult.taskStatusReport,
     reviewTasks: reviewResult.reviewTasks
+  };
+}
+
+async function applyReviewTaskBulkClose(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const taskIds = stringArray(body.taskIds);
+  const actor = stringValue(body.actor) ?? "user";
+  const closureReason = stringValue(body.reason) ?? "Bulk accepted low-risk review task fallback.";
+  if (taskIds.length === 0) throw new Error("Missing taskIds.");
+
+  const reviewTasks = await readJson(resolve(artifactDir, "review_tasks.json"));
+  if (!Array.isArray(reviewTasks)) throw new Error("review_tasks.json must be an array.");
+  const now = new Date().toISOString();
+  const uniqueTaskIds = [...new Set(taskIds)];
+  const selectedTasks = [];
+  for (const taskId of uniqueTaskIds) {
+    const task = reviewTasks.find((entry) => entry?.id === taskId);
+    if (!task) throw new Error(`Review task not found: ${taskId}`);
+    if (task.status !== "open") throw new Error(`Review task is not open: ${taskId}`);
+    selectedTasks.push(task);
+  }
+  const blockingTask = selectedTasks.find((task) => task.priority === "P0");
+  if (blockingTask) {
+    throw new Error(`P0 review task cannot be bulk closed: ${blockingTask.id}`);
+  }
+
+  const beforeOpen = reviewTasks.filter((entry) => entry?.status === "open").length;
+  const selectedTaskIds = new Set(uniqueTaskIds);
+  const remainingTasks = reviewTasks.filter((task) => !selectedTaskIds.has(task.id));
+  const nextTaskStatusReport = buildTaskStatusReport(remainingTasks, now);
+
+  const existingClosureLog = await readOptionalJson(resolve(artifactDir, "review_task_closure_log.json"), []);
+  const closureLog = Array.isArray(existingClosureLog) ? existingClosureLog : [];
+  for (const task of selectedTasks) {
+    closureLog.push({
+      version: "0.1.0",
+      taskId: task.id,
+      closedAt: now,
+      closedBy: actor,
+      status: "closed",
+      closureReason,
+      actionIndex: undefined,
+      actionLabel: "Bulk close low-risk task",
+      overrideId: undefined,
+      bulkClosed: true,
+      taskSnapshot: {
+        ...task,
+        status: "closed",
+        closedReason: closureReason,
+        closeReason: closureReason,
+        closedAt: now,
+        closedBy: actor
+      }
+    });
+  }
+
+  await writeJson(resolve(artifactDir, "review_tasks.json"), remainingTasks);
+  await writeJson(resolve(artifactDir, "task_status_report.json"), nextTaskStatusReport);
+  await writeJson(resolve(artifactDir, "review_task_closure_log.json"), closureLog);
+
+  const report = {
+    version: "0.1.0",
+    generatedAt: now,
+    artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
+    taskIds: uniqueTaskIds,
+    closedTaskCount: selectedTasks.length,
+    beforeOpenTasks: beforeOpen,
+    afterOpenTasks: nextTaskStatusReport.open,
+    closureReason,
+    blockedP0: false
+  };
+  await writeJson(resolve(artifactDir, "review_task_bulk_close_report.json"), report);
+
+  return {
+    report,
+    taskStatusReport: nextTaskStatusReport,
+    reviewTasks: remainingTasks
   };
 }
 
@@ -1229,6 +1320,33 @@ function maybeDisableStaleOverride(overrideSet, suggestion, now) {
   entry.status = "disabled";
   entry.updatedAt = now;
   return { overrideId, disabled: true };
+}
+
+function buildTaskStatusReport(reviewTasks, generatedAt) {
+  const byPriority = { P0: 0, P1: 0, P2: 0 };
+  const byType = {};
+  const blockedReasons = [];
+  for (const task of reviewTasks) {
+    if (task?.status !== "open") continue;
+    if (task.priority === "P0" || task.priority === "P1" || task.priority === "P2") {
+      byPriority[task.priority] += 1;
+    }
+    if (typeof task.type === "string" && task.type.length > 0) {
+      byType[task.type] = (byType[task.type] ?? 0) + 1;
+    }
+    if (task.priority === "P0") blockedReasons.push(stringValue(task.title) ?? task.id);
+  }
+  const open = reviewTasks.filter((task) => task?.status === "open").length;
+  return {
+    version: "0.1.0",
+    generatedAt,
+    total: reviewTasks.length,
+    open,
+    byPriority,
+    byType,
+    codegenWriteBlocked: blockedReasons.length > 0,
+    blockedReasons
+  };
 }
 
 function resolveArtifactRoot(value) {
