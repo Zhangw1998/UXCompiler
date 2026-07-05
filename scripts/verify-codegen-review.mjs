@@ -146,7 +146,15 @@ assert.equal(cliReview.analyze.source, "flutter_preview_analyze_report.json");
 assert.ok(cliReview.filesToCreate.includes("lib/main.dart"));
 assert.ok(cliReview.filesToCreate.includes("lib/features/login_mobile/presentation/pages/login_mobile_page.dart"));
 assert.match(readFileSync(resolve(reviewDir, "generated/lib/features/login_mobile/presentation/pages/login_mobile_page.dart"), "utf8"), /class LoginMobilePage/);
+assert.match(readFileSync(resolve(reviewDir, "generated/lib/features/login_mobile/presentation/widgets/login_mobile_content.dart"), "utf8"), /return const UxcPreviewPage\(\);/);
+assert.match(readFileSync(resolve(reviewDir, "generated/lib/features/login_mobile/presentation/widgets/login_mobile_content.dart"), "utf8"), /generated\/fidelity\/preview_page\.dart/);
 assert.match(readFileSync(resolve(reviewDir, "generated/lib/generated/assets.gen.dart"), "utf8"), /static const dividerDot/);
+const textStyles = readFileSync(resolve(reviewDir, "generated/lib/theme/app_text_styles.dart"), "utf8");
+assert.equal(new Set([...textStyles.matchAll(/static const (\w+) = TextStyle/g)].map((match) => match[1])).size, 4);
+assert.match(textStyles, /static const textBodyMedium2 = TextStyle/);
+if (commandExists("dart")) {
+  execFileSync("dart", ["format", "--set-exit-if-changed", resolve(reviewDir, "generated")], { stdio: "pipe" });
+}
 
 writeFile(resolve(projectDir, "lib/main.dart"), "void main() {}\n");
 execFileSync(
@@ -206,4 +214,13 @@ function readTextFiles(rootDir, prefix = "") {
 function writeFile(path, content) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
+}
+
+function commandExists(command) {
+  try {
+    execFileSync("sh", ["-c", `command -v ${command}`], { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
 }

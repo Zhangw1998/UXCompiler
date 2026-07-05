@@ -48,8 +48,11 @@ const direct = await writeCodegenToProject({
 assert.equal(direct.report.wrote, true);
 assert.ok(direct.report.files.some((file) => file.path === "lib/main.dart" && file.status === "created"));
 assert.equal(existsSync(resolve(projectDir, "lib/main.dart")), true);
+assert.equal(existsSync(resolve(projectDir, "lib/features/login_mobile/presentation/pages/login_mobile_page.dart")), true);
+assert.equal(existsSync(resolve(projectDir, "lib/features/login_mobile/presentation/widgets/login_mobile_content.dart")), true);
 assert.equal(existsSync(resolve(projectDir, "lib/generated/fidelity/preview_page.dart")), true);
 assert.equal(existsSync(resolve(projectDir, "assets/icons/divider_dot.svg")), true);
+assert.match(readFileSync(resolve(projectDir, "lib/features/login_mobile/presentation/widgets/login_mobile_content.dart"), "utf8"), /UxcPreviewPage/);
 assert.match(readFileSync(resolve(projectDir, "pubspec.yaml"), "utf8"), /assets\/icons\/divider_dot\.svg/);
 const arb = readJson(projectDir, "lib/l10n/app_en.arb");
 assert.equal(arb.button_label, "Sign in");

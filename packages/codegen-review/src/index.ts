@@ -348,37 +348,43 @@ function buildContentWidget(classPrefix: string): string {
   return [
     "import 'package:flutter/widgets.dart';",
     "",
+    "import '../../../../generated/fidelity/preview_page.dart';",
+    "",
     `class ${classPrefix}Content extends StatelessWidget {`,
     `  const ${classPrefix}Content({super.key});`,
     "",
     "  @override",
     "  Widget build(BuildContext context) {",
-    "    return const SizedBox.expand();",
+    "    return const UxcPreviewPage();",
     "  }",
     "}"
   ].join("\n");
 }
 
 function buildColorsFile(tokens: NormalizedDesignIR["tokens"]["colors"]): string {
-  const lines = tokens.length > 0 ? tokens.map((token) => `  static const ${dartIdentifier(token.name, "color")} = Color(${hexToDartColor(token.value)});`) : ["  static const transparent = Color(0x00000000);"];
+  const namedTokens = uniqueDartIdentifiers(tokens, (token) => token.name, "color");
+  const lines = namedTokens.length > 0 ? namedTokens.map(({ item: token, identifier }) => `  static const ${identifier} = Color(${hexToDartColor(token.value)});`) : ["  static const transparent = Color(0x00000000);"];
   return ["import 'package:flutter/widgets.dart';", "", "class AppColors {", "  const AppColors._();", ...lines, "}"].join("\n");
 }
 
 function buildSpacingFile(tokens: NormalizedDesignIR["tokens"]["spacing"]): string {
-  const lines = tokens.length > 0 ? tokens.map((token) => `  static const ${dartIdentifier(token.name, "spacing")} = ${dartNumber(token.value)};`) : ["  static const zero = 0.0;"];
+  const namedTokens = uniqueDartIdentifiers(tokens, (token) => token.name, "spacing");
+  const lines = namedTokens.length > 0 ? namedTokens.map(({ item: token, identifier }) => `  static const ${identifier} = ${dartNumber(token.value)};`) : ["  static const zero = 0.0;"];
   return ["class AppSpacing {", "  const AppSpacing._();", ...lines, "}"].join("\n");
 }
 
 function buildRadiiFile(tokens: NormalizedDesignIR["tokens"]["radii"]): string {
-  const lines = tokens.length > 0 ? tokens.map((token) => `  static const ${dartIdentifier(token.name, "radius")} = ${dartNumber(token.value)};`) : ["  static const none = 0.0;"];
+  const namedTokens = uniqueDartIdentifiers(tokens, (token) => token.name, "radius");
+  const lines = namedTokens.length > 0 ? namedTokens.map(({ item: token, identifier }) => `  static const ${identifier} = ${dartNumber(token.value)};`) : ["  static const none = 0.0;"];
   return ["class AppRadii {", "  const AppRadii._();", ...lines, "}"].join("\n");
 }
 
 function buildTextStylesFile(tokens: NormalizedDesignIR["tokens"]["typography"]): string {
+  const namedTokens = uniqueDartIdentifiers(tokens, (token) => token.name, "textStyle");
   const lines =
-    tokens.length > 0
-      ? tokens.flatMap((token) => [
-          `  static const ${dartIdentifier(token.name, "textStyle")} = TextStyle(`,
+    namedTokens.length > 0
+      ? namedTokens.flatMap(({ item: token, identifier }) => [
+          `  static const ${identifier} = TextStyle(`,
           `    fontFamily: '${escapeDartString(token.fontFamily || "Inter")}',`,
           `    fontSize: ${dartNumber(token.fontSize)},`,
           `    fontWeight: FontWeight.w${closestFontWeight(token.fontWeight)},`,
@@ -395,9 +401,9 @@ function buildShadowsFile(): string {
 }
 
 function buildAssetsFile(assetManifest: AssetManifest): string {
-  const assetLines = assetManifest.assets
-    .filter((asset) => asset.path)
-    .map((asset) => `  static const ${dartIdentifier(asset.sourceName || asset.id, "asset")} = '${escapeDartString(asset.path ?? "")}';`);
+  const assets = assetManifest.assets.filter((asset) => asset.path);
+  const assetLines = uniqueDartIdentifiers(assets, (asset) => asset.sourceName || asset.id, "asset")
+    .map(({ item: asset, identifier }) => `  static const ${identifier} = '${escapeDartString(asset.path ?? "")}';`);
   const lines = assetLines.length > 0 ? assetLines : ["  static const none = '';"];
   return ["class AppAssets {", "  const AppAssets._();", ...lines, "}"].join("\n");
 }
@@ -700,6 +706,7 @@ function wrapDartGeneratedFile(content: string, sourceNodeId: string, hash: stri
   return [
     `// @uxc-generated:start nodeId=${sourceNodeId} hash=${hash} strategy=${strategy}`,
     content.trimEnd(),
+    "",
     "// @uxc-generated:end",
     ""
   ].join("\n");
@@ -764,6 +771,19 @@ function dartIdentifier(value: string, fallback: string): string {
     ...rest.map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
   ].join("");
   return /^[A-Za-z_]/.test(identifier) ? identifier : `${fallback}${identifier}`;
+}
+
+function uniqueDartIdentifiers<T>(items: T[], name: (item: T) => string, fallback: string): Array<{ item: T; identifier: string }> {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const base = dartIdentifier(name(item), fallback);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return {
+      item,
+      identifier: count === 0 ? base : `${base}${count + 1}`
+    };
+  });
 }
 
 function hexToDartColor(value: string): string {
