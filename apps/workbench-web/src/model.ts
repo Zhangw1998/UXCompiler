@@ -24,6 +24,10 @@ export interface WorkbenchArtifacts {
   workbenchStudioRollbackReport?: unknown;
   codegenReview?: unknown;
   codegenPromotionRules?: unknown;
+  assetsToAdd?: unknown;
+  arbPatch?: unknown;
+  pubspecPatch?: unknown;
+  mergeReport?: unknown;
   workbenchCodegenReviewReport?: unknown;
   projectWriteReport?: unknown;
   nodeRemapReport?: unknown;

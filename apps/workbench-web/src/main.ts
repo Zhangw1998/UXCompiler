@@ -73,6 +73,10 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "workbenchStudioRollbackReport", files: ["workbench_studio_rollback_report.json"] },
   { key: "codegenReview", files: ["codegen_review.json"] },
   { key: "codegenPromotionRules", files: ["codegen_promotion_rules.json"] },
+  { key: "assetsToAdd", files: ["assets_to_add.json"] },
+  { key: "arbPatch", files: ["arb_patch.json"] },
+  { key: "pubspecPatch", files: ["pubspec_patch.json"] },
+  { key: "mergeReport", files: ["merge_report.json"] },
   { key: "workbenchCodegenReviewReport", files: ["workbench_codegen_review_report.json"] },
   { key: "projectWriteReport", files: ["project_write_report.json"] },
   { key: "nodeRemapReport", files: ["node_remap_report.json"] },
@@ -934,6 +938,15 @@ function renderCodegen(model: WorkbenchModel): string {
   const blockers = asArray(gates.blockers).map(asRecord);
   const createFiles = asArray(review.filesToCreate);
   const modifyFiles = asArray(review.filesToModify);
+  const assetsToAdd = asArray(state.artifacts.assetsToAdd ?? review.assetsToAdd).map(asRecord);
+  const arbPatch = asRecord(state.artifacts.arbPatch);
+  const arbKeysToAdd = asArray(arbPatch.keysToAdd).map(asRecord);
+  const arbKeysToModify = asArray(arbPatch.keysToModify).map(asRecord);
+  const pubspecPatch = asRecord(state.artifacts.pubspecPatch);
+  const pubspecPatchText = stringFrom(pubspecPatch.patch) ?? "";
+  const mergeReport = asRecord(state.artifacts.mergeReport);
+  const mergeFiles = asArray(mergeReport.files).map(asRecord);
+  const mergeConflicts = asArray(mergeReport.conflicts).map(asRecord);
   const writeReport = asRecord(state.artifacts.projectWriteReport);
   const workbenchReviewReport = asRecord(state.artifacts.workbenchCodegenReviewReport);
   const syncReport = asRecord(state.artifacts.workbenchSyncRemapReport);
@@ -1031,6 +1044,31 @@ function renderCodegen(model: WorkbenchModel): string {
       <div class="panel">
         <div class="panel-header"><h2>Files To Modify</h2></div>
         ${renderFileList(modifyFiles)}
+      </div>
+    </section>
+    <section class="two-column">
+      <div class="panel">
+        <div class="panel-header"><h2>Assets To Add</h2></div>
+        ${assetsToAdd.length === 0 ? renderEmpty("No asset additions.") : assetsToAdd.map((asset) => renderObjectCard(asset, "path", "strategy")).join("")}
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>ARB Changes</h2></div>
+        ${renderKeyList("Add", arbKeysToAdd.map((entry) => stringFrom(entry.key)).filter((entry): entry is string => Boolean(entry)))}
+        ${renderKeyList("Modify", arbKeysToModify.map((entry) => stringFrom(entry.key)).filter((entry): entry is string => Boolean(entry)))}
+      </div>
+    </section>
+    <section class="two-column">
+      <div class="panel">
+        <div class="panel-header"><h2>Pubspec Patch</h2></div>
+        ${pubspecPatchText ? `<pre class="code-block">${escapeHtml(pubspecPatchText)}</pre>` : renderEmpty("No pubspec asset patch.")}
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>Merge Report</h2></div>
+        <div class="status-list">
+          <div class="status-row"><strong>Files</strong><span>${mergeFiles.length}</span></div>
+          <div class="status-row"><strong>Conflicts</strong><span>${mergeConflicts.length}</span></div>
+        </div>
+        ${mergeConflicts.length === 0 ? renderEmpty("No merge conflicts.") : mergeConflicts.map((conflict) => renderObjectCard(conflict, "path", "reason")).join("")}
       </div>
     </section>
   `;
@@ -1419,6 +1457,16 @@ function renderFileList(files: unknown[]): string {
   return `
     <ul class="file-list">
       ${files.map((file) => `<li>${escapeHtml(fileLabel(file))}</li>`).join("")}
+    </ul>
+  `;
+}
+
+function renderKeyList(label: string, keys: string[]): string {
+  if (keys.length === 0) return `<div class="status-row"><strong>${escapeHtml(label)}</strong><span>0</span></div>`;
+  return `
+    <div class="status-row"><strong>${escapeHtml(label)}</strong><span>${keys.length}</span></div>
+    <ul class="file-list">
+      ${keys.map((key) => `<li>${escapeHtml(key)}</li>`).join("")}
     </ul>
   `;
 }

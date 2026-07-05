@@ -174,8 +174,13 @@ try {
   assert.match(html, /id="app"/);
   assert.match(js, /loadFromArtifactRoot/);
   assert.match(js, /Token Migration/);
+  assert.match(js, /Assets To Add/);
+  assert.match(js, /ARB Changes/);
+  assert.match(js, /Pubspec Patch/);
+  assert.match(js, /Merge Report/);
   assert.match(modelJs, /buildWorkbenchModel/);
   assert.match(css, /preview-stage/);
+  assert.match(css, /code-block/);
   assert.equal(visual.root.type, "scene");
   if (previewPng) {
     assert.equal(previewPng.ok, true);
@@ -709,12 +714,23 @@ try {
   assert.equal(codegenReviewResult.report.filesToCreate > 0, true);
   const codegenReview = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/codegen_review.json`);
   const codegenReviewReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/workbench_codegen_review_report.json`);
+  const codegenAssetsToAdd = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/assets_to_add.json`);
+  const codegenArbPatch = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/arb_patch.json`);
+  const codegenPubspecPatch = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/pubspec_patch.json`);
+  const codegenMergeReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/merge_report.json`);
   const generatedMain = await fetchText(`${base}/artifacts/workbench-web-smoke/sample/generated/lib/main.dart`);
   assert.equal(codegenReview.projectId, "workbench_smoke");
   assert.equal(codegenReviewReport.buildId, codegenReview.buildId);
   assert.equal(codegenReview.format.status, "success");
   assert.equal(codegenReview.format.source, "flutter_preview_format_report.json");
   assert.equal(codegenReview.analyze.source, "flutter_preview_analyze_report.json");
+  assert.equal(Array.isArray(codegenAssetsToAdd), true);
+  assert.equal(codegenAssetsToAdd.length, codegenReview.assetsToAdd.length);
+  assert.equal(Array.isArray(codegenArbPatch.keysToAdd), true);
+  assert.equal(codegenArbPatch.keysToAdd.length, codegenReview.arbKeysToAdd.length);
+  assert.equal(typeof codegenPubspecPatch.patch, "string");
+  assert.match(codegenPubspecPatch.patch, /pubspec.yaml/);
+  assert.equal(Array.isArray(codegenMergeReport.files), true);
   assert.match(generatedMain, /@uxc-generated:start/);
 
   const codegenWriteResponse = await fetch(`${base}/api/workbench/codegen-write`, {
