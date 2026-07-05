@@ -47,6 +47,7 @@ export function generateReviewTasks(input: GenerateReviewTasksInput): ReviewTask
   const tasks: ReviewTask[] = [
     ...layoutTasks(input),
     ...componentTasks(input),
+    ...componentMappingTasks(input),
     ...assetTasks(input),
     ...fidelityTasks(input),
     ...fontTasks(input),
@@ -185,6 +186,59 @@ function componentTasks(input: GenerateReviewTasksInput): ReviewTask[] {
   });
 }
 
+function componentMappingTasks(input: GenerateReviewTasksInput): ReviewTask[] {
+  return input.normalizedDesignIR.components.flatMap((candidate, index) => {
+    const component = recordValue(candidate);
+    if (!component || !isApprovedComponent(component)) return [];
+    const flutter = recordValue(component.flutter);
+    if (stringValue(flutter?.import) && stringValue(flutter?.constructor)) return [];
+    const componentId = stringValue(component.componentId) ?? stringValue(component.id) ?? `component_${index + 1}`;
+    const name = stringValue(component.name) ?? pascalCase(componentId);
+    const instances = stringArrayValue(component.sourceInstances) ?? stringArrayValue(component.instances) ?? [];
+    const traceSourceNodeIds = instances.length > 0 ? instances : input.normalizedDesignIR.tree.sourceNodeIds;
+    const constructor = `${pascalCase(name)}.fromGenerated`;
+    return [
+      makeTask({
+        id: taskId("component_mapping", componentId),
+        type: "component_mapping_required",
+        priority: "P1",
+        target: {
+          candidateId: componentId,
+          sourceNodeIds: traceSourceNodeIds
+        },
+        title: "Map approved component to Flutter",
+        description: `Approved component ${name} does not have a complete Flutter import and constructor mapping.`,
+        confidence: numberValue(component.confidence) ?? 0.7,
+        evidence: {
+          componentId,
+          name,
+          instances: traceSourceNodeIds,
+          flutter: flutter ?? null,
+          verified: component.verified
+        },
+        suggestedActions: [
+          {
+            label: "Map Flutter component",
+            override: {
+              type: "flutter_component_mapping_override",
+              payload: {
+                kind: "map_flutter_component",
+                componentId,
+                flutter: {
+                  import: `package:app/ui/${safeId(name)}.dart`,
+                  constructor
+                },
+                reason: "Approved components require an explicit Flutter import and constructor mapping."
+              },
+              reason: "Record the Flutter component mapping before replacing generated widgets."
+            }
+          }
+        ]
+      })
+    ];
+  });
+}
+
 function assetTasks(input: GenerateReviewTasksInput): ReviewTask[] {
   const assetsByNode = new Map(input.assetManifest.assets.map((asset) => [asset.sourceNodeId, asset]));
   return input.assetManifest.warnings.map((warning) => {
@@ -223,6 +277,13 @@ function assetTasks(input: GenerateReviewTasksInput): ReviewTask[] {
       ]
     });
   });
+}
+
+function isApprovedComponent(component: Record<string, unknown>): boolean {
+  const status = stringValue(component.status);
+  const source = stringValue(component.source);
+  if (status === "approved") return true;
+  return source === "inferred_and_user_approved" || source === "user_defined";
 }
 
 function fidelityTasks(input: GenerateReviewTasksInput): ReviewTask[] {

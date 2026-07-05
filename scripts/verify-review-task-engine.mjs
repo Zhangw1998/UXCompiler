@@ -170,6 +170,23 @@ const componentCandidate = generateReviewTasks({
         componentId: "fallback_component",
         name: "FallbackComponent",
         confidence: 0.8
+      },
+      {
+        componentId: "approved_card",
+        name: "ApprovedCard",
+        source: "inferred_and_user_approved",
+        status: "approved",
+        sourceInstances: ["card:3", "card:4"],
+        confidence: 1
+      },
+      {
+        componentId: "mapped_card",
+        name: "MappedCard",
+        source: "inferred_and_user_approved",
+        status: "approved",
+        sourceInstances: ["card:5", "card:6"],
+        confidence: 1,
+        flutter: { import: "package:app/ui/mapped_card.dart", constructor: "MappedCard" }
       }
     ]
   }
@@ -186,6 +203,15 @@ assert.ok(fallbackComponentTask, "Expected component candidates without instance
 assert.deepEqual(fallbackComponentTask.target.sourceNodeIds, ["frame:1"]);
 assert.deepEqual(fallbackComponentTask.suggestedActions[0].override.payload.instances, ["frame:1"]);
 assert.equal(componentCandidate.taskStatusReport.byType.low_confidence_component, 2);
+const componentMappingTask = componentCandidate.reviewTasks.find((task) => task.type === "component_mapping_required" && task.target.candidateId === "approved_card");
+assert.ok(componentMappingTask, "Expected approved component without Flutter mapping to create a mapping task");
+assert.equal(componentMappingTask.priority, "P1");
+assert.deepEqual(componentMappingTask.target.sourceNodeIds, ["card:3", "card:4"]);
+assert.equal(componentMappingTask.suggestedActions[0].override.type, "flutter_component_mapping_override");
+assert.equal(componentMappingTask.suggestedActions[0].override.payload.kind, "map_flutter_component");
+assert.equal(componentMappingTask.suggestedActions[0].override.payload.componentId, "approved_card");
+assert.equal(componentCandidate.reviewTasks.some((task) => task.type === "component_mapping_required" && task.target.candidateId === "mapped_card"), false);
+assert.equal(componentCandidate.taskStatusReport.byType.component_mapping_required, 1);
 assertReviewTaskContract(componentCandidate.reviewTasks, "component review tasks");
 
 const visualDiffReport = {
