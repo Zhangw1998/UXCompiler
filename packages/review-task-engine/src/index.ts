@@ -554,6 +554,19 @@ function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {
               },
               reason: "Visual diff failed and a full-frame fidelity fallback can preserve the visual baseline."
             }
+          },
+          {
+            label: "Accept low visual score",
+            override: {
+              type: "render_strategy_override",
+              payload: {
+                targetNodeId: input.normalizedDesignIR.tree.id,
+                action: "accept_low_visual_score",
+                visualScore: report.page.score.visualScore,
+                visualScoreThreshold: report.page.threshold.visualScore
+              },
+              reason: "User explicitly accepted the current visual diff score for codegen write."
+            }
           }
         ]
       })
@@ -733,7 +746,15 @@ function acceptedVisualDiffRepairs(input: GenerateReviewTasksInput): { page: boo
   for (const override of input.overrideSet?.overrides ?? []) {
     if (override.status !== "active") continue;
     const strategy = stringValue(override.payload.strategy);
+    const action = stringValue(override.payload.action);
     if (override.type === "render_strategy_override" && strategy === "frame_screenshot_asset" && override.target.normalizedNodeId === input.normalizedDesignIR.tree.id) {
+      page = true;
+    }
+    if (
+      override.type === "render_strategy_override" &&
+      (action === "accept_low_visual_score" || action === "allow_low_visual_score") &&
+      (override.target.kind === "page" || override.target.normalizedNodeId === input.normalizedDesignIR.tree.id || stringValue(override.payload.targetNodeId) === input.normalizedDesignIR.tree.id)
+    ) {
       page = true;
     }
     if (override.type === "render_strategy_override" && strategy === "asset_slice" && override.target.sourceNodeId) sourceNodeIds.add(override.target.sourceNodeId);

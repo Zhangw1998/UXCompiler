@@ -384,8 +384,26 @@ function applyLayout(context: ApplyContext): void {
 function applyRender(context: ApplyContext): void {
   const node = findNode(context.normalizedDesignIR.tree, context.override.target);
   const strategy = stringValue(context.override.payload.strategy);
-  if (!node || !strategy) {
-    addStale(context, "Target node does not exist or render strategy is missing.");
+  const action = stringValue(context.override.payload.action);
+  if (!node) {
+    addStale(context, "Target node does not exist.");
+    return;
+  }
+  if (action === "accept_low_visual_score" || action === "allow_low_visual_score") {
+    const render = node.render as (NormalizedNode["render"] & { visualDiffAcceptance?: Record<string, unknown> }) | undefined;
+    node.render = {
+      ...(render ?? {}),
+      visualDiffAcceptance: {
+        action,
+        visualScore: optionalNumberValue(context.override.payload.visualScore),
+        visualScoreThreshold: optionalNumberValue(context.override.payload.visualScoreThreshold)
+      }
+    } as NormalizedNode["render"] & { visualDiffAcceptance?: Record<string, unknown> };
+    context.appliedOverrideIds.push(context.override.id);
+    return;
+  }
+  if (!strategy) {
+    addStale(context, "Render strategy override is missing strategy.");
     return;
   }
   node.render = { strategy, locked: true };

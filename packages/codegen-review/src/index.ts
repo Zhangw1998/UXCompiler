@@ -570,10 +570,10 @@ function buildGateStatus(options: {
       message: input.taskStatusReport.blockedReasons.join("; ") || "Review task status report blocks codegen write."
     });
   }
-  if (input.visualDiffReport && !input.visualDiffReport.page.pass && !input.allowLowVisualScore) {
+  if (input.visualDiffReport && !input.visualDiffReport.page.pass && !hasExplicitLowVisualScoreOverride(input)) {
     blockers.push({
       type: "visual_diff_failed",
-      message: `Visual score ${input.visualDiffReport.page.score.visualScore} is below the configured threshold.`
+      message: `Visual score ${input.visualDiffReport.page.score.visualScore} is below the configured threshold and requires an explicit low visual score override.`
     });
   } else if (!input.visualDiffReport) {
     warnings.push({ type: "visual_diff_missing", message: "No visual_diff_report.json was provided for the codegen review." });
@@ -623,6 +623,25 @@ function buildGateStatus(options: {
     blockers,
     warnings
   };
+}
+
+function hasExplicitLowVisualScoreOverride(input: CreateCodegenReviewInput): boolean {
+  if (!input.visualDiffReport || input.visualDiffReport.page.pass) return true;
+  const rootId = input.normalizedDesignIR.tree.id;
+  const rootSourceNodeIds = new Set(input.normalizedDesignIR.tree.sourceNodeIds);
+  for (const override of input.overrideSet?.overrides ?? []) {
+    if (override.status !== "active" || override.type !== "render_strategy_override") continue;
+    const payload = override.payload;
+    const strategy = stringValue(payload.strategy);
+    const action = stringValue(payload.action);
+    const targetNodeId = stringValue(payload.targetNodeId) ?? override.target.normalizedNodeId;
+    const payloadSourceNodeId = stringValue(payload.sourceNodeId) ?? override.target.sourceNodeId;
+    const targetsRoot = override.target.kind === "page" || targetNodeId === rootId || (payloadSourceNodeId ? rootSourceNodeIds.has(payloadSourceNodeId) : false);
+    if (!targetsRoot) continue;
+    if (strategy === "frame_screenshot_asset") return true;
+    if (action === "accept_low_visual_score" || action === "allow_low_visual_score" || booleanValue(payload.acceptLowVisualScore) === true) return true;
+  }
+  return false;
 }
 
 function buildMergeReport(filePlans: CodegenFilePlan[], generatedAt: string): CodegenMergeReport {
@@ -838,6 +857,14 @@ function wordsFrom(value: string): string[] {
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function ensureTrailingNewline(value: string): string {

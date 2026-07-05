@@ -92,10 +92,22 @@ const visualBlocked = createCodegenReview({
 assert.equal(visualBlocked.codegenReview.gates.status, "blocked");
 assert.ok(visualBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "visual_diff_failed"));
 
-const visualOverrideAllowed = createCodegenReview({
+const visualFlagOnlyBlocked = createCodegenReview({
   ...input,
   visualDiffReport: failedVisualDiffReport(),
   allowLowVisualScore: true
+});
+assert.equal(
+  visualFlagOnlyBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "visual_diff_failed"),
+  true,
+  "The low visual score flag alone must not replace a structured override"
+);
+
+const visualOverrideAllowed = createCodegenReview({
+  ...input,
+  visualDiffReport: failedVisualDiffReport(),
+  allowLowVisualScore: true,
+  overrideSet: withLowVisualScoreOverride(input.overrideSet)
 });
 assert.equal(
   visualOverrideAllowed.codegenReview.gates.blockers.some((blocker) => blocker.type === "visual_diff_failed"),
@@ -330,6 +342,25 @@ function failedVisualDiffReport() {
     issues: [],
     warnings: []
   };
+}
+
+function withLowVisualScoreOverride(overrideSet) {
+  const copy = JSON.parse(JSON.stringify(overrideSet));
+  copy.overrides.push({
+    id: "ovr_accept_low_visual_score",
+    type: "render_strategy_override",
+    target: { kind: "page" },
+    payload: {
+      action: "accept_low_visual_score",
+      visualScore: 0.88,
+      visualScoreThreshold: 0.99
+    },
+    status: "active",
+    createdBy: "user",
+    createdAt: "2026-07-04T00:00:00.000Z",
+    scope: "snapshot"
+  });
+  return copy;
 }
 
 function readTextFiles(rootDir, prefix = "") {

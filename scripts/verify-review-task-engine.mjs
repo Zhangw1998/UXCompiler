@@ -238,6 +238,11 @@ const pageDiffTask = visualDiff.reviewTasks.find((task) => task.id === "task_vis
 assert.ok(pageDiffTask, "Expected failing page diff to create a page task");
 assert.equal(pageDiffTask.target.normalizedNodeId, "root");
 assert.deepEqual(pageDiffTask.target.sourceNodeIds, ["frame:1"]);
+const acceptLowVisualAction = pageDiffTask.suggestedActions.find((action) => action.override.payload.action === "accept_low_visual_score");
+assert.ok(acceptLowVisualAction, "Expected page diff task to offer an explicit low visual score override");
+assert.equal(acceptLowVisualAction.override.type, "render_strategy_override");
+assert.equal(acceptLowVisualAction.override.payload.visualScore, 0.82);
+assert.equal(acceptLowVisualAction.override.payload.visualScoreThreshold, 0.99);
 const unmappedRegionTask = visualDiff.reviewTasks.find((task) => task.target.diffIssueId === "diff_unmapped");
 assert.ok(unmappedRegionTask, "Expected unmapped diff issue to create a region task");
 assert.equal(unmappedRegionTask.target.normalizedNodeId, "root");
@@ -278,6 +283,32 @@ assert.equal(
   acceptedTextCalibration.reviewTasks.some((task) => task.target.diffIssueId === "diff_text_baseline"),
   false,
   "Expected accepted text calibration repair to close the source-node diff task"
+);
+
+const acceptedLowVisualScore = generateReviewTasks({
+  ...baseInput,
+  visualDiffReport,
+  overrideSet: {
+    id: "ovset_visual_page_accept",
+    version: 1,
+    hash: "sha256_test",
+    overrides: [
+      {
+        id: "ovr_accept_low_visual_score",
+        type: "render_strategy_override",
+        target: { kind: "page" },
+        payload: { targetNodeId: "root", action: "accept_low_visual_score", visualScore: 0.82, visualScoreThreshold: 0.99 },
+        status: "active",
+        createdBy: "user",
+        createdAt: "2026-07-04T00:00:00.000Z"
+      }
+    ]
+  }
+});
+assert.equal(
+  acceptedLowVisualScore.reviewTasks.some((task) => task.id === "task_visual_diff_page"),
+  false,
+  "Expected explicit low visual score override to close the page diff task"
 );
 
 const flutterCapture = generateReviewTasks({

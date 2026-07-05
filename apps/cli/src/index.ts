@@ -2358,7 +2358,7 @@ Review options:
   --project-id               Optional project id written into codegen_review.json.
   --build-id                 Optional stable build id.
   --normalized-ir-id         Optional normalized IR id written into codegen_review.json.
-  --allow-low-visual-score   Do not block the write gate for a failing visual diff.
+  --allow-low-visual-score   Honor an explicit low visual score override during write-gate review.
 
 Write options:
   --asset-root               Optional asset source root. May be repeated.

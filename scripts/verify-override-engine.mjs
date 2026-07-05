@@ -79,6 +79,12 @@ writeFileSync(
           reason: "Reject a decorative component candidate."
         }),
         override("ovr_font_inter", "font_mapping_override", { kind: "token", tokenName: "text_display" }, { fromFamily: "Inter", fallbackFamily: "SF Pro Display" }),
+        override("ovr_accept_low_visual", "render_strategy_override", { kind: "source_node", sourceNodeId: "1:1" }, {
+          action: "accept_low_visual_score",
+          visualScore: 0.982,
+          visualScoreThreshold: 0.99,
+          reason: "Accept the current low visual diff score for a controlled codegen write."
+        }),
         override("ovr_text_title_calibration", "text_calibration_override", { kind: "normalized_node", normalizedNodeId: "n_1_3" }, {
           baselineShift: -1,
           lineHeight: 42,
@@ -145,6 +151,9 @@ assert.equal(findNode(reviewed.tree, "n_1_3").bounds.y, 95);
 assert.equal(findNode(reviewed.tree, "n_1_3").render.textCalibration.baselineShift, -1);
 assert.deepEqual(findNode(reviewed.tree, "n_1_3").render.textCalibration.boundsDelta, { x: 0, y: -1, w: 0, h: 0 });
 assert.ok(findNode(reviewed.tree, "n_1_3").overrideRefs.includes("ovr_text_title_calibration"));
+assert.equal(reviewed.tree.render.visualDiffAcceptance.action, "accept_low_visual_score");
+assert.equal(reviewed.tree.render.visualDiffAcceptance.visualScore, 0.982);
+assert.ok(reviewed.tree.overrideRefs.includes("ovr_accept_low_visual"));
 assert.equal(findNode(reviewed.tree, "n_1_15").layout.type, "stack");
 assert.equal(findNode(reviewed.tree, "n_1_12").render.strategy, "asset_slice");
 assert.ok(findNode(reviewed.tree, "n_1_12").overrideRefs.includes("ovr_render_button"));
@@ -178,6 +187,7 @@ assert.ok(stale.appliedOverrideIds.includes("ovr_component_button"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_label"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_state"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_flutter"));
+assert.ok(stale.appliedOverrideIds.includes("ovr_accept_low_visual"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_text_title_calibration"));
 assert.equal(conflicts.warnings.some((entry) => entry.overrideId === "ovr_font_inter" && entry.type === "configuration_override"), false);
 assert.equal(conflicts.warnings.some((entry) => entry.overrideId?.startsWith("ovr_component_") && entry.type === "unsupported_override"), false);
