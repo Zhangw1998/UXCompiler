@@ -79,6 +79,13 @@ writeFileSync(
           reason: "Reject a decorative component candidate."
         }),
         override("ovr_font_inter", "font_mapping_override", { kind: "token", tokenName: "text_body" }, { fromFamily: "System", fallbackFamily: "Inter" }),
+        override("ovr_text_title_calibration", "text_calibration_override", { kind: "normalized_node", normalizedNodeId: "n_1_3" }, {
+          baselineShift: -1,
+          lineHeight: 42,
+          letterSpacing: 0.2,
+          bboxDelta: { y: -1 },
+          reason: "Calibrate the title text baseline and line height after visual diff."
+        }),
         override("ovr_stale", "naming_override", { kind: "normalized_node", normalizedNodeId: "missing_node" }, { name: "Missing" }),
         override("ovr_conflict_a", "naming_override", { kind: "normalized_node", normalizedNodeId: "n_1_4" }, { name: "SubtitleA" }),
         override("ovr_conflict_b", "naming_override", { kind: "normalized_node", normalizedNodeId: "n_1_4" }, { name: "SubtitleB" })
@@ -131,6 +138,13 @@ const taskStatusReport = readJson("task_status_report.json");
 
 assert.equal(findNode(original.tree, "n_1_3").name, "TitleText");
 assert.equal(findNode(reviewed.tree, "n_1_3").name, "HeroTitle");
+assert.equal(findNode(reviewed.tree, "n_1_3").baselineShift, -1);
+assert.equal(findNode(reviewed.tree, "n_1_3").lineHeight, 42);
+assert.equal(findNode(reviewed.tree, "n_1_3").letterSpacing, 0.2);
+assert.equal(findNode(reviewed.tree, "n_1_3").bounds.y, 95);
+assert.equal(findNode(reviewed.tree, "n_1_3").render.textCalibration.baselineShift, -1);
+assert.deepEqual(findNode(reviewed.tree, "n_1_3").render.textCalibration.boundsDelta, { x: 0, y: -1, w: 0, h: 0 });
+assert.ok(findNode(reviewed.tree, "n_1_3").overrideRefs.includes("ovr_text_title_calibration"));
 assert.equal(findNode(reviewed.tree, "n_1_15").layout.type, "stack");
 assert.equal(findNode(reviewed.tree, "n_1_12").render.strategy, "asset_slice");
 assert.ok(findNode(reviewed.tree, "n_1_12").overrideRefs.includes("ovr_render_button"));
@@ -163,8 +177,10 @@ assert.ok(stale.appliedOverrideIds.includes("ovr_component_button"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_label"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_state"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_flutter"));
+assert.ok(stale.appliedOverrideIds.includes("ovr_text_title_calibration"));
 assert.ok(conflicts.warnings.some((entry) => entry.overrideId === "ovr_font_inter" && entry.type === "configuration_override"));
 assert.equal(conflicts.warnings.some((entry) => entry.overrideId?.startsWith("ovr_component_") && entry.type === "unsupported_override"), false);
+assert.equal(conflicts.warnings.some((entry) => entry.overrideId === "ovr_text_title_calibration" && entry.type === "unsupported_override"), false);
 assert.ok(stale.staleOverrides.some((entry) => entry.overrideId === "ovr_stale"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_name_title"));
 assert.ok(reviewTasks.some((task) => task.type === "stale_override" && task.evidence.overrideId === "ovr_stale"));

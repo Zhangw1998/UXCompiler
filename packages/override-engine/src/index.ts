@@ -205,12 +205,7 @@ function applyOne(context: {
       context.appliedOverrideIds.push(override.id);
       return;
     case "text_calibration_override":
-      context.warnings.push({
-        overrideId: override.id,
-        type: "unsupported_override",
-        message: `${override.type} is recorded but has no deterministic MVP apply behavior yet.`
-      });
-      context.appliedOverrideIds.push(override.id);
+      applyTextCalibration(context);
       return;
   }
 }
@@ -522,6 +517,108 @@ function applyFlutterComponentMapping(context: ApplyContext): void {
   context.appliedOverrideIds.push(context.override.id);
 }
 
+function applyTextCalibration(context: ApplyContext): void {
+  const node = findNode(context.normalizedDesignIR.tree, context.override.target);
+  if (!node) {
+    addStale(context, "Target text node does not exist.");
+    return;
+  }
+  if (node.type !== "text") {
+    addConflict(context, "invalid_payload", "text_calibration_override can only target text nodes.");
+    return;
+  }
+
+  const payload = context.override.payload;
+  const calibrated = node as CalibratedTextNode;
+  const textCalibration: Record<string, unknown> = {
+    ...(recordValue(calibrated.textCalibration) ?? {}),
+    ...(recordValue(calibrated.render?.textCalibration) ?? {})
+  };
+  let applied = false;
+
+  const baselineShift = optionalNumberValue(payload.baselineShift);
+  if (baselineShift !== undefined) {
+    calibrated.baselineShift = baselineShift;
+    textCalibration.baselineShift = baselineShift;
+    applied = true;
+  }
+
+  const lineHeight = optionalPositiveNumber(payload.lineHeight);
+  if (lineHeight !== undefined) {
+    calibrated.lineHeight = lineHeight;
+    textCalibration.lineHeight = lineHeight;
+    applied = true;
+  }
+  const lineHeightDelta = optionalNumberValue(payload.lineHeightDelta);
+  if (lineHeightDelta !== undefined) {
+    if (optionalPositiveNumber(calibrated.lineHeight) !== undefined) {
+      calibrated.lineHeight = Math.max(1, Number(calibrated.lineHeight) + lineHeightDelta);
+    }
+    textCalibration.lineHeightDelta = lineHeightDelta;
+    applied = true;
+  }
+
+  const fontSize = optionalPositiveNumber(payload.fontSize);
+  if (fontSize !== undefined) {
+    calibrated.fontSize = fontSize;
+    textCalibration.fontSize = fontSize;
+    applied = true;
+  }
+  const fontSizeDelta = optionalNumberValue(payload.fontSizeDelta);
+  if (fontSizeDelta !== undefined) {
+    if (optionalPositiveNumber(calibrated.fontSize) !== undefined) {
+      calibrated.fontSize = Math.max(1, Number(calibrated.fontSize) + fontSizeDelta);
+    }
+    textCalibration.fontSizeDelta = fontSizeDelta;
+    applied = true;
+  }
+
+  const letterSpacing = optionalNumberValue(payload.letterSpacing);
+  if (letterSpacing !== undefined) {
+    calibrated.letterSpacing = letterSpacing;
+    textCalibration.letterSpacing = letterSpacing;
+    applied = true;
+  }
+
+  const boundsDelta = boundsDeltaValue(payload.bboxDelta);
+  const offsetX = optionalNumberValue(payload.offsetX) ?? optionalNumberValue(payload.deltaX) ?? boundsDelta?.x;
+  const offsetY = optionalNumberValue(payload.offsetY) ?? optionalNumberValue(payload.deltaY) ?? boundsDelta?.y;
+  const widthDelta = optionalNumberValue(payload.widthDelta) ?? optionalNumberValue(payload.deltaW) ?? boundsDelta?.w;
+  const heightDelta = optionalNumberValue(payload.heightDelta) ?? optionalNumberValue(payload.deltaH) ?? boundsDelta?.h;
+  if (offsetX !== undefined || offsetY !== undefined || widthDelta !== undefined || heightDelta !== undefined) {
+    const nextBounds = {
+      x: node.bounds.x + (offsetX ?? 0),
+      y: node.bounds.y + (offsetY ?? 0),
+      w: node.bounds.w + (widthDelta ?? 0),
+      h: node.bounds.h + (heightDelta ?? 0)
+    };
+    if (nextBounds.w <= 0 || nextBounds.h <= 0) {
+      addConflict(context, "invalid_payload", "text_calibration_override bounds delta would create non-positive bounds.");
+      return;
+    }
+    node.bounds = nextBounds;
+    textCalibration.boundsDelta = {
+      x: offsetX ?? 0,
+      y: offsetY ?? 0,
+      w: widthDelta ?? 0,
+      h: heightDelta ?? 0
+    };
+    applied = true;
+  }
+
+  if (!applied) {
+    addConflict(context, "invalid_payload", "text_calibration_override requires a baseline, typography, or bounds calibration payload.");
+    return;
+  }
+
+  calibrated.textCalibration = textCalibration;
+  calibrated.render = {
+    ...(calibrated.render ?? {}),
+    textCalibration
+  };
+  context.appliedOverrideIds.push(context.override.id);
+}
+
 function applyAsset(context: ApplyContext): void {
   const asset = findAsset(context.assetManifest, context.override.target);
   const strategy = stringValue(context.override.payload.strategy);
@@ -706,6 +803,15 @@ type ApplyContext = {
   warnings: OverrideConflictReport["warnings"];
   staleOverrides: StaleOverride[];
   appliedOverrideIds: string[];
+};
+
+type CalibratedTextNode = NormalizedNode & {
+  fontSize?: number;
+  lineHeight?: number;
+  letterSpacing?: number;
+  baselineShift?: number;
+  textCalibration?: Record<string, unknown>;
+  render?: NormalizedNode["render"] & { textCalibration?: Record<string, unknown> };
 };
 
 function detectDuplicateConflicts(overrides: UxOverride[], conflicts: OverrideConflict[]): void {
@@ -957,8 +1063,29 @@ function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function optionalNumberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalPositiveNumber(value: unknown): number | undefined {
+  const number = optionalNumberValue(value);
+  return number !== undefined && number > 0 ? number : undefined;
+}
+
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function boundsDeltaValue(value: unknown): { x?: number; y?: number; w?: number; h?: number } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const delta = {
+    x: optionalNumberValue(record.x),
+    y: optionalNumberValue(record.y),
+    w: optionalNumberValue(record.w),
+    h: optionalNumberValue(record.h)
+  };
+  return delta.x !== undefined || delta.y !== undefined || delta.w !== undefined || delta.h !== undefined ? delta : undefined;
 }
 
 function boundsValue(value: unknown): AssetManifestEntry["cropBounds"] | undefined {
