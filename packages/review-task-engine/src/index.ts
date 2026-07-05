@@ -36,6 +36,13 @@ export interface GenerateReviewTasksInput {
   overrideSet?: OverrideSet;
 }
 
+const visualDiffOverrideTypes = new Set([
+  "layout_strategy_override",
+  "render_strategy_override",
+  "asset_strategy_override",
+  "text_calibration_override"
+]);
+
 export function generateReviewTasks(input: GenerateReviewTasksInput): ReviewTaskResult {
   const tasks: ReviewTask[] = [
     ...layoutTasks(input),
@@ -568,23 +575,77 @@ function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         description: `Region diff ratio is ${round(issue.score.pixelDiffRatio)} for ${issue.sourceNodeId ?? issue.issueId}.`,
         confidence: issue.score.visualScore,
         evidence: { ...issue },
-        suggestedActions: [
-          {
-            label: "Force asset slice",
-            override: {
-              type: "render_strategy_override",
-              payload: {
-                sourceNodeId: issue.sourceNodeId ?? input.normalizedDesignIR.tree.sourceNodeIds[0],
-                strategy: "asset_slice"
-              },
-              reason: "A localized asset slice can reduce visual mismatch in this region."
-            }
-          }
-        ]
+        suggestedActions: visualDiffSuggestedActions(input, issue)
       })
     );
   }
   return tasks;
+}
+
+function visualDiffSuggestedActions(input: GenerateReviewTasksInput, issue: VisualDiffReport["issues"][number]): ReviewTaskSuggestedAction[] {
+  const sourceNodeId = issue.sourceNodeId ?? input.normalizedDesignIR.tree.sourceNodeIds[0];
+  const actions: ReviewTaskSuggestedAction[] = [];
+  for (const fix of issue.suggestedFixes ?? []) {
+    const type = stringValue(fix.type);
+    const payload = recordValue(fix.payload);
+    if (!type || !payload || !visualDiffOverrideTypes.has(type)) continue;
+    const nextPayload: Record<string, unknown> = {
+      ...payload,
+      diffIssueId: issue.issueId
+    };
+    if (sourceNodeId && !stringValue(nextPayload.sourceNodeId)) nextPayload.sourceNodeId = sourceNodeId;
+    actions.push({
+      label: visualDiffActionLabel(type, nextPayload),
+      override: {
+        type,
+        payload: nextPayload,
+        reason: stringValue(nextPayload.reason) ?? visualDiffActionReason(type)
+      }
+    });
+  }
+  if (actions.length > 0) return dedupeActions(actions);
+  return [
+    {
+      label: "Force asset slice",
+      override: {
+        type: "render_strategy_override",
+        payload: {
+          sourceNodeId,
+          strategy: "asset_slice",
+          diffIssueId: issue.issueId
+        },
+        reason: "A localized asset slice can reduce visual mismatch in this region."
+      }
+    }
+  ];
+}
+
+function visualDiffActionLabel(type: string, payload: Record<string, unknown>): string {
+  if (type === "text_calibration_override") return "Apply text calibration";
+  if (type === "layout_strategy_override") return "Apply layout repair";
+  if (type === "asset_strategy_override") return "Apply asset repair";
+  if (type === "render_strategy_override" && stringValue(payload.strategy) === "asset_slice") return "Force asset slice";
+  if (type === "render_strategy_override") return "Apply render repair";
+  return "Apply visual repair";
+}
+
+function visualDiffActionReason(type: string): string {
+  if (type === "text_calibration_override") return "A text calibration repair can reduce baseline, line-height, or small bounds mismatch in this region.";
+  if (type === "layout_strategy_override") return "A layout strategy repair can reduce visual mismatch in this region.";
+  if (type === "asset_strategy_override") return "An asset strategy repair can reduce visual mismatch in this region.";
+  return "A localized visual repair can reduce mismatch in this region.";
+}
+
+function dedupeActions(actions: ReviewTaskSuggestedAction[]): ReviewTaskSuggestedAction[] {
+  const seen = new Set<string>();
+  const result: ReviewTaskSuggestedAction[] = [];
+  for (const action of actions) {
+    const key = `${action.override.type}:${JSON.stringify(action.override.payload)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(action);
+  }
+  return result;
 }
 
 function semanticUpliftTasks(input: GenerateReviewTasksInput): ReviewTask[] {
@@ -670,12 +731,16 @@ function acceptedVisualDiffRepairs(input: GenerateReviewTasksInput): { page: boo
   const sourceNodeIds = new Set<string>();
   let page = false;
   for (const override of input.overrideSet?.overrides ?? []) {
-    if (override.status !== "active" || override.type !== "render_strategy_override") continue;
+    if (override.status !== "active") continue;
     const strategy = stringValue(override.payload.strategy);
-    if (strategy === "frame_screenshot_asset" && override.target.normalizedNodeId === input.normalizedDesignIR.tree.id) page = true;
-    if (strategy === "asset_slice" && override.target.sourceNodeId) sourceNodeIds.add(override.target.sourceNodeId);
+    if (override.type === "render_strategy_override" && strategy === "frame_screenshot_asset" && override.target.normalizedNodeId === input.normalizedDesignIR.tree.id) {
+      page = true;
+    }
+    if (override.type === "render_strategy_override" && strategy === "asset_slice" && override.target.sourceNodeId) sourceNodeIds.add(override.target.sourceNodeId);
     const payloadSourceNodeId = stringValue(override.payload.sourceNodeId);
-    if (strategy === "asset_slice" && payloadSourceNodeId) sourceNodeIds.add(payloadSourceNodeId);
+    if (override.type === "render_strategy_override" && strategy === "asset_slice" && payloadSourceNodeId) sourceNodeIds.add(payloadSourceNodeId);
+    if (override.type === "text_calibration_override" && override.target.sourceNodeId) sourceNodeIds.add(override.target.sourceNodeId);
+    if (override.type === "text_calibration_override" && payloadSourceNodeId) sourceNodeIds.add(payloadSourceNodeId);
   }
   return { page, sourceNodeIds };
 }

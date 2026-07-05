@@ -1146,21 +1146,70 @@ function buildDiffRepairOverride({ repairKind, issueId, visualDiffReport, normal
   if (!issue) throw new Error(`Visual diff issue not found: ${issueId ?? "missing"}`);
   const sourceNodeId = stringValue(issue.sourceNodeId);
   if (!sourceNodeId) throw new Error(`Visual diff issue ${issueId} does not have a sourceNodeId.`);
+  const suggested = selectDiffRepairSuggestion(issue, sourceNodeId);
+  const type = suggested?.type ?? "render_strategy_override";
+  const payload = suggested?.payload ?? {
+    sourceNodeId,
+    strategy: "asset_slice",
+    diffIssueId: issue.issueId,
+    reason: "Workbench Preview accepted asset-slice repair for a localized visual diff."
+  };
   return {
-    id: `ovr_diff_${safeName(issue.issueId)}_asset_slice`,
-    type: "render_strategy_override",
-    target: { kind: "source_node", sourceNodeId },
-    payload: {
-      sourceNodeId,
-      strategy: "asset_slice",
-      diffIssueId: issue.issueId,
-      reason: "Workbench Preview accepted asset-slice repair for a localized visual diff."
-    },
+    id: `ovr_diff_${safeName(issue.issueId)}_${diffRepairOverrideSuffix(type, payload)}`,
+    type,
+    target: deriveDiffRepairTarget(type, payload, sourceNodeId),
+    payload,
     status: "active",
     createdBy: actor,
     createdAt: now,
     scope: "snapshot"
   };
+}
+
+function selectDiffRepairSuggestion(issue, sourceNodeId) {
+  const fixes = Array.isArray(issue.suggestedFixes) ? issue.suggestedFixes : [];
+  for (const fix of fixes) {
+    const type = stringValue(fix?.type);
+    if (!type || !overrideTypes.has(type)) continue;
+    const payload = fix?.payload && typeof fix.payload === "object" && !Array.isArray(fix.payload) ? { ...fix.payload } : {};
+    payload.sourceNodeId = stringValue(payload.sourceNodeId) ?? sourceNodeId;
+    payload.diffIssueId = stringValue(payload.diffIssueId) ?? stringValue(issue.issueId);
+    payload.reason = stringValue(payload.reason) ?? diffRepairReason(type, payload);
+    return { type, payload };
+  }
+  return undefined;
+}
+
+function deriveDiffRepairTarget(type, payload, sourceNodeId) {
+  if (type === "asset_strategy_override") {
+    return {
+      kind: "asset",
+      assetId: stringValue(payload.assetId),
+      sourceNodeId: stringValue(payload.sourceNodeId) ?? sourceNodeId
+    };
+  }
+  const targetNodeId = stringValue(payload.targetNodeId);
+  if (targetNodeId && type !== "text_calibration_override") return { kind: "normalized_node", normalizedNodeId: targetNodeId };
+  return { kind: "source_node", sourceNodeId: stringValue(payload.sourceNodeId) ?? sourceNodeId };
+}
+
+function diffRepairOverrideSuffix(type, payload) {
+  if (type === "render_strategy_override" && stringValue(payload.strategy) === "asset_slice") return "asset_slice";
+  if (type === "render_strategy_override" && stringValue(payload.strategy) === "frame_screenshot_asset") return "frame_fallback";
+  if (type === "text_calibration_override") return "text_calibration";
+  if (type === "asset_strategy_override") return "asset_strategy";
+  if (type === "layout_strategy_override") return "layout_strategy";
+  return safeName(type);
+}
+
+function diffRepairReason(type, payload) {
+  if (type === "render_strategy_override" && stringValue(payload.strategy) === "asset_slice") {
+    return "Workbench Preview accepted asset-slice repair for a localized visual diff.";
+  }
+  if (type === "text_calibration_override") {
+    return "Workbench Preview accepted text calibration repair for a localized visual diff.";
+  }
+  return "Workbench Preview accepted a suggested repair for a localized visual diff.";
 }
 
 async function readWorkbenchFormatSummary(artifactDir) {

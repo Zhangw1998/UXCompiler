@@ -188,37 +188,51 @@ assert.deepEqual(fallbackComponentTask.suggestedActions[0].override.payload.inst
 assert.equal(componentCandidate.taskStatusReport.byType.low_confidence_component, 2);
 assertReviewTaskContract(componentCandidate.reviewTasks, "component review tasks");
 
+const visualDiffReport = {
+  version: "2.0",
+  generatedAt: "2026-07-04T00:00:00.000Z",
+  inputs: { reference: "figma_reference.png", candidate: "flutter_preview.png", heatmap: "diff_heatmap.png" },
+  environment: {
+    dpr: 1,
+    fonts: ["Inter"],
+    themeBrightness: "light",
+    locale: "en",
+    textScaleFactor: 1,
+    safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
+    renderer: "png_pixelmatch"
+  },
+  page: {
+    pass: false,
+    score: { visualScore: 0.82, pixelDiffRatio: 0.18, diffPixels: 18, totalPixels: 100 },
+    threshold: { visualScore: 0.99, pixelDiffRatio: 0.01 }
+  },
+  issues: [
+    {
+      issueId: "diff_unmapped",
+      type: "pixel_diff_region",
+      bounds: { x: 0, y: 0, w: 100, h: 80 },
+      score: { visualScore: 0.7, pixelDiffRatio: 0.3, diffPixels: 24, totalPixels: 80 },
+      suggestedFixes: []
+    },
+    {
+      issueId: "diff_text_baseline",
+      type: "pixel_diff_region",
+      sourceNodeId: "title:1",
+      bounds: { x: 10, y: 20, w: 120, h: 32 },
+      score: { visualScore: 0.92, pixelDiffRatio: 0.08, diffPixels: 30, totalPixels: 384 },
+      suggestedFixes: [
+        {
+          type: "text_calibration_override",
+          payload: { baselineShift: -1, lineHeightDelta: 1 }
+        }
+      ]
+    }
+  ],
+  warnings: []
+};
 const visualDiff = generateReviewTasks({
   ...baseInput,
-  visualDiffReport: {
-    version: "2.0",
-    generatedAt: "2026-07-04T00:00:00.000Z",
-    inputs: { reference: "figma_reference.png", candidate: "flutter_preview.png", heatmap: "diff_heatmap.png" },
-    environment: {
-      dpr: 1,
-      fonts: ["Inter"],
-      themeBrightness: "light",
-      locale: "en",
-      textScaleFactor: 1,
-      safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
-      renderer: "png_pixelmatch"
-    },
-    page: {
-      pass: false,
-      score: { visualScore: 0.82, pixelDiffRatio: 0.18, diffPixels: 18, totalPixels: 100 },
-      threshold: { visualScore: 0.99, pixelDiffRatio: 0.01 }
-    },
-    issues: [
-      {
-        issueId: "diff_unmapped",
-        type: "pixel_diff_region",
-        bounds: { x: 0, y: 0, w: 100, h: 80 },
-        score: { visualScore: 0.7, pixelDiffRatio: 0.3, diffPixels: 24, totalPixels: 80 },
-        suggestedFixes: []
-      }
-    ],
-    warnings: []
-  }
+  visualDiffReport
 });
 const pageDiffTask = visualDiff.reviewTasks.find((task) => task.id === "task_visual_diff_page");
 assert.ok(pageDiffTask, "Expected failing page diff to create a page task");
@@ -228,7 +242,43 @@ const unmappedRegionTask = visualDiff.reviewTasks.find((task) => task.target.dif
 assert.ok(unmappedRegionTask, "Expected unmapped diff issue to create a region task");
 assert.equal(unmappedRegionTask.target.normalizedNodeId, "root");
 assert.deepEqual(unmappedRegionTask.target.sourceNodeIds, ["frame:1"]);
+assert.equal(unmappedRegionTask.suggestedActions[0].override.type, "render_strategy_override");
+assert.equal(unmappedRegionTask.suggestedActions[0].override.payload.strategy, "asset_slice");
+const textBaselineTask = visualDiff.reviewTasks.find((task) => task.target.diffIssueId === "diff_text_baseline");
+assert.ok(textBaselineTask, "Expected text baseline diff issue to create a region task");
+assert.deepEqual(textBaselineTask.target.sourceNodeIds, ["title:1"]);
+assert.equal(textBaselineTask.suggestedActions[0].label, "Apply text calibration");
+assert.equal(textBaselineTask.suggestedActions[0].override.type, "text_calibration_override");
+assert.equal(textBaselineTask.suggestedActions[0].override.payload.sourceNodeId, "title:1");
+assert.equal(textBaselineTask.suggestedActions[0].override.payload.diffIssueId, "diff_text_baseline");
+assert.equal(textBaselineTask.suggestedActions[0].override.payload.baselineShift, -1);
 assertReviewTaskContract(visualDiff.reviewTasks, "visual diff review tasks");
+
+const acceptedTextCalibration = generateReviewTasks({
+  ...baseInput,
+  visualDiffReport,
+  overrideSet: {
+    id: "ovset_visual_text",
+    version: 1,
+    hash: "sha256_test",
+    overrides: [
+      {
+        id: "ovr_text_baseline",
+        type: "text_calibration_override",
+        target: { kind: "source_node", sourceNodeId: "title:1" },
+        payload: { sourceNodeId: "title:1", baselineShift: -1, diffIssueId: "diff_text_baseline" },
+        status: "active",
+        createdBy: "agent",
+        createdAt: "2026-07-04T00:00:00.000Z"
+      }
+    ]
+  }
+});
+assert.equal(
+  acceptedTextCalibration.reviewTasks.some((task) => task.target.diffIssueId === "diff_text_baseline"),
+  false,
+  "Expected accepted text calibration repair to close the source-node diff task"
+);
 
 const flutterCapture = generateReviewTasks({
   ...baseInput,

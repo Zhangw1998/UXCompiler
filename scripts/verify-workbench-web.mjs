@@ -753,6 +753,30 @@ try {
   assert.equal(issueRepairAgainOverrideSet.overrides.length, 14);
   assert.equal(activeIssueOverride.status, "active");
 
+  writeSyntheticTextVisualDiff(sampleDir);
+  const textRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      repairKind: "issue_asset_slice",
+      issueId: "diff_text_baseline"
+    })
+  });
+  assert.equal(textRepairResponse.ok, true);
+  const textRepairResult = await textRepairResponse.json();
+  assert.equal(textRepairResult.ok, true);
+  assert.equal(textRepairResult.report.overrideId, "ovr_diff_diff_text_baseline_text_calibration");
+  const textRepairPatch = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/repair_patch.json`);
+  const textRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
+  const textRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  assert.equal(textRepairPatch.afterOverride.type, "text_calibration_override");
+  assert.equal(textRepairPatch.afterOverride.target.sourceNodeId, "1:3");
+  assert.equal(textRepairPatch.afterOverride.payload.baselineShift, -1);
+  assert.equal(textRepairPatch.afterOverride.payload.diffIssueId, "diff_text_baseline");
+  assert.equal(textRepairOverrideSet.overrides.length, 15);
+  assert.equal(textRepairTasks.some((task) => task.id === "task_visual_diff_text_baseline"), false);
+
   const pageRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -768,8 +792,9 @@ try {
   assert.equal(pageRepairResult.report.overrideId, "ovr_diff_page_frame_fallback");
   const pageRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const pageRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(pageRepairOverrideSet.overrides.length, 15);
+  assert.equal(pageRepairOverrideSet.overrides.length, 16);
   assert.equal(pageRepairTasks.some((task) => task.type === "visual_diff_failed"), false);
+  writeSyntheticVisualDiff(sampleDir);
 
   const studioRollbackResponse = await fetch(`${base}/api/workbench/studio-rollback`, {
     method: "POST",
@@ -905,6 +930,59 @@ function writeSyntheticVisualDiff(base) {
           totalPixels: 400
         },
         suggestedFixes: [{ type: "render_strategy_override", payload: { strategy: "asset_slice" } }]
+      }
+    ],
+    warnings: []
+  };
+  writeFileSync(resolve(base, "visual_diff_report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+}
+
+function writeSyntheticTextVisualDiff(base) {
+  const report = {
+    version: "0.1.0",
+    generatedAt: "2026-07-04T00:00:00.000Z",
+    inputs: {
+      reference: "figma_reference.png",
+      candidate: "flutter_preview.png",
+      heatmap: "diff_heatmap.png"
+    },
+    environment: {
+      viewport: { width: 390, height: 844 },
+      dpr: 1,
+      fonts: ["Inter"],
+      flutterVersion: "Flutter smoke",
+      themeBrightness: "light",
+      locale: "en",
+      textScaleFactor: 1,
+      safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
+      renderer: "png_pixelmatch"
+    },
+    page: {
+      pass: false,
+      score: {
+        visualScore: 0.91,
+        pixelDiffRatio: 0.09,
+        diffPixels: 29624,
+        totalPixels: 329160
+      },
+      threshold: {
+        visualScore: 0.98,
+        pixelDiffRatio: 0.02
+      }
+    },
+    issues: [
+      {
+        issueId: "diff_text_baseline",
+        type: "pixel_diff_region",
+        sourceNodeId: "1:3",
+        bounds: { x: 24, y: 96, w: 220, h: 38 },
+        score: {
+          visualScore: 0.92,
+          pixelDiffRatio: 0.08,
+          diffPixels: 670,
+          totalPixels: 8360
+        },
+        suggestedFixes: [{ type: "text_calibration_override", payload: { baselineShift: -1, lineHeightDelta: 1 } }]
       }
     ],
     warnings: []
