@@ -131,6 +131,9 @@ importers:
 
   packages/normalizer:
     dependencies:
+      '@uxcompiler/ai-protocol':
+        specifier: workspace:*
+        version: link:../ai-protocol
       '@uxcompiler/asset-i18n-normalizer':
         specifier: workspace:*
         version: link:../asset-i18n-normalizer

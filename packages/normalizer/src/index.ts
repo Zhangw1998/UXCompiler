@@ -21,6 +21,7 @@ import type {
   UpliftDiffReportArtifact
 } from "@uxcompiler/ir-schemas";
 import { normalizeAssetsAndI18n } from "@uxcompiler/asset-i18n-normalizer";
+import { validateAiProtocolOutput, type AiProtocolDecision } from "@uxcompiler/ai-protocol";
 import { generateFlutterFidelity } from "@uxcompiler/flutter-fidelity-renderer";
 import { canonicalizeRawScene } from "@uxcompiler/scene-canonicalizer";
 import { inferLayout } from "@uxcompiler/layout-inferencer";
@@ -32,6 +33,7 @@ export interface CompileRawSceneOptions {
   materializedAssetSourceNodeIds?: readonly string[];
   frameScreenshotAssetPath?: string;
   overrideSet?: OverrideSet;
+  aiSemanticOutput?: unknown;
 }
 
 export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRawSceneOptions = {}): PipelineArtifacts {
@@ -65,15 +67,24 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
   const inferredComponents = createInferredComponentsArtifact(layoutResult.normalizedDesignIR, assetI18nResult.i18nManifest);
   const componentInstanceMap = createComponentInstanceMapArtifact(inferredComponents, layoutResult.normalizedDesignIR);
   const componentConfidenceReport = createComponentConfidenceReportArtifact(inferredComponents);
-  const semanticLabels = createSemanticLabelsArtifact({
+  const fallbackSemanticLabels = createSemanticLabelsArtifact({
     normalizedDesignIR: layoutResult.normalizedDesignIR,
     regions: layoutResult.regions,
     assetManifest: assetI18nResult.assetManifest,
     i18nManifest: assetI18nResult.i18nManifest
   });
-  const aiDecisionReport = createAiDecisionReportArtifact();
+  const aiSemanticResult = applyAiSemanticOutput({
+    fallbackSemanticLabels,
+    aiSemanticOutput: options.aiSemanticOutput,
+    regions: layoutResult.regions,
+    normalizedDesignIR: layoutResult.normalizedDesignIR,
+    assetManifest: assetI18nResult.assetManifest,
+    i18nManifest: assetI18nResult.i18nManifest
+  });
+  const semanticLabels = aiSemanticResult.semanticLabels;
+  const aiDecisionReport = aiSemanticResult.aiDecisionReport;
   const namingMap = createNamingMapArtifact(semanticLabels);
-  const i18nKeySuggestions = createI18nKeySuggestionsArtifact(assetI18nResult.i18nManifest);
+  const i18nKeySuggestions = createI18nKeySuggestionsArtifact(assetI18nResult.i18nManifest, semanticLabels);
   const semanticIR = createSemanticIRArtifact(layoutResult.normalizedDesignIR, inferredComponents, semanticLabels);
   const upliftDecisions = createUpliftDecisionArtifact(layoutResult.regions);
   const upliftDiffReport = createUpliftDiffReportArtifact();
@@ -352,6 +363,133 @@ function createSemanticLabelsArtifact(input: {
   };
 }
 
+function applyAiSemanticOutput(input: {
+  fallbackSemanticLabels: SemanticLabelsArtifact;
+  aiSemanticOutput?: unknown;
+  regions: Region[];
+  normalizedDesignIR: NormalizedDesignIR;
+  assetManifest: AssetManifest;
+  i18nManifest: I18nManifest;
+}): { semanticLabels: SemanticLabelsArtifact; aiDecisionReport: AiDecisionReportArtifact } {
+  if (input.aiSemanticOutput === undefined) {
+    return {
+      semanticLabels: input.fallbackSemanticLabels,
+      aiDecisionReport: createAiDecisionReportArtifact()
+    };
+  }
+
+  const allowedSourceIds = semanticAllowedSourceIds(input);
+  const validation = validateAiProtocolOutput({
+    output: input.aiSemanticOutput,
+    allowedSourceIds
+  });
+  const acceptedDecisions = [...validation.accepted, ...validation.review];
+  const semanticLabels: SemanticLabelsArtifact = {
+    ...input.fallbackSemanticLabels,
+    source: acceptedDecisions.length > 0 ? "ai" : input.fallbackSemanticLabels.source,
+    status: validation.status === "accepted" ? "ready" : "needs_ai_review",
+    regions: input.fallbackSemanticLabels.regions.map((region) => ({ ...region })),
+    nodes: input.fallbackSemanticLabels.nodes.map((node) => ({ ...node, sourceNodeIds: [...node.sourceNodeIds] })),
+    assets: input.fallbackSemanticLabels.assets.map((asset) => ({ ...asset })),
+    i18n: input.fallbackSemanticLabels.i18n.map((message) => ({ ...message })),
+    warnings: [
+      ...input.fallbackSemanticLabels.warnings.filter((warning) => warning.type !== "ai_labeling_not_run"),
+      ...validation.issues.map((issue) => ({
+        type: `ai_${issue.code}`,
+        message: `${issue.path}: ${issue.message}`
+      })),
+      ...validation.review.map((decision) => ({
+        type: "ai_review_required",
+        message: `${decision.sourceId} was applied but remains below auto-accept confidence.`
+      })),
+      ...validation.rejected.map((decision) => ({
+        type: "ai_rejected",
+        message: `${decision.sourceId} was rejected by the semantic AI gate.`
+      }))
+    ]
+  };
+
+  for (const decision of acceptedDecisions) applyAiSemanticDecision(semanticLabels, decision);
+
+  return {
+    semanticLabels,
+    aiDecisionReport: {
+      version: "2.0",
+      status: validation.status,
+      decisions: [...validation.accepted, ...validation.review, ...validation.rejected],
+      accepted: validation.accepted,
+      rejected: validation.rejected,
+      warnings: [
+        ...validation.issues.map((issue) => ({
+          type: issue.code,
+          message: `${issue.path}: ${issue.message}`
+        })),
+        ...validation.review.map((decision) => ({
+          type: "review_required",
+          message: `${decision.sourceId} applied with confidence ${decision.confidence}.`
+        }))
+      ]
+    }
+  };
+}
+
+function semanticAllowedSourceIds(input: {
+  regions: Region[];
+  normalizedDesignIR: NormalizedDesignIR;
+  assetManifest: AssetManifest;
+  i18nManifest: I18nManifest;
+}): string[] {
+  const ids = new Set<string>();
+  for (const region of input.regions) {
+    ids.add(region.id);
+    for (const sourceNodeId of region.sourceNodeIds) ids.add(sourceNodeId);
+  }
+  walkNormalized(input.normalizedDesignIR.tree, (node) => {
+    ids.add(node.id);
+    for (const sourceNodeId of node.sourceNodeIds) ids.add(sourceNodeId);
+  });
+  for (const asset of input.assetManifest.assets) ids.add(asset.sourceNodeId);
+  for (const message of input.i18nManifest.messages) ids.add(message.sourceNodeId);
+  return [...ids].sort();
+}
+
+function applyAiSemanticDecision(semanticLabels: SemanticLabelsArtifact, decision: AiProtocolDecision): void {
+  const suggestion = decision.suggestion;
+  const suggestedName = stringValue(suggestion.suggestedName) ?? stringValue(suggestion.name) ?? stringValue(suggestion.selectedName);
+  const role = stringValue(suggestion.role);
+  const suggestedKey = stringValue(suggestion.suggestedKey) ?? stringValue(suggestion.key);
+  const assetKind = stringValue(suggestion.assetKind) ?? stringValue(suggestion.kind);
+
+  for (const region of semanticLabels.regions) {
+    if (region.regionId !== decision.sourceId && !region.sourceNodeIds.includes(decision.sourceId)) continue;
+    if (suggestedName) region.suggestedName = suggestedName;
+    if (role) region.role = role;
+    region.confidence = decision.confidence;
+    region.reason = decision.reason;
+  }
+
+  for (const node of semanticLabels.nodes) {
+    if (node.nodeId !== decision.sourceId && !node.sourceNodeIds.includes(decision.sourceId)) continue;
+    if (suggestedName) node.suggestedName = lowerCamel(suggestedName);
+    if (role) node.role = role;
+    node.confidence = decision.confidence;
+    node.reason = decision.reason;
+  }
+
+  for (const asset of semanticLabels.assets) {
+    if (asset.sourceNodeId !== decision.sourceId) continue;
+    if (suggestedName) asset.suggestedName = lowerSnake(suggestedName);
+    if (assetKind) asset.assetKind = assetKind;
+    asset.confidence = decision.confidence;
+  }
+
+  for (const message of semanticLabels.i18n) {
+    if (message.sourceNodeId !== decision.sourceId) continue;
+    if (suggestedKey) message.suggestedKey = lowerCamel(suggestedKey);
+    message.confidence = decision.confidence;
+  }
+}
+
 function createSemanticIRArtifact(
   normalizedDesignIR: NormalizedDesignIR,
   inferredComponents: InferredComponentsArtifact,
@@ -459,17 +597,22 @@ function createNamingMapArtifact(semanticLabels: SemanticLabelsArtifact): Naming
   };
 }
 
-function createI18nKeySuggestionsArtifact(i18nManifest: I18nManifest): I18nKeySuggestionsArtifact {
+function createI18nKeySuggestionsArtifact(i18nManifest: I18nManifest, semanticLabels: SemanticLabelsArtifact): I18nKeySuggestionsArtifact {
+  const labelsBySourceNodeId = new Map(semanticLabels.i18n.map((entry) => [entry.sourceNodeId, entry]));
   return {
     version: "2.0",
     locale: i18nManifest.locale,
-    suggestions: i18nManifest.messages.map((message) => ({
-      sourceNodeId: message.sourceNodeId,
-      text: message.value,
-      suggestedKey: message.key,
-      confidence: message.confidence,
-      status: message.confidence >= 0.8 ? "accepted_fallback" : "needs_review"
-    }))
+    suggestions: i18nManifest.messages.map((message) => {
+      const label = labelsBySourceNodeId.get(message.sourceNodeId);
+      const confidence = label?.confidence ?? message.confidence;
+      return {
+        sourceNodeId: message.sourceNodeId,
+        text: message.value,
+        suggestedKey: label?.suggestedKey ?? message.key,
+        confidence,
+        status: confidence >= 0.8 ? "accepted_fallback" as const : "needs_review" as const
+      };
+    })
   };
 }
 

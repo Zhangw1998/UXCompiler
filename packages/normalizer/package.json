@@ -9,6 +9,7 @@
     "test": "node -e \"console.log('normalizer: no tests yet')\""
   },
   "dependencies": {
+    "@uxcompiler/ai-protocol": "workspace:*",
     "@uxcompiler/asset-i18n-normalizer": "workspace:*",
     "@uxcompiler/flutter-fidelity-renderer": "workspace:*",
     "@uxcompiler/ir-schemas": "workspace:*",

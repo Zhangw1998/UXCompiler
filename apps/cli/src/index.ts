@@ -41,6 +41,7 @@ interface CompileOptions {
   input: string;
   out: string;
   overrideSet?: string;
+  aiSemanticOutput?: string;
 }
 
 interface FigmaOptions {
@@ -270,7 +271,8 @@ async function main(): Promise<void> {
   assertRawFigmaScene(raw);
 
   const overrideSet = options.overrideSet ? await readOverrideSet(options.overrideSet) : undefined;
-  const artifacts = compileRawScene(raw, { overrideSet });
+  const aiSemanticOutput = options.aiSemanticOutput ? await readJsonFile<unknown>(resolve(process.cwd(), options.aiSemanticOutput)) : undefined;
+  const artifacts = compileRawScene(raw, { overrideSet, aiSemanticOutput });
   await writeArtifacts(outDir, artifacts, inputPath);
 
   console.log(`UXCompiler compile completed.`);
@@ -1024,6 +1026,10 @@ function parseCompileOptions(args: string[]): CompileOptions {
     } else if (arg === "--override-set") {
       if (!next) throw new Error("Missing value for --override-set.");
       options.overrideSet = next;
+      index += 1;
+    } else if (arg === "--ai-semantic-output") {
+      if (!next) throw new Error("Missing value for --ai-semantic-output.");
+      options.aiSemanticOutput = next;
       index += 1;
     } else {
       throw new Error(`Unknown compile option "${arg}".`);
@@ -2185,6 +2191,9 @@ Commands:
   codegen   Generate codegen review manifests and patches before writing Flutter code
   sync      Remap overrides between Figma snapshots for incremental sync
   doctor    Check local tools and Figma token configuration
+
+Compile options:
+  --ai-semantic-output  Optional AI protocol JSON output for semantic labels.
 `);
 }
 

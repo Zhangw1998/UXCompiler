@@ -92,7 +92,7 @@ export interface ComponentConfidenceReportArtifact {
 
 export interface AiDecisionReportArtifact {
   version: string;
-  status: "not_run" | "accepted" | "partially_accepted";
+  status: "not_run" | "accepted" | "partially_accepted" | "rejected";
   decisions: unknown[];
   accepted: unknown[];
   rejected: unknown[];

@@ -33,6 +33,7 @@ interface SnapshotRequest {
   figmaReferencePngBase64?: string;
   preferFrameScreenshotFallback?: boolean;
   overrideSet?: OverrideSet;
+  aiSemanticOutput?: unknown;
   assets?: SnapshotAsset[];
   extractionReport?: unknown;
   projectId?: string;
@@ -187,7 +188,8 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
   const artifacts = compileRawScene(body.rawFigmaScene, {
     materializedAssetSourceNodeIds,
     frameScreenshotAssetPath,
-    overrideSet: body.overrideSet
+    overrideSet: body.overrideSet,
+    aiSemanticOutput: body.aiSemanticOutput
   });
   const materializedAssetReport = await writePipelineArtifacts(artifactDir, artifacts, {
     assets: snapshotAssets,
