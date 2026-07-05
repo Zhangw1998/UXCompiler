@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { assertReviewTaskContract } from "./review-task-contract.mjs";
 
 const root = resolve(process.argv[2] ?? "artifacts/sample");
 
@@ -109,6 +110,9 @@ assertVisibleTextI18nCoverage(canonical, i18nManifest);
 assertAssetManifestPaths(assetManifest, materializedAssetReport);
 assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR);
 assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap);
+if (parsedJsonFiles.has("review_tasks.json")) {
+  assertReviewTaskArtifacts(reviewTaskSourceNodeIds(rawSourceNodeIds, parsedJsonFiles.get("node_remap_report.json")), normalizedIds, parsedJsonFiles.get("review_tasks.json"));
+}
 
 walkNormalizedNode(normalized.tree, (node) => {
   assert.ok(node.sourceNodeIds.length > 0, `Normalized node ${node.id} must include sourceNodeIds.`);
@@ -234,6 +238,39 @@ function assertI18nManifestWarnings(rawSourceNodeIds, manifest, label) {
     assert.equal(rawSourceNodeIds.has(warning.sourceNodeId), true, `${label} non_i18n warning references unknown sourceNodeId ${warning.sourceNodeId}.`);
     assert.ok(warning.message, `${label} non_i18n warning must include a reason message.`);
   }
+}
+
+function assertReviewTaskArtifacts(rawSourceNodeIds, normalizedIds, tasks) {
+  assertReviewTaskContract(tasks, "review_tasks.json");
+  for (const task of tasks) {
+    if (task.target.normalizedNodeId) {
+      assert.equal(
+        normalizedIds.has(task.target.normalizedNodeId),
+        true,
+        `${task.id}: target references unknown normalizedNodeId ${task.target.normalizedNodeId}`
+      );
+    }
+    for (const sourceNodeId of task.target.sourceNodeIds ?? []) {
+      assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `${task.id}: target references unknown sourceNodeId ${sourceNodeId}`);
+    }
+    if (task.status === "closed") {
+      assert.ok(task.closedReason || task.closeReason, `${task.id}: closed task must include a closed reason.`);
+    }
+  }
+}
+
+function reviewTaskSourceNodeIds(rawSourceNodeIds, nodeRemapReport) {
+  const sourceNodeIds = new Set(rawSourceNodeIds);
+  for (const match of nodeRemapReport?.matches ?? []) {
+    if (match.oldSourceNodeId) sourceNodeIds.add(match.oldSourceNodeId);
+    if (match.newSourceNodeId) sourceNodeIds.add(match.newSourceNodeId);
+  }
+  for (const sourceNodeId of nodeRemapReport?.addedSourceNodeIds ?? []) sourceNodeIds.add(sourceNodeId);
+  for (const sourceNodeId of nodeRemapReport?.removedSourceNodeIds ?? []) sourceNodeIds.add(sourceNodeId);
+  for (const staleOverride of nodeRemapReport?.staleOverrides ?? []) {
+    if (staleOverride.target?.sourceNodeId) sourceNodeIds.add(staleOverride.target.sourceNodeId);
+  }
+  return sourceNodeIds;
 }
 
 function assertRawExtractionContract(rawScene, report) {
