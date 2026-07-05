@@ -676,6 +676,8 @@ function applyAsset(context: ApplyContext): void {
     return;
   }
   asset.strategy = strategy as AssetManifestEntry["strategy"];
+  const sourceName = stringValue(context.override.payload.sourceName) ?? stringValue(context.override.payload.assetName);
+  if (sourceName) asset.sourceName = sourceName;
   const path = stringValue(context.override.payload.path);
   const format = stringValue(context.override.payload.format);
   if (path) asset.path = path;

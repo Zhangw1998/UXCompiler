@@ -381,6 +381,7 @@ function toOverride(
         target: assetTarget(operation),
         payload: {
           strategy: operation.strategy,
+          sourceName: operation.sourceName,
           format: operation.format,
           path: operation.path,
           scale: operation.scale,

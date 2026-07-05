@@ -697,7 +697,7 @@ function renderAssets(model: WorkbenchModel): string {
     ${renderStudioRollbackPanel(canApplyStudio)}
     <section class="panel table-panel">
       <table class="data-table">
-        <thead><tr><th>ID</th><th>Source</th><th>Current</th><th>Write Strategy</th><th>Path</th><th>Format</th><th>Scale</th><th>Crop JSON</th><th>Exclude Text</th><th>Confidence</th><th>Action</th></tr></thead>
+        <thead><tr><th>ID</th><th>Source</th><th>Asset Name</th><th>Current</th><th>Write Strategy</th><th>Path</th><th>Format</th><th>Scale</th><th>Crop JSON</th><th>Exclude Text</th><th>Confidence</th><th>Action</th></tr></thead>
         <tbody>
           ${assets
             .map(
@@ -717,6 +717,7 @@ function renderAssets(model: WorkbenchModel): string {
                 <tr data-node-id="${escapeAttr(sourceNodeId)}" data-studio-row>
                   <td>${escapeHtml(stringFrom(asset.id) ?? "-")}</td>
                   <td>${escapeHtml(stringFrom(asset.sourceName) ?? stringFrom(asset.sourceNodeId) ?? "-")}</td>
+                  <td><input class="studio-input studio-input--wide" data-studio-field="asset-source-name" value="${escapeAttr(stringFrom(asset.sourceName) ?? "")}" ${canApplyStudio ? "" : "disabled"} /></td>
                   <td>${escapeHtml(currentStrategy || "-")}</td>
                   <td>
                     <select class="studio-input" data-studio-field="asset-strategy" ${canApplyStudio ? "" : "disabled"}>
@@ -2184,6 +2185,7 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
     const assetId = button.dataset.assetId ?? "";
     const sourceNodeId = button.dataset.sourceNodeId ?? "";
     const strategy = studioFieldValue(row, "asset-strategy");
+    const sourceName = studioFieldValue(row, "asset-source-name").trim();
     const format = studioFieldValue(row, "asset-format");
     const path = studioFieldValue(row, "asset-path").trim();
     const scaleText = studioFieldValue(row, "asset-scale").trim();
@@ -2197,6 +2199,7 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
       kind,
       ...(assetId ? { assetId } : { sourceNodeId }),
       strategy,
+      ...(sourceName ? { sourceName } : {}),
       ...(format ? { format } : {}),
       ...(path ? { path } : {}),
       ...(scale !== undefined ? { scale } : {}),

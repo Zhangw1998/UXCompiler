@@ -69,6 +69,7 @@ export type StudioOperation =
       assetId?: string;
       sourceNodeId?: string;
       strategy: "real_text" | "svg_icon" | "image_asset" | "decorative_slice" | "custom_painter" | "ignored";
+      sourceName?: string;
       format?: "svg" | "png" | "webp" | "jpg";
       path?: string;
       scale?: number;

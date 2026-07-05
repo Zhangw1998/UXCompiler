@@ -487,6 +487,7 @@ try {
         kind: "set_asset_strategy",
         assetId: "asset_1_17",
         strategy: "decorative_slice",
+        sourceName: "Workbench Divider Slice",
         format: "png",
         path: "assets/slices/divider_dot_workbench.png",
         scale: 3,
@@ -503,9 +504,13 @@ try {
   const finalAssets = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/final_asset_manifest.json`);
   const reviewedAssets = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_asset_manifest.json`);
   const assetOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(assetOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_asset_strategy" && entry.type === "asset_strategy_override"), true);
+  const assetOverride = assetOverrideSet.overrides.find((entry) => entry.id === "ovr_studio_verify_asset_strategy");
+  assert.equal(assetOverride.type, "asset_strategy_override");
+  assert.equal(assetOverride.payload.sourceName, "Workbench Divider Slice");
   assert.equal(findAssetById(finalAssets, "asset_1_17").strategy, "decorative_slice");
+  assert.equal(findAssetById(finalAssets, "asset_1_17").sourceName, "Workbench Divider Slice");
   const reviewedDividerAsset = findAssetById(reviewedAssets, "asset_1_17");
+  assert.equal(reviewedDividerAsset.sourceName, "Workbench Divider Slice");
   assert.equal(reviewedDividerAsset.path, "assets/slices/divider_dot_workbench.png");
   assert.equal(reviewedDividerAsset.scale, 3);
   assert.deepEqual(reviewedDividerAsset.cropBounds, { x: 185, y: 622, w: 20, h: 20 });

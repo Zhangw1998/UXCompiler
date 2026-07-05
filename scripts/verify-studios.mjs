@@ -110,6 +110,7 @@ const operations = [
     kind: "set_asset_strategy",
     assetId: "asset_1_17",
     strategy: "decorative_slice",
+    sourceName: "Divider Dot Slice",
     format: "png",
     path: "assets/slices/divider_dot.png",
     scale: 2,
@@ -173,11 +174,14 @@ assert.ok(result.tokenRegistry.tokens.some((token) => token.name === "radius_pas
 
 const divider = result.finalAssetManifest.assets.find((asset) => asset.id === "asset_1_17");
 assert.equal(divider.strategy, "decorative_slice");
+assert.equal(divider.sourceName, "Divider Dot Slice");
 assert.equal(divider.path, "assets/slices/divider_dot.png");
 assert.equal(divider.format, "png");
 assert.equal(divider.scale, 2);
 assert.deepEqual(divider.cropBounds, { x: 185, y: 622, w: 20, h: 20 });
 assert.equal(divider.excludeTextNodes, true);
+const dividerOverride = result.overrideMutations.find((override) => override.id === "ovr_studio_divider_asset_slice");
+assert.equal(dividerOverride.payload.sourceName, "Divider Dot Slice");
 
 assert.ok(result.finalI18nManifest.messages.some((message) => message.key === "loginSubmitLabel"));
 assert.ok(!result.finalI18nManifest.messages.some((message) => message.key === "subtitle"));
