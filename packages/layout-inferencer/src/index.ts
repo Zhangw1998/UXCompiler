@@ -141,7 +141,7 @@ function decideLayout(
 
   const sorted = candidates.sort((a, b) => b.score - a.score);
   const winner = sorted[0];
-  const fallbackNeeded = winner.score < 0.7 || winner.layout === "absolute";
+  const fallbackNeeded = winner.score < 0.9 || winner.layout === "absolute";
 
   return {
     candidates: sorted,
