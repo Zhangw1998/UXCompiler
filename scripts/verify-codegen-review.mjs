@@ -72,6 +72,8 @@ assert.ok(result.assetsToAdd.some((asset) => asset.path === "assets/icons/divide
 assert.ok(result.arbPatch.keysToAdd.some((message) => message.key === "button_label"));
 assert.equal(result.arbPatch.patch["@button_label"].placeholders.ctaLabel.type, "String");
 assert.match(result.pubspecPatch.patch, /assets\/icons\/divider_dot\.svg/);
+assert.match(result.pubspecPatch.patch, /# existingHash: sha256_/);
+assert.match(result.pubspecPatch.patch, /# currentHash: sha256_/);
 assert.equal(result.incrementalSyncReport.mode, "initial_generation");
 
 const fallbackSummary = createCodegenReview({
@@ -217,6 +219,14 @@ assert.ok(
       blocker.filePath === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart"
   )
 );
+const scaffoldConflictPatch = scaffoldConflict.filePatches.find(
+  (patch) => patch.path === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart"
+);
+assert.ok(scaffoldConflictPatch, "Expected conflict file patch for handwritten scaffold.");
+assert.match(scaffoldConflictPatch.existingHash, /^sha256_/);
+assert.match(scaffoldConflictPatch.currentHash, /^sha256_/);
+assert.match(scaffoldConflictPatch.patch, /# existingHash: sha256_/);
+assert.match(scaffoldConflictPatch.patch, /# currentHash: sha256_/);
 
 const staleBlocked = createCodegenReview({
   ...input,
@@ -325,6 +335,9 @@ assert.ok(
 );
 assert.equal(existsSync(resolve(conflictDir, "patches/lib_main_dart.patch")), true);
 assert.equal(existsSync(resolve(conflictDir, "patches/lib_features_login_mobile_presentation_pages_login_mobile_page_dart.patch")), true);
+const cliConflictPatch = readFileSync(resolve(conflictDir, "patches/lib_main_dart.patch"), "utf8");
+assert.match(cliConflictPatch, /# existingHash: sha256_/);
+assert.match(cliConflictPatch, /# currentHash: sha256_/);
 
 console.log("codegen review verification passed");
 

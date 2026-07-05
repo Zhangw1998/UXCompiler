@@ -88,10 +88,20 @@ export function createCodegenReview(input: CreateCodegenReviewInput): CodegenRev
     .filter((plan) => plan.action === "modify" || plan.action === "conflict")
     .map((plan) => {
       const file = generatedFiles.find((candidate) => candidate.path === plan.path);
+      const before = input.existingProjectFiles?.[plan.path] ?? "";
+      const after = file?.content ?? "";
+      const existingHash = plan.existingHash ?? hashText(before);
       return {
         path: plan.path,
         patchPath: plan.patchPath ?? patchPathFor(plan.path),
-        patch: buildUnifiedDiff(plan.path, input.existingProjectFiles?.[plan.path] ?? "", file?.content ?? "")
+        previousHash: plan.previousHash,
+        existingHash,
+        currentHash: plan.hash,
+        patch: buildUnifiedDiff(plan.path, before, after, {
+          previousHash: plan.previousHash,
+          existingHash,
+          currentHash: plan.hash
+        })
       };
     });
   const assetPlans = buildAssetPlans(input.assetManifest, new Set(input.existingPubspecAssets ?? []));
@@ -524,10 +534,16 @@ function buildArbPatch(i18nManifest: I18nManifest, existingArbFile?: Record<stri
 function buildPubspecPatch(assetPlans: CodegenAssetPlan[]): CodegenPubspecPatch {
   const assets = assetPlans.filter((asset) => asset.action === "add" && asset.path).map((asset) => asset.path as string).sort();
   const lines = ["flutter:", "  assets:", ...assets.map((path) => `    - ${path}`)];
+  const patchText = `${lines.join("\n")}\n`;
   return {
     path: "pubspec.yaml",
     assets,
-    patch: assets.length === 0 ? "" : buildUnifiedDiff("pubspec.yaml", "", `${lines.join("\n")}\n`),
+    patch: assets.length === 0
+      ? ""
+      : buildUnifiedDiff("pubspec.yaml", "", patchText, {
+          existingHash: hashText(""),
+          currentHash: hashText(patchText)
+        }),
     warnings: assets.length === 0 ? [{ type: "no_asset_patch", message: "No new asset paths need to be declared." }] : []
   };
 }
@@ -869,11 +885,17 @@ function hasGeneratedMarker(content: string): boolean {
   return /@uxc-generated:start/.test(content) && /@uxc-generated:end/.test(content);
 }
 
-function buildUnifiedDiff(path: string, before: string, after: string): string {
+function buildUnifiedDiff(
+  path: string,
+  before: string,
+  after: string,
+  metadata?: { previousHash?: string; existingHash?: string; currentHash?: string }
+): string {
   const beforeLines = splitPatchLines(before);
   const afterLines = splitPatchLines(after);
   const oldPath = beforeLines.length === 0 ? "/dev/null" : `a/${path}`;
   return [
+    ...patchMetadataLines(metadata),
     `--- ${oldPath}`,
     `+++ b/${path}`,
     `@@ -1,${beforeLines.length} +1,${afterLines.length} @@`,
@@ -881,6 +903,16 @@ function buildUnifiedDiff(path: string, before: string, after: string): string {
     ...afterLines.map((line) => `+${line}`),
     ""
   ].join("\n");
+}
+
+function patchMetadataLines(metadata?: { previousHash?: string; existingHash?: string; currentHash?: string }): string[] {
+  if (!metadata) return [];
+  return [
+    "# UXCompiler patch metadata",
+    `# previousHash: ${metadata.previousHash ?? "none"}`,
+    `# existingHash: ${metadata.existingHash ?? "none"}`,
+    `# currentHash: ${metadata.currentHash ?? "none"}`
+  ];
 }
 
 function splitPatchLines(value: string): string[] {

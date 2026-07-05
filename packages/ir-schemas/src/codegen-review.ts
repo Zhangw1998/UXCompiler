@@ -197,6 +197,9 @@ export interface CodegenGeneratedFile {
 export interface CodegenFilePatch {
   path: string;
   patchPath: string;
+  previousHash?: string;
+  existingHash?: string;
+  currentHash: string;
   patch: string;
 }
 
