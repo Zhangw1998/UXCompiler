@@ -50,6 +50,11 @@ export interface ReviewTask {
   evidence: Record<string, unknown>;
   suggestedActions: ReviewTaskSuggestedAction[];
   status: ReviewTaskStatus;
+  closedReason?: string;
+  closeReason?: string;
+  closedAt?: string;
+  closedBy?: string;
+  closedByOverrideId?: string;
 }
 
 export interface ReviewTaskStatusReport {

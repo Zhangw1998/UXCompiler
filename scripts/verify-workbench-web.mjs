@@ -123,6 +123,9 @@ try {
   assert.equal(closureLog.at(-1).status, "closed");
   assert.equal(closureLog.at(-1).closureReason, actionReport.closureReason);
   assert.equal(closureLog.at(-1).taskSnapshot.status, "closed");
+  assert.equal(closureLog.at(-1).taskSnapshot.closedReason, actionReport.closureReason);
+  assert.equal(closureLog.at(-1).taskSnapshot.closedAt, closureLog.at(-1).closedAt);
+  assert.equal(closureLog.at(-1).taskSnapshot.closedBy, "user");
   assert.equal(findTokenConfidence(updatedTokens, "radius_18"), 1);
 
   const treeEditResponse = await fetch(`${base}/api/workbench/tree-edit`, {

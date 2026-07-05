@@ -366,6 +366,7 @@ async function applyReviewTaskAction(body) {
     taskSnapshot: {
       ...task,
       status: "closed",
+      closedReason: closureReason,
       closeReason: closureReason,
       closedAt: now,
       closedBy: actor,
