@@ -29,7 +29,7 @@ export interface VisualDiffReport {
     viewport?: { width: number; height: number };
     dpr: number;
     fonts: string[];
-    flutterVersion?: string;
+    flutterVersion: string;
     themeBrightness: "light" | "dark";
     locale: string;
     textScaleFactor: number;

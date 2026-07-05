@@ -115,6 +115,7 @@ interface PreviewDiffOptions {
   nodePixelMap?: string;
   viewport?: { width: number; height: number };
   dpr?: number;
+  flutterVersion?: string;
 }
 
 interface PreviewCaptureOptions {
@@ -639,7 +640,8 @@ async function runPreviewCommand(args: string[]): Promise<void> {
     outDir,
     nodePixelMapPath: options.nodePixelMap ? resolve(process.cwd(), options.nodePixelMap) : undefined,
     viewport: options.viewport,
-    dpr: options.dpr
+    dpr: options.dpr,
+    flutterVersion: options.flutterVersion
   });
 
   console.log(`UXCompiler preview diff completed.`);
@@ -1230,6 +1232,10 @@ function parsePreviewDiffOptions(args: string[]): PreviewDiffOptions {
       if (!next) throw new Error("Missing value for --dpr.");
       options.dpr = Number(next);
       if (!Number.isFinite(options.dpr) || options.dpr <= 0) throw new Error("--dpr must be a positive number.");
+      index += 1;
+    } else if (arg === "--flutter-version") {
+      if (!next) throw new Error("Missing value for --flutter-version.");
+      options.flutterVersion = next;
       index += 1;
     } else {
       throw new Error(`Unknown preview diff option "${arg}".`);
@@ -2213,7 +2219,7 @@ Usage:
   uxc figma compile --file <figma_url_or_file_key> --out <artifacts_dir>
   uxc figma run --file <figma_url_or_file_key> --out <artifacts_dir>
   uxc preview capture --project <flutter_preview_dir> --out <flutter_preview.png>
-  uxc preview diff --reference <figma_reference.png> --candidate <flutter_preview.png> --out <diff_dir>
+  uxc preview diff --reference <figma_reference.png> --candidate <flutter_preview.png> --out <diff_dir> [--flutter-version <version>]
   uxc project init --root .uxcompiler
   uxc tree apply --artifacts <artifacts_dir> --operations <operations.json> --out <draft_dir>
   uxc studio apply --artifacts <artifacts_dir> --operations <operations.json> --out <studio_dir>

@@ -145,7 +145,7 @@ function visualDiffEnvironment(options: RunVisualDiffOptions): VisualDiffReport[
     viewport: options.viewport,
     dpr: options.dpr ?? 1,
     fonts: normalizedFonts(options.fonts),
-    flutterVersion: options.flutterVersion,
+    flutterVersion: options.flutterVersion?.trim() || "unknown",
     themeBrightness: options.themeBrightness ?? "light",
     locale: options.locale?.trim() || "en",
     textScaleFactor: Number.isFinite(options.textScaleFactor) && options.textScaleFactor && options.textScaleFactor > 0

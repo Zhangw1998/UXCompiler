@@ -147,6 +147,8 @@ assert.deepEqual(renderStrategyManifest.viewport, normalized.source.viewport, "r
 assert.deepEqual(visualDiffReport.environment.viewport, normalized.source.viewport, "visual diff viewport must match normalized viewport.");
 assert.equal(typeof visualDiffReport.environment.dpr, "number", "visual diff report must record DPR.");
 assert.ok(Array.isArray(visualDiffReport.environment.fonts), "visual diff report must record font profile.");
+assert.equal(typeof visualDiffReport.environment.flutterVersion, "string", "visual diff report must record Flutter version.");
+assert.ok(visualDiffReport.environment.flutterVersion.length > 0, "visual diff Flutter version must not be empty.");
 assert.ok(["light", "dark"].includes(visualDiffReport.environment.themeBrightness), "visual diff report must record theme brightness.");
 assert.equal(typeof visualDiffReport.environment.locale, "string", "visual diff report must record locale.");
 assert.ok(visualDiffReport.environment.locale.length > 0, "visual diff locale must not be empty.");

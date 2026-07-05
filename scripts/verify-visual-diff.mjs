@@ -42,6 +42,7 @@ const passing = runVisualDiff({
 assert.equal(passing.visualDiffReport.page.pass, true);
 assert.equal(passing.visualDiffReport.page.score.visualScore, 1);
 assert.deepEqual(passing.visualDiffReport.environment.fonts, ["Inter", "Roboto"]);
+assert.equal(passing.visualDiffReport.environment.flutterVersion, "Flutter 3.35.0");
 assert.equal(passing.visualDiffReport.environment.themeBrightness, "dark");
 assert.equal(passing.visualDiffReport.environment.locale, "zh-Hans");
 assert.equal(passing.visualDiffReport.environment.textScaleFactor, 1);
@@ -69,6 +70,7 @@ const failing = runVisualDiff({
 assert.equal(failing.visualDiffReport.page.pass, false);
 assert.ok(failing.visualDiffReport.page.score.visualScore < 0.99);
 assert.equal(failing.visualDiffReport.environment.themeBrightness, "light");
+assert.equal(failing.visualDiffReport.environment.flutterVersion, "unknown");
 assert.equal(failing.visualDiffReport.environment.locale, "en");
 assert.equal(failing.visualDiffReport.environment.textScaleFactor, 1);
 assert.deepEqual(failing.visualDiffReport.environment.safeArea, { top: 0, right: 0, bottom: 0, left: 0 });
@@ -123,7 +125,9 @@ execFileSync(
       { sourceNodeId: "node:black", bounds: { x: 0, y: 0, w: 2, h: 2 } }
     ]),
     "--out",
-    resolve(root, "cli")
+    resolve(root, "cli"),
+    "--flutter-version",
+    "Flutter CLI smoke"
   ],
   { stdio: "pipe" }
 );
@@ -140,6 +144,7 @@ assert.equal(cliManualReview.required, true);
 assert.equal(cliManualReview.issues[0].sourceNodeId, "node:black");
 const cliDiffReport = JSON.parse(readFileSync(resolve(root, "cli/visual_diff_report.json"), "utf8"));
 assert.equal(cliDiffReport.environment.themeBrightness, "light");
+assert.equal(cliDiffReport.environment.flutterVersion, "Flutter CLI smoke");
 assert.equal(cliDiffReport.environment.locale, "en");
 assert.equal(cliDiffReport.environment.textScaleFactor, 1);
 assert.deepEqual(cliDiffReport.environment.safeArea, { top: 0, right: 0, bottom: 0, left: 0 });
