@@ -78,6 +78,88 @@ const formatBlocked = createCodegenReview({
 assert.equal(formatBlocked.codegenReview.gates.status, "blocked");
 assert.ok(formatBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "dart_format_failed"));
 
+const analyzeBlocked = createCodegenReview({
+  ...input,
+  analyze: { errors: 1, warnings: 0, source: "flutter_preview_analyze_report.json" }
+});
+assert.equal(analyzeBlocked.codegenReview.gates.status, "blocked");
+assert.ok(analyzeBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "flutter_analyze_failed"));
+
+const visualBlocked = createCodegenReview({
+  ...input,
+  visualDiffReport: failedVisualDiffReport()
+});
+assert.equal(visualBlocked.codegenReview.gates.status, "blocked");
+assert.ok(visualBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "visual_diff_failed"));
+
+const visualOverrideAllowed = createCodegenReview({
+  ...input,
+  visualDiffReport: failedVisualDiffReport(),
+  allowLowVisualScore: true
+});
+assert.equal(
+  visualOverrideAllowed.codegenReview.gates.blockers.some((blocker) => blocker.type === "visual_diff_failed"),
+  false,
+  "Explicit low visual score override should remove visual diff blocker"
+);
+
+const taskStatusBlocked = createCodegenReview({
+  ...input,
+  reviewTasks: [],
+  taskStatusReport: {
+    version: "0.1.0",
+    generatedAt: "2026-07-04T00:00:00.000Z",
+    total: 1,
+    open: 1,
+    byPriority: { P0: 1, P1: 0, P2: 0 },
+    byType: { visual_diff_failed: 1 },
+    codegenWriteBlocked: true,
+    blockedReasons: ["Resolve failing visual diff before codegen"]
+  }
+});
+assert.equal(taskStatusBlocked.codegenReview.gates.status, "blocked");
+assert.ok(taskStatusBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "task_status_blocked"));
+
+const assetMissingPathBlocked = createCodegenReview({
+  ...input,
+  assetManifest: {
+    ...input.assetManifest,
+    assets: [
+      ...input.assetManifest.assets,
+      {
+        id: "asset_missing_path",
+        sourceNodeId: "1:2",
+        sourceName: "Hero",
+        strategy: "image_asset",
+        format: "png",
+        confidence: 0.9,
+        reason: "Verify asset path gate."
+      }
+    ]
+  }
+});
+assert.equal(assetMissingPathBlocked.codegenReview.gates.status, "blocked");
+assert.ok(assetMissingPathBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "asset_missing_path"));
+
+const i18nMissingKeyBlocked = createCodegenReview({
+  ...input,
+  i18nManifest: {
+    ...input.i18nManifest,
+    messages: [
+      ...input.i18nManifest.messages,
+      {
+        sourceNodeId: "1:3",
+        key: "",
+        value: "Missing key",
+        description: "Verify missing i18n key gate.",
+        confidence: 0.9
+      }
+    ]
+  }
+});
+assert.equal(i18nMissingKeyBlocked.codegenReview.gates.status, "blocked");
+assert.ok(i18nMissingKeyBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "i18n_missing_key"));
+
 const scaffoldConflict = createCodegenReview({
   ...input,
   existingProjectFiles: {
@@ -219,6 +301,31 @@ function withPlaceholder(manifest) {
     }
   };
   return copy;
+}
+
+function failedVisualDiffReport() {
+  return {
+    version: "2.0",
+    generatedAt: "2026-07-04T00:00:00.000Z",
+    inputs: {
+      reference: "figma_reference.png",
+      candidate: "flutter_preview.png",
+      heatmap: "diff_heatmap.png"
+    },
+    environment: {
+      viewport: { width: 390, height: 844 },
+      dpr: 1,
+      fonts: ["Inter"],
+      renderer: "png_pixelmatch"
+    },
+    page: {
+      pass: false,
+      score: { visualScore: 0.88, pixelDiffRatio: 0.12, diffPixels: 120, totalPixels: 1000 },
+      threshold: { visualScore: 0.99, pixelDiffRatio: 0.01 }
+    },
+    issues: [],
+    warnings: []
+  };
 }
 
 function readTextFiles(rootDir, prefix = "") {
