@@ -184,6 +184,18 @@ function applyOne(context: {
     case "token_split_override":
       applyTokenSplit(context);
       return;
+    case "component_candidate_override":
+      applyComponentCandidate(context);
+      return;
+    case "component_prop_override":
+      applyComponentProp(context);
+      return;
+    case "component_variant_override":
+      applyComponentVariant(context);
+      return;
+    case "flutter_component_mapping_override":
+      applyFlutterComponentMapping(context);
+      return;
     case "font_mapping_override":
       context.warnings.push({
         overrideId: override.id,
@@ -192,10 +204,6 @@ function applyOne(context: {
       });
       context.appliedOverrideIds.push(override.id);
       return;
-    case "component_candidate_override":
-    case "component_prop_override":
-    case "component_variant_override":
-    case "flutter_component_mapping_override":
     case "text_calibration_override":
       context.warnings.push({
         overrideId: override.id,
@@ -394,6 +402,126 @@ function applyRender(context: ApplyContext): void {
   context.appliedOverrideIds.push(context.override.id);
 }
 
+function applyComponentCandidate(context: ApplyContext): void {
+  const payload = context.override.payload;
+  const componentId = componentIdValue(payload);
+  const kind = stringValue(payload.kind);
+  const action = stringValue(payload.action);
+  if (!componentId) {
+    addConflict(context, "invalid_payload", "component_candidate_override requires componentId.");
+    return;
+  }
+
+  if (kind === "reject_component" || action === "reject") {
+    removeComponent(context.normalizedDesignIR, componentId);
+    context.appliedOverrideIds.push(context.override.id);
+    return;
+  }
+
+  if (kind !== "approve_component" && action !== "approve") {
+    addConflict(context, "invalid_payload", "component_candidate_override requires approve or reject action.");
+    return;
+  }
+
+  const name = stringValue(payload.name) ?? stringValue(payload.componentName) ?? pascalCase(componentId);
+  const instances = stringArray(payload.instances).length > 0
+    ? stringArray(payload.instances)
+    : stringArray(payload.sourceInstances);
+  if (instances.length === 0) {
+    addConflict(context, "invalid_payload", "Approved component overrides require at least one source instance.");
+    return;
+  }
+
+  const existing = findComponent(context.normalizedDesignIR, componentId);
+  upsertComponent(context.normalizedDesignIR, {
+    ...(existing ?? {}),
+    id: componentId,
+    componentId,
+    name,
+    source: "inferred_and_user_approved",
+    sourceInstances: instances,
+    instances,
+    props: arrayValue(existing?.props),
+    variants: arrayValue(existing?.variants),
+    flutter: recordValue(existing?.flutter),
+    confidence: 1,
+    status: "approved",
+    verified: false,
+    reason: stringValue(payload.reason) ?? "Component candidate approved by override."
+  });
+  context.appliedOverrideIds.push(context.override.id);
+}
+
+function applyComponentProp(context: ApplyContext): void {
+  const payload = context.override.payload;
+  const componentId = componentIdValue(payload);
+  const prop = recordValue(payload.prop);
+  if (!componentId || !prop) {
+    addConflict(context, "invalid_payload", "component_prop_override requires componentId and prop.");
+    return;
+  }
+  const component = findComponent(context.normalizedDesignIR, componentId);
+  if (!component) {
+    addStale(context, `Component ${componentId} does not exist for component_prop_override.`);
+    return;
+  }
+  const name = stringValue(prop.name);
+  const sourceSelector = stringValue(prop.sourceSelector);
+  if (!name || !sourceSelector) {
+    addConflict(context, "invalid_payload", "Component prop requires name and sourceSelector.");
+    return;
+  }
+  component.props = upsertRecordByName(arrayValue(component.props), prop);
+  context.appliedOverrideIds.push(context.override.id);
+}
+
+function applyComponentVariant(context: ApplyContext): void {
+  const payload = context.override.payload;
+  const componentId = componentIdValue(payload);
+  const variant = recordValue(payload.variant);
+  if (!componentId || !variant) {
+    addConflict(context, "invalid_payload", "component_variant_override requires componentId and variant.");
+    return;
+  }
+  const component = findComponent(context.normalizedDesignIR, componentId);
+  if (!component) {
+    addStale(context, `Component ${componentId} does not exist for component_variant_override.`);
+    return;
+  }
+  const name = stringValue(variant.name);
+  const values = stringArray(variant.values);
+  if (!name || values.length === 0) {
+    addConflict(context, "invalid_payload", "Component variant requires name and values.");
+    return;
+  }
+  component.variants = upsertRecordByName(arrayValue(component.variants), { ...variant, values });
+  context.appliedOverrideIds.push(context.override.id);
+}
+
+function applyFlutterComponentMapping(context: ApplyContext): void {
+  const payload = context.override.payload;
+  const componentId = componentIdValue(payload);
+  const flutter = recordValue(payload.flutter);
+  if (!componentId || !flutter) {
+    addConflict(context, "invalid_payload", "flutter_component_mapping_override requires componentId and flutter mapping.");
+    return;
+  }
+  const component = findComponent(context.normalizedDesignIR, componentId);
+  if (!component) {
+    addStale(context, `Component ${componentId} does not exist for flutter_component_mapping_override.`);
+    return;
+  }
+  const importPath = stringValue(flutter.import);
+  const constructor = stringValue(flutter.constructor);
+  if (!importPath || !constructor) {
+    addConflict(context, "invalid_payload", "Flutter component mapping requires import and constructor.");
+    return;
+  }
+  component.flutter = flutter;
+  component.verified = true;
+  context.appliedOverrideIds.push(context.override.id);
+}
+
 function applyAsset(context: ApplyContext): void {
   const asset = findAsset(context.assetManifest, context.override.target);
   const strategy = stringValue(context.override.payload.strategy);
@@ -548,7 +676,7 @@ type ApplyContext = {
 function detectDuplicateConflicts(overrides: UxOverride[], conflicts: OverrideConflict[]): void {
   const seen = new Map<string, UxOverride>();
   for (const override of overrides) {
-    const key = `${override.type}:${targetKey(override.target)}`;
+    const key = overrideConflictKey(override);
     const previous = seen.get(key);
     if (previous && JSON.stringify(previous.payload) !== JSON.stringify(override.payload)) {
       conflicts.push({
@@ -561,6 +689,25 @@ function detectDuplicateConflicts(overrides: UxOverride[], conflicts: OverrideCo
       seen.set(key, override);
     }
   }
+}
+
+function overrideConflictKey(override: UxOverride): string {
+  const componentId = componentIdValue(override.payload);
+  if (
+    componentId &&
+    (override.type === "component_candidate_override" ||
+      override.type === "component_prop_override" ||
+      override.type === "component_variant_override" ||
+      override.type === "flutter_component_mapping_override")
+  ) {
+    const childKey = override.type === "component_prop_override"
+      ? stringValue(recordValue(override.payload.prop)?.name)
+      : override.type === "component_variant_override"
+        ? stringValue(recordValue(override.payload.variant)?.name)
+        : undefined;
+    return `${override.type}:${targetKey(override.target)}:${componentId}:${childKey ?? ""}`;
+  }
+  return `${override.type}:${targetKey(override.target)}`;
 }
 
 function findNode(root: NormalizedNode, target: OverrideTarget): NormalizedNode | undefined {
@@ -585,6 +732,46 @@ function findBySourceNodeId(root: NormalizedNode, sourceNodeId: string): Normali
     if (found) return found;
   }
   return root.sourceNodeIds.includes(sourceNodeId) ? root : undefined;
+}
+
+function componentIdValue(payload: Record<string, unknown>): string | undefined {
+  return stringValue(payload.componentId) ?? stringValue(payload.inferredComponentId) ?? stringValue(payload.id);
+}
+
+function findComponent(ir: NormalizedDesignIR, componentId: string): Record<string, unknown> | undefined {
+  return ir.components
+    .map((component) => recordValue(component))
+    .find((component) => {
+      if (!component) return false;
+      return componentIdValue(component) === componentId;
+    });
+}
+
+function upsertComponent(ir: NormalizedDesignIR, component: Record<string, unknown>): void {
+  const componentId = componentIdValue(component);
+  if (!componentId) return;
+  const index = ir.components.findIndex((candidate) => {
+    const record = recordValue(candidate);
+    return record ? componentIdValue(record) === componentId : false;
+  });
+  if (index === -1) ir.components.push(component);
+  else ir.components[index] = component;
+}
+
+function removeComponent(ir: NormalizedDesignIR, componentId: string): void {
+  ir.components = ir.components.filter((candidate) => {
+    const record = recordValue(candidate);
+    return !record || componentIdValue(record) !== componentId;
+  });
+}
+
+function upsertRecordByName(items: unknown[], item: Record<string, unknown>): Record<string, unknown>[] {
+  const name = stringValue(item.name);
+  const records = items.map((entry) => recordValue(entry)).filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  if (!name) return records;
+  const index = records.findIndex((entry) => stringValue(entry.name) === name);
+  if (index === -1) return [...records, item];
+  return [...records.slice(0, index), item, ...records.slice(index + 1)];
 }
 
 function findAsset(manifest: AssetManifest, target: OverrideTarget): AssetManifestEntry | undefined {
@@ -711,6 +898,10 @@ function normalizeRole(value: string | undefined): NormalizedNode["role"] | unde
   return value && roles.has(value as NonNullable<NormalizedNode["role"]>) ? (value as NonNullable<NormalizedNode["role"]>) : undefined;
 }
 
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -802,6 +993,12 @@ function stableStringify(value: unknown): string {
 
 function safeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "unknown";
+}
+
+function pascalCase(value: string): string {
+  const words = value.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const name = words.map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join("");
+  return name || "Component";
 }
 
 function clone<T>(value: T): T {

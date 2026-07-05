@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { applyStudioOperations } from "../packages/studios/dist/index.js";
+import { applyOverrides } from "../packages/override-engine/dist/index.js";
 
 const root = "artifacts/studios-smoke";
 const baseDir = resolve(root, "base");
@@ -185,7 +186,23 @@ assert.equal(result.finalI18nManifest.messages.find((message) => message.key ===
 assert.equal(result.finalArbFile.loginSubmitLabel, "Sign in");
 assert.equal(result.finalArbFile["@loginSubmitLabel"].placeholders.ctaLabel.example, "Sign in");
 assert.equal(result.finalArbFile.subtitle, undefined);
-assert.ok(result.overrideConflictReport.warnings.some((warning) => warning.type === "unsupported_override" && warning.overrideId.includes("approve_primary_button")));
+assert.equal(result.overrideConflictReport.warnings.some((warning) => warning.type === "unsupported_override" && warning.overrideId.includes("approve_primary_button")), false);
+
+const replayed = applyOverrides({
+  normalizedDesignIR: input.normalizedDesignIR,
+  assetManifest: input.assetManifest,
+  i18nManifest: input.i18nManifest,
+  inferredTokens: input.inferredTokens,
+  overrideSet: result.overrideSet
+});
+const replayedComponent = replayed.reviewedNormalizedDesignIR.components.find((candidate) => candidate.componentId === "cmp_primary_button");
+assert.equal(replayedComponent.name, "PrimaryButton");
+assert.equal(replayedComponent.props[0].name, "label");
+assert.equal(replayedComponent.variants[0].name, "state");
+assert.equal(replayedComponent.flutter.constructor, "AppButton.primary");
+assert.equal(replayedComponent.verified, true);
+assert.ok(replayed.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_approve_primary_button"));
+assert.ok(replayed.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_primary_button_flutter_mapping"));
 
 const invalid = applyStudioOperations({
   ...input,

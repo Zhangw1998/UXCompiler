@@ -36,6 +36,43 @@ writeFileSync(
         ),
         override("ovr_i18n_title", "i18n_key_override", { kind: "i18n_message", messageKey: "title" }, { key: "loginTitle" }),
         override("ovr_token_radius", "token_rename_override", { kind: "token", tokenName: "radius_18" }, { from: "radius_18", to: "radius_cta" }),
+        override("ovr_component_button", "component_candidate_override", { kind: "page" }, {
+          kind: "approve_component",
+          componentId: "cmp_primary_button",
+          name: "PrimaryButton",
+          instances: ["1:12", "1:14"],
+          reason: "Approve the primary button as a reusable component."
+        }),
+        override("ovr_component_button_label", "component_prop_override", { kind: "page" }, {
+          kind: "define_component_prop",
+          componentId: "cmp_primary_button",
+          prop: { name: "label", type: "text", sourceSelector: "sourceNodeId:1:14" },
+          reason: "Expose the primary button label."
+        }),
+        override("ovr_component_button_state", "component_variant_override", { kind: "page" }, {
+          kind: "define_component_variant",
+          componentId: "cmp_primary_button",
+          variant: { name: "state", values: ["default", "disabled"] },
+          reason: "Track primary button state variants."
+        }),
+        override("ovr_component_button_flutter", "flutter_component_mapping_override", { kind: "page" }, {
+          kind: "map_flutter_component",
+          componentId: "cmp_primary_button",
+          flutter: { import: "package:app/ui/app_button.dart", constructor: "AppButton.primary" },
+          reason: "Map the approved button to an app component."
+        }),
+        override("ovr_component_footer", "component_candidate_override", { kind: "page" }, {
+          kind: "approve_component",
+          componentId: "cmp_footer_link",
+          name: "FooterLink",
+          instances: ["1:16", "1:18"],
+          reason: "Approve footer links without conflicting with the button component."
+        }),
+        override("ovr_component_reject", "component_candidate_override", { kind: "page" }, {
+          kind: "reject_component",
+          componentId: "cmp_rejected_decoration",
+          reason: "Reject a decorative component candidate."
+        }),
         override("ovr_font_inter", "font_mapping_override", { kind: "token", tokenName: "text_body" }, { fromFamily: "System", fallbackFamily: "Inter" }),
         override("ovr_stale", "naming_override", { kind: "normalized_node", normalizedNodeId: "missing_node" }, { name: "Missing" }),
         override("ovr_conflict_a", "naming_override", { kind: "normalized_node", normalizedNodeId: "n_1_4" }, { name: "SubtitleA" }),
@@ -103,9 +140,23 @@ assert.equal(dividerAsset.excludeTextNodes, true);
 assert.ok(i18nManifest.messages.some((message) => message.key === "loginTitle" && message.sourceNodeId === "1:3"));
 assert.equal(arb.loginTitle, "Welcome back");
 assert.ok(tokens.radii.some((token) => token.name === "radius_cta" && token.confidence === 1));
+const primaryButton = reviewed.components.find((component) => component.componentId === "cmp_primary_button");
+assert.equal(primaryButton.name, "PrimaryButton");
+assert.deepEqual(primaryButton.sourceInstances, ["1:12", "1:14"]);
+assert.equal(primaryButton.props[0].name, "label");
+assert.equal(primaryButton.variants[0].values.includes("disabled"), true);
+assert.equal(primaryButton.flutter.constructor, "AppButton.primary");
+assert.equal(primaryButton.verified, true);
+assert.ok(reviewed.components.some((component) => component.componentId === "cmp_footer_link"));
+assert.equal(reviewed.components.some((component) => component.componentId === "cmp_rejected_decoration"), false);
 assert.match(overrideSet.hash, /^sha256_[a-f0-9]{64}$/);
 assert.ok(stale.appliedOverrideIds.includes("ovr_font_inter"));
+assert.ok(stale.appliedOverrideIds.includes("ovr_component_button"));
+assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_label"));
+assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_state"));
+assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_flutter"));
 assert.ok(conflicts.warnings.some((entry) => entry.overrideId === "ovr_font_inter" && entry.type === "configuration_override"));
+assert.equal(conflicts.warnings.some((entry) => entry.overrideId?.startsWith("ovr_component_") && entry.type === "unsupported_override"), false);
 assert.ok(stale.staleOverrides.some((entry) => entry.overrideId === "ovr_stale"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_name_title"));
 assert.ok(reviewTasks.some((task) => task.type === "stale_override" && task.evidence.overrideId === "ovr_stale"));
@@ -115,6 +166,7 @@ assert.ok(
     (entry) => entry.type === "duplicate_target" && entry.overrideIds.includes("ovr_conflict_a") && entry.overrideIds.includes("ovr_conflict_b")
   )
 );
+assert.equal(conflicts.conflicts.some((entry) => entry.overrideIds.some((overrideId) => overrideId.startsWith("ovr_component_"))), false);
 
 console.log("override engine verification passed");
 
