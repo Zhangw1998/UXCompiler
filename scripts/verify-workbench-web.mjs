@@ -77,6 +77,7 @@ try {
 
   assert.match(html, /id="app"/);
   assert.match(js, /loadFromArtifactRoot/);
+  assert.match(js, /Token Migration/);
   assert.match(modelJs, /buildWorkbenchModel/);
   assert.match(css, /preview-stage/);
   assert.equal(visual.root.type, "scene");

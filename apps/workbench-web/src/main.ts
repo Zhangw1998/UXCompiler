@@ -76,6 +76,7 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "workbenchCodegenReviewReport", files: ["workbench_codegen_review_report.json"] },
   { key: "projectWriteReport", files: ["project_write_report.json"] },
   { key: "nodeRemapReport", files: ["node_remap_report.json"] },
+  { key: "tokenMigrationReport", files: ["token_migration_report.json"] },
   { key: "workbenchSyncRemapReport", files: ["workbench_sync_remap_report.json"] },
   { key: "staleOverrideReport", files: ["stale_override_report.json"] },
   { key: "overrideConflictReport", files: ["override_conflict_report.json"] },
@@ -898,10 +899,15 @@ function renderCodegen(model: WorkbenchModel): string {
   const writeReport = asRecord(state.artifacts.projectWriteReport);
   const workbenchReviewReport = asRecord(state.artifacts.workbenchCodegenReviewReport);
   const syncReport = asRecord(state.artifacts.workbenchSyncRemapReport);
+  const tokenMigration = asRecord(state.artifacts.tokenMigrationReport);
+  const tokenMigrationSummary = asRecord(tokenMigration.summary);
   const writeFiles = asArray(writeReport.files).map(asRecord);
   const canRunCodegen = state.artifactRoot !== "selected directory";
   const sync = asRecord(state.artifacts.nodeRemapReport);
   const visualDiffChange = asRecord(sync.visualDiffChange ?? syncReport.visualDiffChange);
+  const tokenMigrationStatus = stringFrom(tokenMigration.status) ?? stringFrom(syncReport.tokenMigrationStatus) ?? "not-run";
+  const tokenMigrationChanges =
+    (numberFrom(tokenMigrationSummary.added) ?? 0) + (numberFrom(tokenMigrationSummary.removed) ?? 0) + (numberFrom(tokenMigrationSummary.valueChanged) ?? 0);
   const syncPending = state.pendingSyncOperation === "remap";
   return `
     <section class="view-header">
@@ -972,6 +978,8 @@ function renderCodegen(model: WorkbenchModel): string {
           <div class="status-row"><strong>Stale</strong><span>${asArray(sync.staleOverrides).length}</span></div>
           <div class="status-row"><strong>Review Required</strong><span>${asArray(sync.matches).map(asRecord).filter((entry) => booleanFrom(entry.reviewRequired)).length}</span></div>
           <div class="status-row"><strong>Reapplied</strong><span>${numberFrom(syncReport.reappliedOverrides) ?? 0}</span></div>
+          <div class="status-row"><strong>Token Migration</strong><span>${escapeHtml(tokenMigrationStatus)}</span></div>
+          <div class="status-row"><strong>Token Changes</strong><span>${tokenMigrationChanges}</span></div>
           <div class="status-row"><strong>Diff Score</strong><span>${formatMaybePercent(numberFrom(visualDiffChange.newVisualScore) ?? numberFrom(visualDiffChange.oldVisualScore))}</span></div>
           <div class="status-row"><strong>Diff Delta</strong><span>${formatSignedMaybePercent(numberFrom(visualDiffChange.visualScoreDelta)) || escapeHtml(stringFrom(visualDiffChange.status) ?? "missing")}</span></div>
         </div>
@@ -1815,7 +1823,7 @@ async function applySyncOperation(operation: string): Promise<void> {
     const result = (await response.json()) as {
       ok?: boolean;
       error?: string;
-      report?: { matches?: number; staleOverrides?: number; reappliedOverrides?: number; reviewTasks?: number };
+      report?: { matches?: number; staleOverrides?: number; reappliedOverrides?: number; reviewTasks?: number; tokenMigrationStatus?: string };
     };
     if (!response.ok || !result.ok) {
       throw new Error(result.error ?? `Sync remap failed with ${response.status}`);
@@ -1823,7 +1831,7 @@ async function applySyncOperation(operation: string): Promise<void> {
     await loadFromArtifactRoot(state.artifactRoot);
     state.actionMessage = {
       tone: result.report?.staleOverrides ? "warn" : "good",
-      text: `Sync remap finished; ${result.report?.reappliedOverrides ?? 0} reapplied, ${result.report?.staleOverrides ?? 0} stale, ${result.report?.reviewTasks ?? 0} review tasks.`
+      text: `Sync remap finished; ${result.report?.reappliedOverrides ?? 0} reapplied, ${result.report?.staleOverrides ?? 0} stale, ${result.report?.reviewTasks ?? 0} review tasks, token migration ${result.report?.tokenMigrationStatus ?? "not-run"}.`
     };
   } catch (error) {
     state.actionMessage = {
