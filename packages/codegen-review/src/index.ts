@@ -67,6 +67,13 @@ interface PlannedFile {
 
 const assetFileStrategies = new Set(["svg_icon", "image_asset", "frame_screenshot", "decorative_slice"]);
 
+export function codegenProjectFileProbePaths(input: { normalizedDesignIR: NormalizedDesignIR; flutterPreviewFiles: Record<string, string> }): string[] {
+  return unique([
+    ...Object.keys(input.flutterPreviewFiles).filter((path) => path.startsWith("lib/") && path.endsWith(".dart")),
+    ...productionScaffoldProjectPaths(input.normalizedDesignIR)
+  ]).sort((left, right) => left.localeCompare(right));
+}
+
 export function createCodegenReview(input: CreateCodegenReviewInput): CodegenReviewResult {
   const now = input.now ?? (() => new Date());
   const generatedAt = now().toISOString();
@@ -187,51 +194,52 @@ function productionScaffoldFiles(input: CreateCodegenReviewInput, rootSourceNode
   const feature = featureName(input.normalizedDesignIR.tree.name);
   const classPrefix = pascalCase(feature);
   const sourceNodeIds = allSourceNodeIds.length > 0 ? allSourceNodeIds : [rootSourceNodeId];
+  const paths = productionScaffoldProjectPaths(input.normalizedDesignIR);
   const files: Array<{ path: string; content: string; sourceNodeIds: string[]; strategy: string }> = [
     {
-      path: `lib/features/${feature}/presentation/pages/${feature}_page.dart`,
+      path: paths[0],
       content: buildPageFacade(classPrefix, feature),
       sourceNodeIds,
       strategy: "semantic_page_facade"
     },
     {
-      path: `lib/features/${feature}/presentation/widgets/${feature}_content.dart`,
+      path: paths[1],
       content: buildContentWidget(classPrefix),
       sourceNodeIds,
       strategy: "semantic_content_widget"
     },
     {
-      path: "lib/theme/app_colors.dart",
+      path: paths[2],
       content: buildColorsFile(input.normalizedDesignIR.tokens.colors),
       sourceNodeIds: tokenSourceNodeIds(input.normalizedDesignIR.tokens.colors, rootSourceNodeId),
       strategy: "theme_tokens"
     },
     {
-      path: "lib/theme/app_spacing.dart",
+      path: paths[3],
       content: buildSpacingFile(input.normalizedDesignIR.tokens.spacing),
       sourceNodeIds: tokenSourceNodeIds(input.normalizedDesignIR.tokens.spacing, rootSourceNodeId),
       strategy: "theme_tokens"
     },
     {
-      path: "lib/theme/app_radii.dart",
+      path: paths[4],
       content: buildRadiiFile(input.normalizedDesignIR.tokens.radii),
       sourceNodeIds: tokenSourceNodeIds(input.normalizedDesignIR.tokens.radii, rootSourceNodeId),
       strategy: "theme_tokens"
     },
     {
-      path: "lib/theme/app_text_styles.dart",
+      path: paths[5],
       content: buildTextStylesFile(input.normalizedDesignIR.tokens.typography),
       sourceNodeIds: tokenSourceNodeIds(input.normalizedDesignIR.tokens.typography, rootSourceNodeId),
       strategy: "theme_tokens"
     },
     {
-      path: "lib/theme/app_shadows.dart",
+      path: paths[6],
       content: buildShadowsFile(),
       sourceNodeIds,
       strategy: "theme_tokens"
     },
     {
-      path: "lib/generated/assets.gen.dart",
+      path: paths[7],
       content: buildAssetsFile(input.assetManifest),
       sourceNodeIds: input.assetManifest.assets.map((asset) => asset.sourceNodeId),
       strategy: "asset_references"
@@ -248,6 +256,20 @@ function productionScaffoldFiles(input: CreateCodegenReviewInput, rootSourceNode
       strategy: file.strategy
     };
   });
+}
+
+function productionScaffoldProjectPaths(normalizedDesignIR: NormalizedDesignIR): string[] {
+  const feature = featureName(normalizedDesignIR.tree.name);
+  return [
+    `lib/features/${feature}/presentation/pages/${feature}_page.dart`,
+    `lib/features/${feature}/presentation/widgets/${feature}_content.dart`,
+    "lib/theme/app_colors.dart",
+    "lib/theme/app_spacing.dart",
+    "lib/theme/app_radii.dart",
+    "lib/theme/app_text_styles.dart",
+    "lib/theme/app_shadows.dart",
+    "lib/generated/assets.gen.dart"
+  ];
 }
 
 function toFilePlan(file: PlannedFile, input: CreateCodegenReviewInput): CodegenFilePlan {

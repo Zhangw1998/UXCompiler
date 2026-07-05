@@ -4,7 +4,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
-import { createCodegenReview } from "@uxcompiler/codegen-review";
+import { codegenProjectFileProbePaths, createCodegenReview } from "@uxcompiler/codegen-review";
 import { promoteGeneratedWidget } from "@uxcompiler/component-promoter";
 import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "@uxcompiler/figma-extractor";
 import { runIncrementalSync } from "@uxcompiler/incremental-sync";
@@ -19,6 +19,7 @@ import {
   type CodegenPubspecPatch,
   type CodegenReviewResult,
   type CodegenReviewManifest,
+  type NormalizedDesignIR,
   type OverrideSet,
   type PipelineArtifacts,
   type RawFigmaScene,
@@ -354,14 +355,15 @@ async function runCodegenCommand(args: string[]): Promise<void> {
   const artifactDir = resolve(process.cwd(), options.artifacts);
   const outDir = resolve(process.cwd(), options.out);
   const flutterPreviewFiles = await readTextFilesRecursively(resolve(artifactDir, "flutter_preview"));
+  const normalizedDesignIR = await readFirstJsonFile<NormalizedDesignIR>([
+    resolve(artifactDir, "reviewed_normalized_design_ir.json"),
+    resolve(artifactDir, "normalized_design_ir.json")
+  ]);
   const existingProjectFiles = options.projectPath
-    ? await readExistingProjectFiles(resolve(process.cwd(), options.projectPath), Object.keys(flutterPreviewFiles))
+    ? await readExistingProjectFiles(resolve(process.cwd(), options.projectPath), codegenProjectFileProbePaths({ normalizedDesignIR, flutterPreviewFiles }))
     : undefined;
   const result = createCodegenReview({
-    normalizedDesignIR: await readFirstJsonFile([
-      resolve(artifactDir, "reviewed_normalized_design_ir.json"),
-      resolve(artifactDir, "normalized_design_ir.json")
-    ]),
+    normalizedDesignIR,
     assetManifest: await readFirstJsonFile([
       resolve(artifactDir, "final_asset_manifest.json"),
       resolve(artifactDir, "reviewed_asset_manifest.json"),

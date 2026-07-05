@@ -3,7 +3,7 @@
 import { createServer } from "node:http";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, relative, resolve, sep } from "node:path";
-import { createCodegenReview } from "../packages/codegen-review/dist/index.js";
+import { codegenProjectFileProbePaths, createCodegenReview } from "../packages/codegen-review/dist/index.js";
 import { runIncrementalSync } from "../packages/incremental-sync/dist/index.js";
 import { applyOverrides } from "../packages/override-engine/dist/index.js";
 import { writeCodegenToProject } from "../packages/project-writer/dist/index.js";
@@ -576,12 +576,15 @@ async function applyWorkbenchCodegenReview(body) {
   const projectPath = stringValue(body.projectPath) ? resolveLocalPath(stringValue(body.projectPath)) : undefined;
   const now = new Date().toISOString();
   const flutterPreviewFiles = await readTextFilesRecursively(resolve(artifactDir, "flutter_preview"));
-  const existingProjectFiles = projectPath ? await readExistingProjectFiles(projectPath, Object.keys(flutterPreviewFiles)) : undefined;
+  const normalizedDesignIR = await readFirstJson([
+    resolve(artifactDir, "reviewed_normalized_design_ir.json"),
+    resolve(artifactDir, "normalized_design_ir.json")
+  ]);
+  const existingProjectFiles = projectPath
+    ? await readExistingProjectFiles(projectPath, codegenProjectFileProbePaths({ normalizedDesignIR, flutterPreviewFiles }))
+    : undefined;
   const result = createCodegenReview({
-    normalizedDesignIR: await readFirstJson([
-      resolve(artifactDir, "reviewed_normalized_design_ir.json"),
-      resolve(artifactDir, "normalized_design_ir.json")
-    ]),
+    normalizedDesignIR,
     assetManifest: await readFirstJson([
       resolve(artifactDir, "final_asset_manifest.json"),
       resolve(artifactDir, "reviewed_asset_manifest.json"),

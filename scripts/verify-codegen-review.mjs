@@ -78,6 +78,21 @@ const formatBlocked = createCodegenReview({
 assert.equal(formatBlocked.codegenReview.gates.status, "blocked");
 assert.ok(formatBlocked.codegenReview.gates.blockers.some((blocker) => blocker.type === "dart_format_failed"));
 
+const scaffoldConflict = createCodegenReview({
+  ...input,
+  existingProjectFiles: {
+    "lib/features/login_mobile/presentation/pages/login_mobile_page.dart": "class HandWrittenLoginPage {}\n"
+  }
+});
+assert.equal(scaffoldConflict.codegenReview.gates.status, "blocked");
+assert.ok(
+  scaffoldConflict.codegenReview.gates.blockers.some(
+    (blocker) =>
+      blocker.type === "manual_file_conflict" &&
+      blocker.filePath === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart"
+  )
+);
+
 const staleBlocked = createCodegenReview({
   ...input,
   reviewTasks: [
@@ -157,6 +172,7 @@ if (commandExists("dart")) {
 }
 
 writeFile(resolve(projectDir, "lib/main.dart"), "void main() {}\n");
+writeFile(resolve(projectDir, "lib/features/login_mobile/presentation/pages/login_mobile_page.dart"), "class HandWrittenLoginPage {}\n");
 execFileSync(
   "node",
   [
@@ -175,7 +191,15 @@ execFileSync(
 const conflictReview = readJson(conflictDir, "codegen_review.json");
 assert.equal(conflictReview.gates.status, "blocked");
 assert.ok(conflictReview.gates.blockers.some((blocker) => blocker.type === "manual_file_conflict" && blocker.filePath === "lib/main.dart"));
+assert.ok(
+  conflictReview.gates.blockers.some(
+    (blocker) =>
+      blocker.type === "manual_file_conflict" &&
+      blocker.filePath === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart"
+  )
+);
 assert.equal(existsSync(resolve(conflictDir, "patches/lib_main_dart.patch")), true);
+assert.equal(existsSync(resolve(conflictDir, "patches/lib_features_login_mobile_presentation_pages_login_mobile_page_dart.patch")), true);
 
 console.log("codegen review verification passed");
 

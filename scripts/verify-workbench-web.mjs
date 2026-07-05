@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { buildWorkbenchModel } from "../apps/workbench-web/dist/model.js";
 
 const root = "artifacts/workbench-web-smoke";
@@ -494,6 +494,32 @@ try {
   assert.equal(workbenchWriteReport.buildId, codegenReview.buildId);
   assert.equal(projectWriteReport.files.some((file) => file.status === "created"), true);
 
+  writeTextFile(resolve(projectPath, "lib/features/login_mobile/presentation/pages/login_mobile_page.dart"), "class HandWrittenLoginPage {}\n");
+  const manualScaffoldConflictResponse = await fetch(`${base}/api/workbench/codegen-review`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      projectPath,
+      projectId: "workbench_smoke",
+      normalizedIrId: "nir_workbench_smoke",
+      allowLowVisualScore: true
+    })
+  });
+  assert.equal(manualScaffoldConflictResponse.ok, true);
+  const manualScaffoldConflictResult = await manualScaffoldConflictResponse.json();
+  assert.equal(manualScaffoldConflictResult.ok, true);
+  assert.equal(manualScaffoldConflictResult.report.gateStatus, "blocked");
+  const manualScaffoldConflictReview = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/codegen_review.json`);
+  assert.equal(
+    manualScaffoldConflictReview.gates.blockers.some(
+      (blocker) =>
+        blocker.type === "manual_file_conflict" &&
+        blocker.filePath === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart"
+    ),
+    true
+  );
+
   writeFileSync(
     resolve(sampleDir, "flutter_preview_format_report.json"),
     `${JSON.stringify(
@@ -798,6 +824,11 @@ function writeSyntheticVisualDiff(base) {
     warnings: []
   };
   writeFileSync(resolve(base, "visual_diff_report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+}
+
+function writeTextFile(path, content) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content, "utf8");
 }
 
 function renameRawNode(root, id, newId, patch = {}) {
