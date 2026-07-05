@@ -53,17 +53,6 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     inferredTokens: tokenResult.inferredTokens,
     overrideSet: options.overrideSet
   });
-  const reviewTaskResult = generateReviewTasks({
-    normalizedDesignIR: overrideResult.reviewedNormalizedDesignIR,
-    layoutCandidates: layoutResult.layoutCandidates,
-    layoutDecisions: layoutResult.layoutDecisions,
-    inferredTokens: overrideResult.reviewedInferredTokens,
-    tokenConfidenceReport: tokenResult.confidenceReport,
-    assetManifest: overrideResult.reviewedAssetManifest,
-    i18nManifest: overrideResult.reviewedI18nManifest,
-    fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest,
-    staleOverrideReport: overrideResult.staleOverrideReport
-  });
   const inferredComponents = createInferredComponentsArtifact(layoutResult.normalizedDesignIR, assetI18nResult.i18nManifest);
   const componentInstanceMap = createComponentInstanceMapArtifact(inferredComponents, layoutResult.normalizedDesignIR);
   const componentConfidenceReport = createComponentConfidenceReportArtifact(inferredComponents);
@@ -94,6 +83,18 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest
   });
   const upliftDiffReport = createUpliftDiffReportArtifact();
+  const reviewTaskResult = generateReviewTasks({
+    normalizedDesignIR: overrideResult.reviewedNormalizedDesignIR,
+    layoutCandidates: layoutResult.layoutCandidates,
+    layoutDecisions: layoutResult.layoutDecisions,
+    inferredTokens: overrideResult.reviewedInferredTokens,
+    tokenConfidenceReport: tokenResult.confidenceReport,
+    assetManifest: overrideResult.reviewedAssetManifest,
+    i18nManifest: overrideResult.reviewedI18nManifest,
+    fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest,
+    staleOverrideReport: overrideResult.staleOverrideReport,
+    upliftDecisions
+  });
   const normalizationReport = createNormalizationReportArtifact({
     rawFigmaScene,
     normalizedDesignIR: layoutResult.normalizedDesignIR,

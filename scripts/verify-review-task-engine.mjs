@@ -181,6 +181,75 @@ assert.ok(flutterTask, "Expected failed Flutter capture to create a task");
 assert.equal(flutterTask.target.normalizedNodeId, "root");
 assert.deepEqual(flutterTask.target.sourceNodeIds, ["frame:1"]);
 
+const semanticUplift = generateReviewTasks({
+  ...baseInput,
+  upliftDecisions: {
+    version: "2.0",
+    decisions: [
+      {
+        regionId: "region_hero",
+        sourceNodeIds: ["frame:1", "text:1"],
+        from: "absolute_widget",
+        to: "semantic_layout",
+        strategy: "semantic_column_region",
+        gate: "review_diff_required",
+        scoreBreakdown: {
+          semanticConfidence: 0.9,
+          layoutConfidence: 0.88,
+          componentConfidence: 0.7,
+          expectedDiffSafety: 0.88
+        },
+        confidence: 0.83,
+        accepted: false,
+        reason: "Diff evidence is required."
+      },
+      {
+        regionId: "region_low",
+        sourceNodeIds: ["frame:1"],
+        strategy: "keep_fidelity_region",
+        gate: "keep_fidelity",
+        confidence: 0.5,
+        accepted: false
+      }
+    ]
+  }
+});
+const semanticTask = semanticUplift.reviewTasks.find((task) => task.type === "semantic_uplift_pending");
+assert.ok(semanticTask, "Expected pending semantic uplift to create a review task");
+assert.equal(semanticTask.id, "task_semantic_uplift_region_hero");
+assert.equal(semanticTask.priority, "P2");
+assert.deepEqual(semanticTask.target.sourceNodeIds, ["frame:1", "text:1"]);
+assert.equal(semanticTask.suggestedActions[0].override.payload.action, "run_semantic_uplift_diff");
+assert.equal(semanticUplift.taskStatusReport.byType.semantic_uplift_pending, 1);
+
+const handledSemanticUplift = generateReviewTasks({
+  ...baseInput,
+  upliftDecisions: semanticUpliftInput(),
+  overrideSet: {
+    id: "ovset_test",
+    version: 2,
+    snapshotId: "frame:1",
+    hash: "sha256_test",
+    overrides: [
+      {
+        id: "ovr_semantic_uplift_region_hero",
+        type: "render_strategy_override",
+        target: { kind: "normalized_node", normalizedNodeId: "root" },
+        payload: {
+          action: "run_semantic_uplift_diff",
+          regionId: "region_hero",
+          strategy: "semantic_column_region"
+        },
+        status: "active",
+        createdBy: "user",
+        createdAt: "2026-07-04T00:00:00.000Z",
+        scope: "snapshot"
+      }
+    ]
+  }
+});
+assert.equal(handledSemanticUplift.reviewTasks.some((task) => task.type === "semantic_uplift_pending"), false);
+
 console.log("review task engine verification passed");
 
 function emptyTokens() {
@@ -191,5 +260,30 @@ function emptyTokens() {
     typography: [],
     radii: [],
     shadows: []
+  };
+}
+
+function semanticUpliftInput() {
+  return {
+    version: "2.0",
+    decisions: [
+      {
+        regionId: "region_hero",
+        sourceNodeIds: ["frame:1", "text:1"],
+        from: "absolute_widget",
+        to: "semantic_layout",
+        strategy: "semantic_column_region",
+        gate: "review_diff_required",
+        scoreBreakdown: {
+          semanticConfidence: 0.9,
+          layoutConfidence: 0.88,
+          componentConfidence: 0.7,
+          expectedDiffSafety: 0.88
+        },
+        confidence: 0.83,
+        accepted: false,
+        reason: "Diff evidence is required."
+      }
+    ]
   };
 }

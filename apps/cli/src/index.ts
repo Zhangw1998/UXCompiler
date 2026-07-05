@@ -1742,6 +1742,7 @@ async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: Pipeli
     overrideSet: overrideResult.overrideSet,
     staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
+    upliftDecisions: artifacts.upliftDecisions,
     flutterCapture: {
       status: runReport.steps.flutterCapture.status
     }

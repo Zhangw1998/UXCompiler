@@ -118,7 +118,13 @@ assert.ok(reviewTasks.length > 0, "Expected review tasks");
 assert.ok(reviewTasks.every((task) => task.status === "open"), "Expected open review tasks");
 assert.ok(reviewTasks.every((task) => task.suggestedActions?.length > 0), "Expected task suggested actions");
 assert.ok(reviewTasks.some((task) => task.type === "token_conflict"), "Expected token review task");
+assert.ok(reviewTasks.some((task) => task.type === "semantic_uplift_pending"), "Expected semantic uplift review task");
 assert.equal(taskStatusReport.total, reviewTasks.length);
+assert.equal(taskStatusReport.byType.semantic_uplift_pending, reviewTasks.filter((task) => task.type === "semantic_uplift_pending").length);
+assert.ok(
+  reviewTasks.some((task) => task.id === "task_semantic_uplift_region_2" && task.evidence.strategy === "semantic_column_region"),
+  "Expected content semantic uplift review task"
+);
 assert.equal(taskStatusReport.codegenWriteBlocked, false);
 assert.equal(formatReport.status, "success");
 assert.ok(["success", "skipped", "failed"].includes(analyzeReport.status), "Expected analyze report status");

@@ -309,6 +309,7 @@ async function applyReviewTaskAction(body) {
   const visualDiffReport =
     (await readOptionalJson(resolve(artifactDir, "visual_diff_report.json"), undefined)) ??
     (await readOptionalJson(resolve(artifactDir, "diff/visual_diff_report.json"), undefined));
+  const upliftDecisions = await readOptionalJson(resolve(artifactDir, "uplift_decisions.json"), undefined);
   const flutterCapture = await readOptionalJson(resolve(artifactDir, "flutter_preview_capture_report.json"), undefined);
 
   const overrideResult = applyOverrides({
@@ -330,6 +331,7 @@ async function applyReviewTaskAction(body) {
     overrideSet: overrideResult.overrideSet,
     staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
+    upliftDecisions,
     flutterCapture: flutterCapture ? { status: flutterCapture.status, reason: flutterCapture.reason } : undefined
   });
 
@@ -901,6 +903,7 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedP
   const visualDiffReport =
     (await readOptionalJson(resolve(artifactDir, "visual_diff_report.json"), undefined)) ??
     (await readOptionalJson(resolve(artifactDir, "diff/visual_diff_report.json"), undefined));
+  const upliftDecisions = await readOptionalJson(resolve(artifactDir, "uplift_decisions.json"), undefined);
   const flutterCapture = await readOptionalJson(resolve(artifactDir, "flutter_preview_capture_report.json"), undefined);
   const overrideResult = applyOverrides({
     normalizedDesignIR,
@@ -926,6 +929,7 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedP
     overrideSet: overrideResult.overrideSet,
     staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
+    upliftDecisions,
     flutterCapture: flutterCapture ? { status: flutterCapture.status, reason: flutterCapture.reason } : undefined
   });
   await writeJson(resolve(artifactDir, "override_set.json"), overrideResult.overrideSet);

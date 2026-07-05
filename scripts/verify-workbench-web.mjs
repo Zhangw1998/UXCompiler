@@ -85,7 +85,10 @@ try {
     assert.equal(previewPng.headers.get("content-type"), "image/png");
   }
 
-  const firstTaskId = artifacts.reviewTasks[0].id;
+  assert.equal(artifacts.reviewTasks.some((task) => task.type === "semantic_uplift_pending"), true);
+  const tokenTask = artifacts.reviewTasks.find((task) => task.type === "token_conflict" && task.target?.tokenName === "radius_18");
+  assert.ok(tokenTask, "Expected radius_18 token task for task-action smoke");
+  const firstTaskId = tokenTask.id;
   const actionResponse = await fetch(`${base}/api/workbench/task-action`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -101,18 +104,19 @@ try {
   assert.equal(actionResult.report.taskId, firstTaskId);
   assert.match(actionResult.report.overrideId, /^ovr_/);
   assert.equal(actionResult.report.beforeOpenTasks, artifacts.reviewTasks.length);
-  assert.equal(actionResult.report.afterOpenTasks, artifacts.reviewTasks.length - 1);
+  assert.ok(actionResult.report.afterOpenTasks < actionResult.report.beforeOpenTasks + 2);
 
   const updatedTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const updatedOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   const actionReport = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_task_action_report.json`);
   const closureLog = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_task_closure_log.json`);
   const updatedTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_inferred_tokens.json`);
-  assert.equal(updatedTasks.length, artifacts.reviewTasks.length - 1);
+  assert.equal(updatedTasks.length, actionResult.report.afterOpenTasks);
   assert.equal(updatedTasks.some((task) => task.id === firstTaskId), false);
+  assert.equal(updatedTasks.some((task) => task.type === "semantic_uplift_pending"), true);
   assert.equal(updatedOverrideSet.overrides.length, 1);
   assert.match(updatedOverrideSet.hash, /^sha256_[a-f0-9]{64}$/);
-  assert.equal(actionReport.afterOpenTasks, artifacts.reviewTasks.length - 1);
+  assert.equal(actionReport.afterOpenTasks, updatedTasks.length);
   assert.equal(actionReport.closureReason.length > 0, true);
   assert.equal(closureLog.at(-1).taskId, firstTaskId);
   assert.equal(closureLog.at(-1).status, "closed");

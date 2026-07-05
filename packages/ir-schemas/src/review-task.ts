@@ -12,7 +12,8 @@ export type ReviewTaskType =
   | "stale_override"
   | "flutter_analyze_failed"
   | "resource_export_failed"
-  | "component_mapping_required";
+  | "component_mapping_required"
+  | "semantic_uplift_pending";
 
 export type ReviewTaskStatus = "open" | "closed";
 

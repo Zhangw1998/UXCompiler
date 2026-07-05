@@ -451,6 +451,7 @@ async function writeRuntimeReviewTaskArtifacts(
     overrideSet: overrideResult.overrideSet,
     staleOverrideReport: overrideResult.staleOverrideReport,
     visualDiffReport,
+    upliftDecisions: artifacts.upliftDecisions,
     flutterCapture: {
       status: pipelineRunReport.steps.flutterCapture.status,
       reason: pipelineRunReport.steps.flutterCapture.reason

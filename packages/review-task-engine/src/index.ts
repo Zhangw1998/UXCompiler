@@ -15,6 +15,7 @@ import type {
   ReviewTaskType,
   StaleOverrideReport,
   TokenConfidenceReport,
+  UpliftDecisionArtifact,
   VisualDiffReport
 } from "@uxcompiler/ir-schemas";
 
@@ -29,6 +30,7 @@ export interface GenerateReviewTasksInput {
   fidelityGenerationManifest: FidelityGenerationManifest;
   staleOverrideReport?: StaleOverrideReport;
   visualDiffReport?: VisualDiffReport;
+  upliftDecisions?: UpliftDecisionArtifact;
   flutterCapture?: { status: string; reason?: string };
   overrideSet?: OverrideSet;
 }
@@ -43,6 +45,7 @@ export function generateReviewTasks(input: GenerateReviewTasksInput): ReviewTask
     ...tokenTasks(input),
     ...i18nTasks(input),
     ...staleOverrideTasks(input),
+    ...semanticUpliftTasks(input),
     ...visualDiffTasks(input),
     ...flutterCaptureTasks(input)
   ];
@@ -581,6 +584,85 @@ function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {
     );
   }
   return tasks;
+}
+
+function semanticUpliftTasks(input: GenerateReviewTasksInput): ReviewTask[] {
+  const decisions = input.upliftDecisions?.decisions ?? [];
+  const handledRegionIds = handledSemanticUpliftRegions(input);
+  return decisions
+    .filter((decision) => {
+      const record = recordValue(decision);
+      if (!record || record.accepted === true) return false;
+      const regionId = stringValue(record.regionId);
+      if (regionId && handledRegionIds.has(regionId)) return false;
+      const gate = stringValue(record.gate);
+      return gate === "auto_diff_required" || gate === "review_diff_required";
+    })
+    .map((decision) => {
+      const record = recordValue(decision) ?? {};
+      const regionId = stringValue(record.regionId) ?? "unknown_region";
+      const sourceNodeIds = stringArrayValue(record.sourceNodeIds) ?? input.normalizedDesignIR.tree.sourceNodeIds;
+      const gate = stringValue(record.gate) ?? "review_diff_required";
+      const strategy = stringValue(record.strategy) ?? stringValue(record.to) ?? "semantic_layout";
+      const confidence = numberValue(record.confidence) ?? 0.5;
+      const priority: ReviewTaskPriority = gate === "auto_diff_required" ? "P1" : "P2";
+      return makeTask({
+        id: taskId("semantic_uplift", regionId),
+        type: "semantic_uplift_pending",
+        priority,
+        target: {
+          normalizedNodeId: input.normalizedDesignIR.tree.id,
+          sourceNodeIds
+        },
+        title: gate === "auto_diff_required" ? "Run semantic uplift diff candidate" : "Review semantic uplift candidate",
+        description: `Region ${regionId} can try ${strategy}, but fidelity remains authoritative until before/after diff evidence passes.`,
+        confidence,
+        evidence: {
+          ...record,
+          requiredEvidence: "uplift_diff_report.comparisons"
+        },
+        suggestedActions: [
+          {
+            label: "Run uplift diff",
+            override: {
+              type: "render_strategy_override",
+              payload: {
+                action: "run_semantic_uplift_diff",
+                regionId,
+                sourceNodeIds,
+                strategy
+              },
+              reason: "Semantic uplift candidates require visual diff evidence before they can replace fidelity rendering."
+            }
+          },
+          {
+            label: "Keep fidelity for region",
+            override: {
+              type: "render_strategy_override",
+              payload: {
+                action: "keep_fidelity_region",
+                regionId,
+                sourceNodeIds
+              },
+              reason: "User chose to keep fidelity rendering for this region."
+            }
+          }
+        ]
+      });
+    });
+}
+
+function handledSemanticUpliftRegions(input: GenerateReviewTasksInput): Set<string> {
+  const regionIds = new Set<string>();
+  for (const override of input.overrideSet?.overrides ?? []) {
+    if (override.status !== "active" || override.type !== "render_strategy_override") continue;
+    const payload = recordValue(override.payload);
+    const action = stringValue(payload?.action);
+    if (action !== "run_semantic_uplift_diff" && action !== "keep_fidelity_region") continue;
+    const regionId = stringValue(payload?.regionId);
+    if (regionId) regionIds.add(regionId);
+  }
+  return regionIds;
 }
 
 function acceptedVisualDiffRepairs(input: GenerateReviewTasksInput): { page: boolean; sourceNodeIds: Set<string> } {
