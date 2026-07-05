@@ -36,6 +36,9 @@
         grid-template-columns: 1fr 1fr;
         gap: 8px;
       }
+      .actions button:last-child {
+        grid-column: 1 / -1;
+      }
       .secondary {
         color: #111827;
         background: #e5e7eb;
@@ -54,6 +57,7 @@
     <div class="actions">
       <button id="check" class="secondary">Check Local API</button>
       <button id="sync">Sync Selection</button>
+      <button id="export" class="secondary">Export Snapshot ZIP</button>
     </div>
     <pre id="status">Select a Frame, Component, Instance, or Section.</pre>
     <script>
@@ -83,9 +87,33 @@
           "*"
         );
       };
+      document.getElementById("export").onclick = () => {
+        status.textContent = "Exporting offline ZIP...";
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "export-snapshot-zip"
+            }
+          },
+          "*"
+        );
+      };
       window.onmessage = (event) => {
         const message = event.data.pluginMessage;
         if (!message) return;
+        if (message.type === "snapshot-zip") {
+          const binary = atob(message.bytesBase64);
+          const bytes = new Uint8Array(binary.length);
+          for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+          const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = message.fileName || "uxcompiler_snapshot.zip";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+        }
         status.textContent = message.message || JSON.stringify(message, null, 2);
       };
     </script>

@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 340, height: 260 });
+figma.showUI(__html__, { width: 340, height: 312 });
 
 type SerializableNode = Record<string, unknown> & {
   id: string;
@@ -18,20 +18,27 @@ type ExportedAsset = {
   height?: number;
 };
 
+type SnapshotPayload = {
+  root: SceneNode;
+  rawFigmaScene: ReturnType<typeof buildRawFigmaScene>;
+  png: Uint8Array;
+  assets: ExportedAsset[];
+  extractionReport: Record<string, unknown>;
+};
+
 figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
   if (message.type === "check-health") {
     await checkLocalApi(message.endpoint || "http://localhost:8787/api/snapshots");
     return;
   }
+  if (message.type === "export-snapshot-zip") {
+    await exportSnapshotZip();
+    return;
+  }
   if (message.type !== "sync-selection") return;
   try {
     const endpoint = message.endpoint || "http://localhost:8787/api/snapshots";
-    const root = resolveSelectedRoot();
-    const rawFigmaScene = buildRawFigmaScene(root);
-    const [png, assets] = await Promise.all([
-      root.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } }),
-      exportNodeAssets(root)
-    ]);
+    const { root, rawFigmaScene, png, assets, extractionReport } = await collectSnapshotPayload();
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -41,28 +48,7 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
         figmaReferencePngBase64: uint8ToBase64(png),
         preferFrameScreenshotFallback: true,
         assets,
-        extractionReport: {
-          source: {
-            fileKey: figma.fileKey ?? "plugin_file",
-            frameNodeId: root.id,
-            fileName: readPluginFileName(),
-            apiBaseUrl: "figma-plugin"
-          },
-          stats: countNodes(rawFigmaScene.root),
-          screenshot: {
-            requested: true,
-            status: "success",
-            format: "png",
-            scale: 1,
-            bytes: png.byteLength
-          },
-          assets: {
-            requested: assets.length,
-            format: "png",
-            bytes: assets.reduce((sum, asset) => sum + asset.bytes, 0)
-          },
-          warnings: []
-        }
+        extractionReport
       })
     });
     const result = await response.json();
@@ -80,6 +66,83 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
     });
   }
 };
+
+async function collectSnapshotPayload(): Promise<SnapshotPayload> {
+  const root = resolveSelectedRoot();
+  const rawFigmaScene = buildRawFigmaScene(root);
+  const [png, assets] = await Promise.all([
+    root.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } }),
+    exportNodeAssets(root)
+  ]);
+  const extractionReport = {
+    source: {
+      fileKey: figma.fileKey ?? "plugin_file",
+      frameNodeId: root.id,
+      fileName: readPluginFileName(),
+      apiBaseUrl: "figma-plugin"
+    },
+    stats: countNodes(rawFigmaScene.root),
+    screenshot: {
+      requested: true,
+      status: "success",
+      format: "png",
+      scale: 1,
+      bytes: png.byteLength
+    },
+    assets: {
+      requested: assets.length,
+      format: "png",
+      bytes: assets.reduce((sum, asset) => sum + asset.bytes, 0)
+    },
+    warnings: []
+  };
+  return { root, rawFigmaScene, png, assets, extractionReport };
+}
+
+async function exportSnapshotZip(): Promise<void> {
+  try {
+    const { root, rawFigmaScene, png, assets, extractionReport } = await collectSnapshotPayload();
+    const snapshotId = `snap_${safeId(root.id)}_${new Date().toISOString().replace(/[^0-9A-Za-z]+/g, "_")}`;
+    const sourceSnapshot = {
+      id: snapshotId,
+      figmaFileKey: rawFigmaScene.source.fileKey,
+      frameId: rawFigmaScene.source.frameNodeId,
+      viewport: rawFigmaScene.source.viewport
+        ? {
+            width: rawFigmaScene.source.viewport.width,
+            height: rawFigmaScene.source.viewport.height,
+            devicePixelRatio: rawFigmaScene.source.viewport.scale ?? 1
+          }
+        : undefined,
+      rawScenePath: "raw_figma_scene.json",
+      referenceScreenshotPath: "figma_reference.png",
+      assetDir: "raw_assets",
+      createdAt: rawFigmaScene.source.exportedAt
+    };
+    const entries: ZipEntryInput[] = [
+      jsonZipEntry("source_snapshot.json", sourceSnapshot),
+      jsonZipEntry("raw_figma_scene.json", rawFigmaScene),
+      jsonZipEntry("extraction_report.json", extractionReport),
+      { name: "figma_reference.png", data: png },
+      ...assets.map((asset) => ({
+        name: `raw_assets/${safeId(asset.sourceNodeId || asset.name)}.png`,
+        data: base64ToUint8(asset.pngBase64)
+      }))
+    ];
+    const zip = writeStoredZip(entries);
+    figma.ui.postMessage({
+      type: "snapshot-zip",
+      fileName: "uxcompiler_snapshot.zip",
+      bytesBase64: uint8ToBase64(zip),
+      message: `Offline snapshot ZIP ready\nFrame: ${root.name}\nAssets: ${assets.length}`
+    });
+  } catch (error) {
+    figma.ui.postMessage({
+      type: "error",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
 
 async function checkLocalApi(endpoint: string): Promise<void> {
   try {
@@ -298,3 +361,136 @@ function uint8ToBase64(bytes: Uint8Array): string {
   }
   return btoa(binary);
 }
+
+function base64ToUint8(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function safeId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "node";
+}
+
+type ZipEntryInput = {
+  name: string;
+  data: Uint8Array;
+};
+
+function jsonZipEntry(name: string, value: unknown): ZipEntryInput {
+  return {
+    name,
+    data: encodeText(`${JSON.stringify(value, null, 2)}\n`)
+  };
+}
+
+function writeStoredZip(entries: ZipEntryInput[]): Uint8Array {
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const name = encodeText(entry.name);
+    const crc = crc32(entry.data);
+    const local = concatBytes([
+      u32(0x04034b50),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(crc),
+      u32(entry.data.length),
+      u32(entry.data.length),
+      u16(name.length),
+      u16(0),
+      name,
+      entry.data
+    ]);
+    localParts.push(local);
+    centralParts.push(
+      concatBytes([
+        u32(0x02014b50),
+        u16(20),
+        u16(20),
+        u16(0),
+        u16(0),
+        u16(0),
+        u16(0),
+        u32(crc),
+        u32(entry.data.length),
+        u32(entry.data.length),
+        u16(name.length),
+        u16(0),
+        u16(0),
+        u16(0),
+        u16(0),
+        u32(0),
+        u32(offset),
+        name
+      ])
+    );
+    offset += local.length;
+  }
+  const centralDirectory = concatBytes(centralParts);
+  const end = concatBytes([
+    u32(0x06054b50),
+    u16(0),
+    u16(0),
+    u16(entries.length),
+    u16(entries.length),
+    u32(centralDirectory.length),
+    u32(offset),
+    u16(0)
+  ]);
+  return concatBytes([...localParts, centralDirectory, end]);
+}
+
+function encodeText(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+function u16(value: number): Uint8Array {
+  const out = new Uint8Array(2);
+  new DataView(out.buffer).setUint16(0, value, true);
+  return out;
+}
+
+function u32(value: number): Uint8Array {
+  const out = new Uint8Array(4);
+  new DataView(out.buffer).setUint32(0, value >>> 0, true);
+  return out;
+}
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = (crc >>> 8) ^ crc32Table[(crc ^ byte) & 0xff];
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const crc32Table = (() => {
+  const table: number[] = [];
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();

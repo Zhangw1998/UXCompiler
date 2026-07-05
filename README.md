@@ -456,6 +456,7 @@ It declares both `"figma"` and `"dev"` editor types plus the `"inspect"` capabil
 For local development it intentionally omits the plugin `id`; if your Figma client asks for one, create a development plugin in Figma to get a Figma-assigned numeric id and paste it into the manifest.
 It also enables Figma's private plugin API so local/private runs can include the current `figma.fileKey`; if Figma does not expose the key, the bridge still syncs the selected node with a local fallback id.
 Local HTTP access belongs in `networkAccess.devAllowedDomains`; `allowedDomains` is kept as `["none"]` so Figma accepts the development manifest.
+If localhost is unavailable, use the plugin's `Export Snapshot ZIP` action. It downloads `uxcompiler_snapshot.zip` with `source_snapshot.json`, `raw_figma_scene.json`, `figma_reference.png`, `extraction_report.json`, and `raw_assets/` for manual Workbench import.
 
 Before opening Figma, run a local bridge smoke test:
 
