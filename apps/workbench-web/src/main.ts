@@ -776,7 +776,7 @@ function renderI18n(model: WorkbenchModel): string {
     ${renderStudioRollbackPanel(canApplyStudio)}
     <section class="panel table-panel">
       <table class="data-table">
-        <thead><tr><th>Key</th><th>Value</th><th>Source</th><th>Confidence</th><th>Placeholder</th><th>Merge Into</th><th>Non-i18n Reason</th><th>Action</th></tr></thead>
+        <thead><tr><th>Key</th><th>Description</th><th>Value</th><th>Source</th><th>Confidence</th><th>Placeholder</th><th>Merge Into</th><th>Non-i18n Reason</th><th>Action</th></tr></thead>
         <tbody>
           ${messages
             .map(
@@ -796,6 +796,7 @@ function renderI18n(model: WorkbenchModel): string {
                 return `
                 <tr data-node-id="${escapeAttr(sourceNodeId)}" data-studio-row>
                   <td><input class="studio-input studio-input--wide" data-studio-field="i18n-key" value="${escapeAttr(key)}" ${canApplyStudio ? "" : "disabled"} /></td>
+                  <td><input class="studio-input studio-input--wide" data-studio-field="i18n-description" value="${escapeAttr(stringFrom(message.description) ?? "")}" ${canApplyStudio ? "" : "disabled"} /></td>
                   <td>${escapeHtml(stringFrom(message.value) ?? "-")}</td>
                   <td>${escapeHtml(stringFrom(message.sourceNodeId) ?? "-")}</td>
                   <td>${formatConfidence(numberFrom(message.confidence))}</td>
@@ -813,7 +814,6 @@ function renderI18n(model: WorkbenchModel): string {
                       data-studio-key="${escapeAttr(pendingKey)}"
                       data-message-key="${escapeAttr(key)}"
                       data-source-node-id="${escapeAttr(sourceNodeId)}"
-                      data-description="${escapeAttr(stringFrom(message.description) ?? "")}"
                       ${canApplyStudio && !isPending ? "" : "disabled"}
                     >
                       ${escapeHtml(isPending ? "Saving..." : "Save")}
@@ -2209,6 +2209,7 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
     const messageKey = button.dataset.messageKey ?? "";
     const sourceNodeId = button.dataset.sourceNodeId ?? "";
     const key = studioFieldValue(row, "i18n-key").trim();
+    const description = studioFieldValue(row, "i18n-description").trim();
     if (!messageKey && !sourceNodeId) throw new Error("i18n rename requires a message or source node target.");
     if (!key) throw new Error("i18n key is missing.");
     return {
@@ -2217,7 +2218,7 @@ function buildStudioOperation(button: HTMLButtonElement): Record<string, unknown
       ...(messageKey ? { messageKey } : {}),
       ...(sourceNodeId ? { sourceNodeId } : {}),
       key,
-      description: button.dataset.description || undefined,
+      ...(description ? { description } : {}),
       reason
     };
   }
