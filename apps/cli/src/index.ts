@@ -10,6 +10,7 @@ import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "
 import { runIncrementalSync } from "@uxcompiler/incremental-sync";
 import {
   assertRawFigmaScene,
+  createRawExtractionReport,
   type ComponentPromotionRule,
   type ComponentRegistry,
   type CodegenAnalyzeSummary,
@@ -1599,6 +1600,7 @@ async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionRes
 async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inputPath: string): Promise<void> {
   const files: Array<[string, unknown | string]> = [
     ["raw_figma_scene.json", artifacts.rawFigmaScene],
+    ["extraction_report.json", createRawExtractionReport(artifacts.rawFigmaScene)],
     ["canonical_scene.json", artifacts.canonicalScene],
     ["canonicalization_report.json", artifacts.canonicalizationReport],
     ["node_mapping.json", artifacts.nodeMapping],
@@ -1647,6 +1649,7 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
         generatedAt: new Date().toISOString(),
         artifacts: [
           "raw_figma_scene.json",
+          "extraction_report.json",
           "canonical_scene.json",
           "canonicalization_report.json",
           "node_mapping.json",

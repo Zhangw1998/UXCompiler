@@ -106,6 +106,7 @@ try {
   assert.equal(result.ok, true);
   assert.ok(result.artifactDir);
   assert.equal(existsSync(resolve(result.artifactDir, "raw_figma_scene.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "extraction_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "normalized_design_ir.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "web_preview_state.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "flutter_preview/pubspec.yaml")), true);
@@ -126,6 +127,11 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "override_conflict_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "stale_override_report.json")), true);
   const materializedAssetReport = JSON.parse(readFileSync(resolve(result.artifactDir, "materialized_assets_report.json"), "utf8"));
+  const extractionReport = JSON.parse(readFileSync(resolve(result.artifactDir, "extraction_report.json"), "utf8"));
+  const compileManifest = JSON.parse(readFileSync(resolve(result.artifactDir, "compile_manifest.json"), "utf8"));
+  assert.equal(extractionReport.source.rootNodeId, rawFigmaScene.root.id);
+  assert.equal(extractionReport.stats.nodes > 0, true);
+  assert.ok(compileManifest.artifacts.includes("extraction_report.json"));
   assert.equal(materializedAssetReport.requested, 3);
   assert.equal(materializedAssetReport.materialized.length, 3);
   const imageAsset = materializedAssetReport.materialized.find((asset) => asset.sourceNodeId === imageSourceNodeId);
@@ -169,7 +175,6 @@ try {
   const normalizationReport = JSON.parse(readFileSync(resolve(result.artifactDir, "normalization_report.json"), "utf8"));
   const renderStrategyManifest = JSON.parse(readFileSync(resolve(result.artifactDir, "render_strategy_manifest.json"), "utf8"));
   const upliftDiffReport = JSON.parse(readFileSync(resolve(result.artifactDir, "uplift_diff_report.json"), "utf8"));
-  const compileManifest = JSON.parse(readFileSync(resolve(result.artifactDir, "compile_manifest.json"), "utf8"));
   assert.equal(semanticLabels.source, "deterministic_fallback");
   assert.ok(semanticLabels.nodes.some((node) => node.role === "page" && node.sourceNodeIds?.length > 0));
   assert.equal(semanticIR.status, "fidelity_preserved");

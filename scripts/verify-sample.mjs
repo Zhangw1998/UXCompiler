@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 const root = resolve("artifacts/sample");
 const requiredFiles = [
   "raw_figma_scene.json",
+  "extraction_report.json",
   "canonical_scene.json",
   "canonicalization_report.json",
   "node_mapping.json",
@@ -61,6 +62,7 @@ for (const file of requiredFiles) {
 }
 
 const readJson = (file) => JSON.parse(readFileSync(resolve(root, file), "utf8"));
+const extractionReport = readJson("extraction_report.json");
 const canonical = readJson("canonical_scene.json");
 const mapping = readJson("node_mapping.json");
 const tokens = readJson("inferred_tokens.json");
@@ -186,6 +188,11 @@ assert.ok(normalizationReport.issues.some((issue) => issue.type === "token_confl
 assert.equal(renderStrategyManifest.page, "Login Mobile");
 assert.deepEqual(renderStrategyManifest.viewport, { width: 390, height: 844 });
 assert.ok(renderStrategyManifest.regions.some((region) => region.regionId === "region_1"));
+assert.equal(extractionReport.source.rootNodeId, "1:1");
+assert.equal(extractionReport.stats.nodes > 0, true);
+assert.equal(extractionReport.stats.textNodes > 0, true);
+assert.equal(Array.isArray(extractionReport.warnings), true);
+assert.ok(compileManifest.artifacts.includes("extraction_report.json"));
 assert.ok(compileManifest.artifacts.includes("inferred_components.json"));
 assert.ok(compileManifest.artifacts.includes("component_instance_map.json"));
 assert.ok(compileManifest.artifacts.includes("component_confidence_report.json"));

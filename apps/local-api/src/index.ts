@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   assertRawFigmaScene,
+  createRawExtractionReport,
   type AssetManifestEntry,
   type OverrideSet,
   type PipelineArtifacts,
@@ -177,7 +178,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
 
   await mkdir(artifactDir, { recursive: true });
   await writeJson(resolve(artifactDir, "raw_figma_scene.json"), body.rawFigmaScene);
-  if (body.extractionReport) await writeJson(resolve(artifactDir, "extraction_report.json"), body.extractionReport);
+  await writeJson(resolve(artifactDir, "extraction_report.json"), body.extractionReport ?? createRawExtractionReport(body.rawFigmaScene));
   if (body.figmaReferencePngBase64) {
     await writeFile(resolve(artifactDir, "figma_reference.png"), Buffer.from(body.figmaReferencePngBase64, "base64"));
   }
@@ -336,6 +337,7 @@ async function writePipelineArtifacts(
         generatedAt: new Date().toISOString(),
         artifacts: [
           "raw_figma_scene.json",
+          "extraction_report.json",
           "canonical_scene.json",
           "canonicalization_report.json",
           "node_mapping.json",
