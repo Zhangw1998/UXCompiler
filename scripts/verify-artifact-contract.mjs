@@ -96,7 +96,7 @@ assertSourceRefs(rawSourceNodeIds, "inferred_tokens.typography", tokens.typograp
 assertSourceRefs(rawSourceNodeIds, "inferred_tokens.radii", tokens.radii, (entry) => entry.sourceNodeIds ?? []);
 assertSourceRefs(rawSourceNodeIds, "inferred_tokens.shadows", tokens.shadows, (entry) => entry.sourceNodeIds ?? []);
 assertSourceRefs(rawSourceNodeIds, "regions", regions, (entry) => entry.sourceNodeIds ?? []);
-assertLayoutArtifacts(rawSourceNodeIds, traceableIds, layoutCandidates, layoutDecisions);
+assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, layoutCandidates, layoutDecisions);
 assertSourceRefs(rawSourceNodeIds, "asset_manifest.assets", assetManifest.assets, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "i18n_manifest.messages", i18nManifest.messages, (entry) => [entry.sourceNodeId]);
 assertI18nManifestWarnings(rawSourceNodeIds, i18nManifest, "i18n_manifest");
@@ -440,10 +440,21 @@ function assertCanonicalizationReport(rawSourceNodeIds, canonicalIds, report) {
   }
 }
 
-function assertLayoutArtifacts(rawSourceNodeIds, traceableIds, candidates, decisions) {
+function assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, candidates, decisions) {
+  assert.ok(Array.isArray(regions), "regions must be an array.");
   assert.ok(Array.isArray(candidates), "layout_candidates must be an array.");
   assert.ok(Array.isArray(decisions), "layout_decisions must be an array.");
+  const candidateNodeIds = new Set(candidates.map((candidate) => candidate.nodeId));
   const decisionNodeIds = new Set(decisions.map((decision) => decision.nodeId));
+  const decisionSourceNodeIds = new Set(decisions.flatMap((decision) => decision.sourceNodeIds ?? []));
+  for (const region of regions) {
+    assert.ok(region.id, "region must include id.");
+    assert.ok(Array.isArray(region.sourceNodeIds) && region.sourceNodeIds.length > 0, `region ${region.id} must include sourceNodeIds.`);
+    assert.ok(
+      region.sourceNodeIds.some((sourceNodeId) => decisionSourceNodeIds.has(sourceNodeId)),
+      `region ${region.id} must be covered by at least one layout decision.`
+    );
+  }
   for (const candidate of candidates) {
     assert.equal(traceableIds.has(candidate.nodeId), true, `layout candidate references unknown nodeId ${candidate.nodeId}.`);
     assert.ok(Array.isArray(candidate.candidates) && candidate.candidates.length > 0, `layout candidate ${candidate.nodeId} must include options.`);
@@ -455,6 +466,7 @@ function assertLayoutArtifacts(rawSourceNodeIds, traceableIds, candidates, decis
   for (const decision of decisions) {
     assert.equal(traceableIds.has(decision.nodeId), true, `layout decision references unknown nodeId ${decision.nodeId}.`);
     assert.equal(decisionNodeIds.has(decision.nodeId), true, `layout decision ${decision.nodeId} must be addressable.`);
+    assert.equal(candidateNodeIds.has(decision.nodeId), true, `layout decision ${decision.nodeId} must have matching layout candidates.`);
     assertSourceRefs(rawSourceNodeIds, `layout_decisions.${decision.nodeId}`, [decision], (entry) => entry.sourceNodeIds ?? []);
     assertScore(decision.score, `layout_decisions.${decision.nodeId}.score`);
     assertScore(decision.confidence, `layout_decisions.${decision.nodeId}.confidence`);
