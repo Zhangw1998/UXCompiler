@@ -117,18 +117,69 @@ const componentCandidate = generateReviewTasks({
         name: "TrustedCard",
         sourceInstances: ["card:1", "card:2"],
         confidence: 0.95
+      },
+      {
+        componentId: "fallback_component",
+        name: "FallbackComponent",
+        confidence: 0.8
       }
     ]
   }
 });
-const componentTask = componentCandidate.reviewTasks.find((task) => task.type === "low_confidence_component");
+const componentTask = componentCandidate.reviewTasks.find((task) => task.target.candidateId === "primary_button");
 assert.ok(componentTask, "Expected a medium-confidence component candidate to create a review task");
 assert.equal(componentTask.priority, "P1");
 assert.equal(componentTask.target.candidateId, "primary_button");
 assert.deepEqual(componentTask.target.sourceNodeIds, ["button:1", "button:2"]);
 assert.equal(componentTask.suggestedActions[0].override.type, "component_candidate_override");
 assert.equal(componentTask.suggestedActions[0].override.payload.kind, "approve_component");
-assert.equal(componentCandidate.taskStatusReport.byType.low_confidence_component, 1);
+const fallbackComponentTask = componentCandidate.reviewTasks.find((task) => task.target.candidateId === "fallback_component");
+assert.ok(fallbackComponentTask, "Expected component candidates without instances to fall back to root source trace");
+assert.deepEqual(fallbackComponentTask.target.sourceNodeIds, ["frame:1"]);
+assert.deepEqual(fallbackComponentTask.suggestedActions[0].override.payload.instances, ["frame:1"]);
+assert.equal(componentCandidate.taskStatusReport.byType.low_confidence_component, 2);
+
+const visualDiff = generateReviewTasks({
+  ...baseInput,
+  visualDiffReport: {
+    version: "2.0",
+    generatedAt: "2026-07-04T00:00:00.000Z",
+    inputs: { reference: "figma_reference.png", candidate: "flutter_preview.png", heatmap: "diff_heatmap.png" },
+    environment: { dpr: 1, fonts: ["Inter"], renderer: "png_pixelmatch" },
+    page: {
+      pass: false,
+      score: { visualScore: 0.82, pixelDiffRatio: 0.18, diffPixels: 18, totalPixels: 100 },
+      threshold: { visualScore: 0.99, pixelDiffRatio: 0.01 }
+    },
+    issues: [
+      {
+        issueId: "diff_unmapped",
+        type: "pixel_diff_region",
+        bounds: { x: 0, y: 0, w: 100, h: 80 },
+        score: { visualScore: 0.7, pixelDiffRatio: 0.3, diffPixels: 24, totalPixels: 80 },
+        suggestedFixes: []
+      }
+    ],
+    warnings: []
+  }
+});
+const pageDiffTask = visualDiff.reviewTasks.find((task) => task.id === "task_visual_diff_page");
+assert.ok(pageDiffTask, "Expected failing page diff to create a page task");
+assert.equal(pageDiffTask.target.normalizedNodeId, "root");
+assert.deepEqual(pageDiffTask.target.sourceNodeIds, ["frame:1"]);
+const unmappedRegionTask = visualDiff.reviewTasks.find((task) => task.target.diffIssueId === "diff_unmapped");
+assert.ok(unmappedRegionTask, "Expected unmapped diff issue to create a region task");
+assert.equal(unmappedRegionTask.target.normalizedNodeId, "root");
+assert.deepEqual(unmappedRegionTask.target.sourceNodeIds, ["frame:1"]);
+
+const flutterCapture = generateReviewTasks({
+  ...baseInput,
+  flutterCapture: { status: "failed", reason: "Flutter capture exited 1" }
+});
+const flutterTask = flutterCapture.reviewTasks.find((task) => task.id === "task_flutter_capture_failed");
+assert.ok(flutterTask, "Expected failed Flutter capture to create a task");
+assert.equal(flutterTask.target.normalizedNodeId, "root");
+assert.deepEqual(flutterTask.target.sourceNodeIds, ["frame:1"]);
 
 console.log("review task engine verification passed");
 

@@ -121,6 +121,7 @@ function componentTasks(input: GenerateReviewTasksInput): ReviewTask[] {
     const componentId = stringValue(component.componentId) ?? stringValue(component.id) ?? `component_${index + 1}`;
     const name = stringValue(component.name) ?? pascalCase(componentId);
     const instances = stringArrayValue(component.sourceInstances) ?? stringArrayValue(component.instances) ?? [];
+    const traceSourceNodeIds = instances.length > 0 ? instances : input.normalizedDesignIR.tree.sourceNodeIds;
     return [
       makeTask({
         id: taskId("component", componentId),
@@ -128,7 +129,7 @@ function componentTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         priority: "P1",
         target: {
           candidateId: componentId,
-          sourceNodeIds: instances
+          sourceNodeIds: traceSourceNodeIds
         },
         title: "Review inferred component candidate",
         description: `Component candidate ${name} has similarity ${round(score)}; confirm whether it should become a reusable component.`,
@@ -136,7 +137,7 @@ function componentTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         evidence: {
           componentId,
           name,
-          instances,
+          instances: traceSourceNodeIds,
           props: component.props,
           fallback: component.fallback
         },
@@ -149,7 +150,7 @@ function componentTasks(input: GenerateReviewTasksInput): ReviewTask[] {
                 kind: "approve_component",
                 componentId,
                 name,
-                instances,
+                instances: traceSourceNodeIds,
                 reason: "User confirmed the inferred component candidate."
               },
               reason: "Confirmed component candidates are recorded in the Component Studio registry."
@@ -519,7 +520,10 @@ function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         id: "task_visual_diff_page",
         type: "visual_diff_failed",
         priority: "P0",
-        target: {},
+        target: {
+          normalizedNodeId: input.normalizedDesignIR.tree.id,
+          sourceNodeIds: input.normalizedDesignIR.tree.sourceNodeIds
+        },
         title: "Resolve failing visual diff before codegen",
         description: `Page visual score is ${report.page.score.visualScore}; threshold is ${report.page.threshold.visualScore}.`,
         confidence: report.page.score.visualScore,
@@ -552,7 +556,8 @@ function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         type: "visual_diff_failed",
         priority: issue.score.pixelDiffRatio > 0.1 ? "P0" : "P1",
         target: {
-          sourceNodeIds: issue.sourceNodeId ? [issue.sourceNodeId] : undefined,
+          normalizedNodeId: input.normalizedDesignIR.tree.id,
+          sourceNodeIds: issue.sourceNodeId ? [issue.sourceNodeId] : input.normalizedDesignIR.tree.sourceNodeIds,
           diffIssueId: issue.issueId
         },
         title: "Review visual diff region",
@@ -565,7 +570,7 @@ function visualDiffTasks(input: GenerateReviewTasksInput): ReviewTask[] {
             override: {
               type: "render_strategy_override",
               payload: {
-                sourceNodeId: issue.sourceNodeId,
+                sourceNodeId: issue.sourceNodeId ?? input.normalizedDesignIR.tree.sourceNodeIds[0],
                 strategy: "asset_slice"
               },
               reason: "A localized asset slice can reduce visual mismatch in this region."
@@ -601,6 +606,8 @@ function flutterCaptureTasks(input: GenerateReviewTasksInput): ReviewTask[] {
       type: "flutter_analyze_failed",
       priority: "P0",
       target: {
+        normalizedNodeId: input.normalizedDesignIR.tree.id,
+        sourceNodeIds: input.normalizedDesignIR.tree.sourceNodeIds,
         filePath: "flutter_preview"
       },
       title: "Fix Flutter preview capture failure",
