@@ -38,6 +38,7 @@ assertIncludes(main, "writeStoredZip(entries)", "main writes offline snapshot zi
 assertIncludes(main, "source_snapshot.json", "main exports source snapshot");
 assertIncludes(main, "raw_figma_scene.json", "main exports raw scene");
 assertIncludes(main, "figma_reference.png", "main exports reference screenshot");
+assertIncludes(main, "raw_assets_manifest.json", "main exports raw asset manifest");
 assertIncludes(main, "raw_assets/", "main exports raw assets");
 assertIncludes(main, "preferFrameScreenshotFallback: true", "main requests frame screenshot fallback");
 assertIncludes(main, "assets,", "main sends exported assets");
@@ -54,6 +55,7 @@ assertIncludes(builtMain, "writeStoredZip(entries)", "built main writes offline 
 assertIncludes(builtMain, "source_snapshot.json", "built main exports source snapshot");
 assertIncludes(builtMain, "raw_figma_scene.json", "built main exports raw scene");
 assertIncludes(builtMain, "figma_reference.png", "built main exports reference screenshot");
+assertIncludes(builtMain, "raw_assets_manifest.json", "built main exports raw asset manifest");
 assertIncludes(builtMain, "raw_assets/", "built main exports raw assets");
 assertIncludes(builtMain, "preferFrameScreenshotFallback: true", "built main requests frame screenshot fallback");
 assertIncludes(builtMain, "assets,", "built main sends exported assets");

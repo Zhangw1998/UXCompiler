@@ -40,6 +40,13 @@ interface SnapshotRequest {
   runDiff?: boolean;
 }
 
+interface SnapshotZipImportRequest {
+  zipBase64: string;
+  projectId?: string;
+  runPreview?: boolean;
+  runDiff?: boolean;
+}
+
 interface MaterializedAssetReport {
   version: string;
   generatedAt: string;
@@ -142,6 +149,18 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/snapshot-zip") {
+    const body = (await readJsonBody(request)) as SnapshotZipImportRequest;
+    const snapshot = readSnapshotZipRequest(body);
+    const result = await saveSnapshot(snapshot);
+    sendJson(response, 200, {
+      ok: true,
+      importedFromZip: true,
+      ...result
+    });
+    return;
+  }
+
   sendJson(response, 404, {
     ok: false,
     error: `No route for ${request.method} ${url.pathname}`
@@ -199,6 +218,67 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
     normalizedConfidence: artifacts.normalizedDesignIR.confidence.overall,
     pipelineRunReport
   };
+}
+
+function readSnapshotZipRequest(body: SnapshotZipImportRequest): SnapshotRequest {
+  if (!stringValue(body.zipBase64)) throw new Error("Missing required zipBase64.");
+  const entries = readStoredZip(Buffer.from(body.zipBase64, "base64"));
+  const entryMap = new Map(entries.map((entry) => [entry.name, entry.data]));
+  const rawSceneEntry = entryMap.get("raw_figma_scene.json");
+  if (!rawSceneEntry) throw new Error("Invalid UXCompiler snapshot zip: missing raw_figma_scene.json.");
+  const rawFigmaScene = JSON.parse(rawSceneEntry.toString("utf8")) as RawFigmaScene;
+  assertRawFigmaScene(rawFigmaScene);
+  const referencePng = entryMap.get("figma_reference.png");
+  const extractionReportEntry = entryMap.get("extraction_report.json");
+  const assets = readSnapshotZipAssets(entryMap);
+  return {
+    sourceKind: "figma_plugin",
+    rawFigmaScene,
+    projectId: body.projectId,
+    figmaReferencePngBase64: referencePng ? referencePng.toString("base64") : undefined,
+    preferFrameScreenshotFallback: true,
+    assets,
+    extractionReport: extractionReportEntry ? JSON.parse(extractionReportEntry.toString("utf8")) : undefined,
+    runPreview: body.runPreview,
+    runDiff: body.runDiff
+  };
+}
+
+function readSnapshotZipAssets(entryMap: Map<string, Buffer>): SnapshotAsset[] {
+  const manifestEntry = entryMap.get("raw_assets_manifest.json");
+  if (manifestEntry) {
+    const manifest = JSON.parse(manifestEntry.toString("utf8"));
+    if (!Array.isArray(manifest)) throw new Error("Invalid UXCompiler snapshot zip: raw_assets_manifest.json must be an array.");
+    return manifest.flatMap((entry) => {
+      const asset = objectValue(entry);
+      const sourceNodeId = stringValue(asset?.sourceNodeId);
+      const path = stringValue(asset?.path);
+      if (!sourceNodeId || !path) return [];
+      assertSafeArchivePath(path);
+      const data = entryMap.get(path);
+      if (!data) return [];
+      return [
+        {
+          sourceNodeId,
+          name: stringValue(asset?.name),
+          format: "png" as const,
+          contentType: stringValue(asset?.contentType) ?? "image/png",
+          pngBase64: data.toString("base64"),
+          bytes: data.byteLength
+        }
+      ];
+    });
+  }
+  return Array.from(entryMap.entries())
+    .filter(([name]) => name.startsWith("raw_assets/") && name.endsWith(".png"))
+    .map(([name, data]) => ({
+      sourceNodeId: name.slice("raw_assets/".length, -".png".length),
+      name,
+      format: "png" as const,
+      contentType: "image/png",
+      pngBase64: data.toString("base64"),
+      bytes: data.byteLength
+    }));
 }
 
 async function writePipelineArtifacts(
@@ -911,4 +991,43 @@ function parseAnalyzeOutput(output: string): { errors: number; warnings: number 
 
 function safeName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "snapshot";
+}
+
+type ZipEntryOutput = {
+  name: string;
+  data: Buffer;
+};
+
+function readStoredZip(buffer: Buffer): ZipEntryOutput[] {
+  const eocdOffset = buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocdOffset === -1) throw new Error("Invalid zip archive: missing end of central directory.");
+  const entryCount = buffer.readUInt16LE(eocdOffset + 10);
+  const centralOffset = buffer.readUInt32LE(eocdOffset + 16);
+  const entries: ZipEntryOutput[] = [];
+  let cursor = centralOffset;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (buffer.readUInt32LE(cursor) !== 0x02014b50) throw new Error("Invalid zip archive: corrupt central directory.");
+    const method = buffer.readUInt16LE(cursor + 10);
+    if (method !== 0) throw new Error("Unsupported snapshot zip: only stored entries are supported.");
+    const compressedSize = buffer.readUInt32LE(cursor + 20);
+    const nameLength = buffer.readUInt16LE(cursor + 28);
+    const extraLength = buffer.readUInt16LE(cursor + 30);
+    const commentLength = buffer.readUInt16LE(cursor + 32);
+    const localOffset = buffer.readUInt32LE(cursor + 42);
+    const name = buffer.subarray(cursor + 46, cursor + 46 + nameLength).toString("utf8");
+    assertSafeArchivePath(name);
+    if (buffer.readUInt32LE(localOffset) !== 0x04034b50) throw new Error("Invalid zip archive: corrupt local entry.");
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    entries.push({ name, data: buffer.subarray(dataStart, dataStart + compressedSize) });
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function assertSafeArchivePath(path: string): void {
+  if (!path || path.startsWith("/") || path.includes("..") || path.includes("\\")) {
+    throw new Error(`Unsafe snapshot zip path: ${path}`);
+  }
 }

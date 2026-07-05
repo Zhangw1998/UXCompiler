@@ -252,6 +252,69 @@ try {
   assert.equal(fallbackPipelineRunReport.steps.snapshot.frameScreenshotFallback, true);
   assert.equal(fallbackPipelineRunReport.steps.flutterCapture.status, "skipped");
   assert.equal(fallbackPipelineRunReport.steps.visualDiff.status, "skipped");
+
+  const zipAssetSourceNodeId = "zip:asset:1";
+  const zipScene = JSON.parse(JSON.stringify(fallbackScene));
+  zipScene.source.fileName = "plugin_zip_smoke";
+  zipScene.source.frameNodeId = "zip:frame";
+  zipScene.root.id = "zip:frame";
+  zipScene.root.children.push({
+    id: zipAssetSourceNodeId,
+    name: "Zip Bitmap",
+    type: "RECTANGLE",
+    visible: true,
+    absoluteBoundingBox: { x: 0, y: 0, width: 1, height: 1 },
+    fills: [{ type: "IMAGE", visible: true, imageHash: "zip-image" }]
+  });
+  const zipBuffer = writeStoredZip([
+    jsonZipEntry("source_snapshot.json", {
+      id: "snap_zip_smoke",
+      figmaFileKey: zipScene.source.fileKey,
+      frameId: zipScene.source.frameNodeId,
+      rawScenePath: "raw_figma_scene.json",
+      referenceScreenshotPath: "figma_reference.png",
+      assetDir: "raw_assets"
+    }),
+    jsonZipEntry("raw_figma_scene.json", zipScene),
+    jsonZipEntry("extraction_report.json", { source: { frameNodeId: zipScene.source.frameNodeId }, warnings: [] }),
+    jsonZipEntry("raw_assets_manifest.json", [
+      {
+        sourceNodeId: zipAssetSourceNodeId,
+        name: "Zip Bitmap",
+        format: "png",
+        contentType: "image/png",
+        path: "raw_assets/zip_asset_1.png"
+      }
+    ]),
+    { name: "figma_reference.png", data: Buffer.from(referencePngBase64, "base64") },
+    { name: "raw_assets/zip_asset_1.png", data: Buffer.from(referencePngBase64, "base64") }
+  ]);
+  const zipResponse = await fetch("http://127.0.0.1:8799/api/snapshot-zip", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      projectId: "zip-smoke",
+      zipBase64: zipBuffer.toString("base64"),
+      runPreview: false,
+      runDiff: false
+    })
+  });
+  assert.equal(zipResponse.ok, true);
+  const zipResult = await zipResponse.json();
+  assert.equal(zipResult.ok, true);
+  assert.equal(zipResult.importedFromZip, true);
+  assert.equal(existsSync(resolve(zipResult.artifactDir, "raw_figma_scene.json")), true);
+  assert.equal(existsSync(resolve(zipResult.artifactDir, "figma_reference.png")), true);
+  assert.equal(existsSync(resolve(zipResult.artifactDir, "extraction_report.json")), true);
+  assert.equal(existsSync(resolve(zipResult.artifactDir, "assets/frames/figma_reference.png")), true);
+  const zipMaterializedAssetReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "materialized_assets_report.json"), "utf8"));
+  assert.equal(zipMaterializedAssetReport.requested, 1);
+  assert.equal(zipMaterializedAssetReport.materialized.some((asset) => asset.sourceNodeId === zipAssetSourceNodeId), true);
+  const zipPipelineRunReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "pipeline_run_report.json"), "utf8"));
+  assert.equal(zipPipelineRunReport.source.sourceKind, "figma_plugin");
+  assert.equal(zipPipelineRunReport.steps.snapshot.frameScreenshotFallback, true);
+  assert.equal(zipPipelineRunReport.steps.flutterCapture.status, "skipped");
+
   console.log("local api verification passed");
 } finally {
   server.kill("SIGTERM");
@@ -281,4 +344,88 @@ async function streamText(stream) {
     });
     setTimeout(() => resolveText(text), 50);
   });
+}
+
+function jsonZipEntry(name, value) {
+  return {
+    name,
+    data: Buffer.from(`${JSON.stringify(value, null, 2)}\n`)
+  };
+}
+
+function writeStoredZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const crc = crc32(entry.data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(0, 10);
+    local.writeUInt16LE(0, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(entry.data.length, 18);
+    local.writeUInt32LE(entry.data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);
+    localParts.push(local, name, entry.data);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(0, 12);
+    central.writeUInt16LE(0, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(entry.data.length, 20);
+    central.writeUInt32LE(entry.data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+    offset += local.length + name.length + entry.data.length;
+  }
+  const centralOffset = offset;
+  const central = Buffer.concat(centralParts);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(central.length, 12);
+  eocd.writeUInt32LE(centralOffset, 16);
+  eocd.writeUInt16LE(0, 20);
+  return Buffer.concat([...localParts, central, eocd]);
+}
+
+function crc32(data) {
+  let crc = 0xffffffff;
+  const table = getCrcTable();
+  for (const byte of data) {
+    crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+var crcTable;
+
+function getCrcTable() {
+  crcTable ??= Array.from({ length: 256 }, (_, index) => {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    return value >>> 0;
+  });
+  return crcTable;
 }

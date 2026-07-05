@@ -123,6 +123,19 @@ async function exportSnapshotZip(): Promise<void> {
       jsonZipEntry("source_snapshot.json", sourceSnapshot),
       jsonZipEntry("raw_figma_scene.json", rawFigmaScene),
       jsonZipEntry("extraction_report.json", extractionReport),
+      jsonZipEntry(
+        "raw_assets_manifest.json",
+        assets.map((asset) => ({
+          sourceNodeId: asset.sourceNodeId,
+          name: asset.name,
+          format: asset.format,
+          contentType: asset.contentType,
+          path: `raw_assets/${safeId(asset.sourceNodeId || asset.name)}.png`,
+          bytes: asset.bytes,
+          width: asset.width,
+          height: asset.height
+        }))
+      ),
       { name: "figma_reference.png", data: png },
       ...assets.map((asset) => ({
         name: `raw_assets/${safeId(asset.sourceNodeId || asset.name)}.png`,
