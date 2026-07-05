@@ -197,12 +197,7 @@ function applyOne(context: {
       applyFlutterComponentMapping(context);
       return;
     case "font_mapping_override":
-      context.warnings.push({
-        overrideId: override.id,
-        type: "configuration_override",
-        message: "font_mapping_override is recorded as project preview configuration for downstream renderers."
-      });
-      context.appliedOverrideIds.push(override.id);
+      applyFontMapping(context);
       return;
     case "text_calibration_override":
       applyTextCalibration(context);
@@ -514,6 +509,42 @@ function applyFlutterComponentMapping(context: ApplyContext): void {
   }
   component.flutter = flutter;
   component.verified = true;
+  context.appliedOverrideIds.push(context.override.id);
+}
+
+function applyFontMapping(context: ApplyContext): void {
+  const payload = context.override.payload;
+  const tokenName = stringValue(payload.tokenName) ?? context.override.target.tokenName;
+  const sourceNodeIds = Array.from(new Set([...stringArray(payload.sourceNodeIds), ...(context.override.target.sourceNodeId ? [context.override.target.sourceNodeId] : [])]));
+  const fromFamily = stringValue(payload.fromFamily) ?? stringValue(payload.sourceFamily);
+  const toFamily =
+    stringValue(payload.fallbackFamily) ??
+    stringValue(payload.toFamily) ??
+    stringValue(payload.targetFamily) ??
+    stringValue(payload.fontFamily) ??
+    stringValue(payload.family);
+
+  if (!toFamily) {
+    addConflict(context, "invalid_payload", "font_mapping_override requires fallbackFamily or toFamily.");
+    return;
+  }
+
+  const matches = context.inferredTokens.typography.filter((token) => {
+    if (tokenName && token.name !== tokenName) return false;
+    if (sourceNodeIds.length > 0 && !token.sourceNodeIds.some((sourceNodeId) => sourceNodeIds.includes(sourceNodeId))) return false;
+    if (fromFamily && !fontFamilyMatches(token.fontFamily, fromFamily)) return false;
+    return tokenName || sourceNodeIds.length > 0 || Boolean(fromFamily);
+  });
+
+  if (matches.length === 0) {
+    addStale(context, "No typography tokens matched the font_mapping_override target.");
+    return;
+  }
+
+  for (const token of matches) {
+    token.fontFamily = toFamily;
+    token.confidence = 1;
+  }
   context.appliedOverrideIds.push(context.override.id);
 }
 
@@ -1041,6 +1072,15 @@ function normalizeLayout(value: string | undefined): LayoutType | undefined {
 function normalizeRole(value: string | undefined): NormalizedNode["role"] | undefined {
   const roles = new Set<NonNullable<NormalizedNode["role"]>>(["header", "content", "footer", "overlay", "section", "list", "decoration"]);
   return value && roles.has(value as NonNullable<NormalizedNode["role"]>) ? (value as NonNullable<NormalizedNode["role"]>) : undefined;
+}
+
+function fontFamilyMatches(currentFamily: string, expectedFamily: string): boolean {
+  const current = currentFamily.trim().toLowerCase();
+  const expected = expectedFamily.trim().toLowerCase();
+  if (!expected) return false;
+  if (current === expected) return true;
+  if ((expected === "unknown" || expected === "system") && (!current || current === "unknown" || current === "system")) return true;
+  return false;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

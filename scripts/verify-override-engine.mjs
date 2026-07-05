@@ -78,7 +78,7 @@ writeFileSync(
           componentId: "cmp_rejected_decoration",
           reason: "Reject a decorative component candidate."
         }),
-        override("ovr_font_inter", "font_mapping_override", { kind: "token", tokenName: "text_body" }, { fromFamily: "System", fallbackFamily: "Inter" }),
+        override("ovr_font_inter", "font_mapping_override", { kind: "token", tokenName: "text_display" }, { fromFamily: "Inter", fallbackFamily: "SF Pro Display" }),
         override("ovr_text_title_calibration", "text_calibration_override", { kind: "normalized_node", normalizedNodeId: "n_1_3" }, {
           baselineShift: -1,
           lineHeight: 42,
@@ -162,6 +162,7 @@ assert.ok(i18nManifest.warnings.some((warning) => warning.type === "non_i18n" &&
 assert.equal(arb.loginTitle, "Welcome back");
 assert.equal(arb.subtitle, undefined);
 assert.ok(tokens.radii.some((token) => token.name === "radius_cta" && token.confidence === 1));
+assert.ok(tokens.typography.some((token) => token.name === "text_display" && token.fontFamily === "SF Pro Display" && token.confidence === 1));
 const primaryButton = reviewed.components.find((component) => component.componentId === "cmp_primary_button");
 assert.equal(primaryButton.name, "PrimaryButton");
 assert.deepEqual(primaryButton.sourceInstances, ["1:12", "1:14"]);
@@ -178,7 +179,7 @@ assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_label"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_state"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_component_button_flutter"));
 assert.ok(stale.appliedOverrideIds.includes("ovr_text_title_calibration"));
-assert.ok(conflicts.warnings.some((entry) => entry.overrideId === "ovr_font_inter" && entry.type === "configuration_override"));
+assert.equal(conflicts.warnings.some((entry) => entry.overrideId === "ovr_font_inter" && entry.type === "configuration_override"), false);
 assert.equal(conflicts.warnings.some((entry) => entry.overrideId?.startsWith("ovr_component_") && entry.type === "unsupported_override"), false);
 assert.equal(conflicts.warnings.some((entry) => entry.overrideId === "ovr_text_title_calibration" && entry.type === "unsupported_override"), false);
 assert.ok(stale.staleOverrides.some((entry) => entry.overrideId === "ovr_stale"));
