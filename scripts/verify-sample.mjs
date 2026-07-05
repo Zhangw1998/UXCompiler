@@ -54,6 +54,7 @@ const requiredFiles = [
   "uplift_diff_report.json",
   "normalization_report.json",
   "render_strategy_manifest.json",
+  "flutter_generation_manifest.json",
   "normalized_design_ir.json",
   "compile_manifest.json"
 ];
@@ -207,6 +208,7 @@ assert.ok(compileManifest.artifacts.includes("uplift_decisions.json"));
 assert.ok(compileManifest.artifacts.includes("uplift_diff_report.json"));
 assert.ok(compileManifest.artifacts.includes("normalization_report.json"));
 assert.ok(compileManifest.artifacts.includes("render_strategy_manifest.json"));
+assert.ok(compileManifest.artifacts.includes("flutter_generation_manifest.json"));
 assert.equal(normalized.version, "2.0");
 assert.ok(normalized.confidence.overall >= 0.8, "Expected useful normalized confidence");
 

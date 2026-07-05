@@ -5,10 +5,13 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
+import { createCodegenReview } from "@uxcompiler/codegen-review";
 import {
   assertRawFigmaScene,
   createRawExtractionReport,
   type AssetManifestEntry,
+  type CodegenAnalyzeSummary,
+  type CodegenFormatSummary,
   type OverrideSet,
   type PipelineArtifacts,
   type RawFigmaScene,
@@ -365,6 +368,7 @@ async function writePipelineArtifacts(
           "visual_ir.json",
           "web_preview_state.json",
           "fidelity_generation_manifest.json",
+          "flutter_generation_manifest.json",
           "node_pixel_map.json",
           "review_tasks.json",
           "task_status_report.json",
@@ -431,6 +435,21 @@ async function writePipelineArtifacts(
     writeJson(resolve(outDir, "flutter_preview_format_report.json"), formatReport),
     writeJson(resolve(outDir, "flutter_preview_analyze_report.json"), analyzeReport)
   ]);
+  const codegenReview = createCodegenReview({
+    normalizedDesignIR: artifacts.reviewedNormalizedDesignIR,
+    assetManifest: artifacts.reviewedAssetManifest,
+    i18nManifest: artifacts.reviewedI18nManifest,
+    flutterPreviewFiles: artifacts.flutterPreviewProject.files,
+    reviewTasks: artifacts.reviewTasks,
+    taskStatusReport: artifacts.taskStatusReport,
+    fidelityGenerationManifest: artifacts.fidelityGenerationManifest,
+    nodePixelMap: artifacts.nodePixelMap,
+    overrideSet: artifacts.overrideSet,
+    staleOverrideReport: artifacts.staleOverrideReport,
+    format: codegenFormatSummary(formatReport, "flutter_preview_format_report.json"),
+    analyze: codegenAnalyzeSummary(analyzeReport, "flutter_preview_analyze_report.json")
+  });
+  await writeJson(resolve(outDir, "flutter_generation_manifest.json"), codegenReview.codegenReview);
   return materializedAssetReport;
 }
 
@@ -782,6 +801,38 @@ async function analyzeFlutterPreview(previewDir: string): Promise<Record<string,
       stderr: candidate.stderr
     };
   }
+}
+
+function codegenFormatSummary(value: Record<string, unknown>, source: string): CodegenFormatSummary {
+  const statusValue = stringValue(value.status)?.toLowerCase();
+  const exitCode = numberValue(value.exitCode);
+  const status: CodegenFormatSummary["status"] =
+    statusValue === "success" || exitCode === 0
+      ? "success"
+      : statusValue === "skipped"
+        ? "skipped"
+        : statusValue === "failed" || statusValue === "error" || statusValue === "failure" || (exitCode ?? 0) > 0
+          ? "failed"
+          : "unknown";
+  return {
+    status,
+    source,
+    command: stringValue(value.command),
+    stdout: stringValue(value.stdout),
+    stderr: stringValue(value.stderr),
+    raw: value
+  };
+}
+
+function codegenAnalyzeSummary(value: Record<string, unknown>, source: string): CodegenAnalyzeSummary {
+  return {
+    errors: numberValue(value.errors) ?? 0,
+    warnings: numberValue(value.warnings) ?? 0,
+    source,
+    stdout: stringValue(value.stdout),
+    stderr: stringValue(value.stderr),
+    raw: value
+  };
 }
 
 async function captureFlutterPreview(projectDir: string, outPath: string, metadata: PreviewCaptureMetadata = {}): Promise<Record<string, unknown>> {

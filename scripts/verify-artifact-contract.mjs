@@ -28,6 +28,7 @@ const requiredJsonFiles = [
   "normalization_report.json",
   "render_strategy_manifest.json",
   "fidelity_generation_manifest.json",
+  "flutter_generation_manifest.json",
   "visual_diff_report.json",
   "repair_patch.json",
   "repair_iteration_log.json",
@@ -68,6 +69,7 @@ const upliftDiffReport = json("uplift_diff_report.json");
 const normalizationReport = json("normalization_report.json");
 const renderStrategyManifest = json("render_strategy_manifest.json");
 const fidelityManifest = json("fidelity_generation_manifest.json");
+const flutterGenerationManifest = json("flutter_generation_manifest.json");
 const visualDiffReport = json("visual_diff_report.json");
 const repairPatch = json("repair_patch.json");
 const repairIterationLog = json("repair_iteration_log.json");
@@ -111,6 +113,7 @@ assertSourceRefs(rawSourceNodeIds, "render_strategy_manifest.regions", renderStr
 assertVisibleTextI18nCoverage(canonical, i18nManifest);
 assertAssetManifestPaths(assetManifest, materializedAssetReport);
 assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR);
+assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, flutterGenerationManifest);
 assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap);
 if (parsedJsonFiles.has("review_tasks.json")) {
   assertReviewTaskArtifacts(reviewTaskSourceNodeIds(rawSourceNodeIds, parsedJsonFiles.get("node_remap_report.json")), normalizedIds, parsedJsonFiles.get("review_tasks.json"));
@@ -559,6 +562,99 @@ function assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport
   }
 }
 
+function assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, manifest) {
+  assert.equal(typeof manifest.version, "string", "flutter_generation_manifest.version must be present.");
+  assert.ok(manifest.buildId, "flutter_generation_manifest.buildId must be present.");
+  assert.ok(manifest.generatedAt, "flutter_generation_manifest.generatedAt must be present.");
+  assert.ok(Array.isArray(manifest.files), "flutter_generation_manifest.files must be an array.");
+  assert.ok(manifest.files.length > 0, "flutter_generation_manifest must describe generated files.");
+  for (const file of manifest.files) {
+    assertSafeRelativePath(file.path, `flutter_generation_manifest.files.${file.path}.path`);
+    assert.ok(["create", "modify", "unchanged", "conflict"].includes(file.action), `flutter_generation_manifest file ${file.path} must have a known action.`);
+    assertHash(file.hash, `flutter_generation_manifest.files.${file.path}.hash`);
+    if (file.previousHash) assertHash(file.previousHash, `flutter_generation_manifest.files.${file.path}.previousHash`);
+    if (file.existingHash) assertHash(file.existingHash, `flutter_generation_manifest.files.${file.path}.existingHash`);
+    assert.ok(file.reason, `flutter_generation_manifest file ${file.path} must include reason.`);
+    assert.ok(Array.isArray(file.generatedRegions) && file.generatedRegions.length > 0, `flutter_generation_manifest file ${file.path} must include generated regions.`);
+    for (const region of file.generatedRegions) {
+      assert.ok(region.id, `flutter_generation_manifest file ${file.path} generated region must include id.`);
+      assert.ok(region.strategy, `flutter_generation_manifest generated region ${region.id} must include strategy.`);
+      assertHash(region.hash, `flutter_generation_manifest.generatedRegions.${region.id}.hash`);
+      assertSourceRefs(rawSourceNodeIds, `flutter_generation_manifest.generatedRegions.${region.id}`, [region], (entry) => entry.sourceNodeIds ?? []);
+    }
+  }
+
+  assertStringArray(manifest.filesToCreate ?? [], "flutter_generation_manifest.filesToCreate", assertSafeRelativePath);
+  assert.ok(Array.isArray(manifest.filesToModify ?? []), "flutter_generation_manifest.filesToModify must be an array.");
+  for (const file of manifest.filesToModify ?? []) {
+    assertSafeRelativePath(file.path, `flutter_generation_manifest.filesToModify.${file.path}.path`);
+    if (file.patch) assertSafeRelativePath(file.patch, `flutter_generation_manifest.filesToModify.${file.path}.patch`);
+    assert.ok(["create", "modify", "unchanged", "conflict"].includes(file.action), `flutter_generation_manifest modified file ${file.path} must have a known action.`);
+  }
+
+  assert.ok(Array.isArray(manifest.assetsToAdd ?? []), "flutter_generation_manifest.assetsToAdd must be an array.");
+  for (const asset of manifest.assetsToAdd ?? []) {
+    assert.equal(rawSourceNodeIds.has(asset.sourceNodeId), true, `flutter_generation_manifest asset ${asset.assetId} references unknown sourceNodeId ${asset.sourceNodeId}.`);
+    if (asset.path) assertSafeRelativePath(asset.path, `flutter_generation_manifest.assetsToAdd.${asset.assetId}.path`);
+    assert.ok(asset.reason, `flutter_generation_manifest asset ${asset.assetId} must include reason.`);
+  }
+
+  assertStringArray(manifest.arbKeysToAdd ?? [], "flutter_generation_manifest.arbKeysToAdd");
+  assertStringArray(manifest.blockingTasks ?? [], "flutter_generation_manifest.blockingTasks");
+  if (manifest.generatedWidgets) {
+    assert.ok(Array.isArray(manifest.generatedWidgets), "flutter_generation_manifest.generatedWidgets must be an array.");
+    for (const widget of manifest.generatedWidgets) {
+      assertSafeRelativePath(widget.path, `flutter_generation_manifest.generatedWidgets.${widget.regionId}.path`);
+      assert.ok(widget.regionId, `flutter_generation_manifest generated widget for ${widget.path} must include regionId.`);
+      assert.ok(widget.strategy, `flutter_generation_manifest generated widget ${widget.regionId} must include strategy.`);
+      assertHash(widget.hash, `flutter_generation_manifest.generatedWidgets.${widget.regionId}.hash`);
+      assertSourceRefs(rawSourceNodeIds, `flutter_generation_manifest.generatedWidgets.${widget.regionId}`, [widget], (entry) => entry.sourceNodeIds ?? []);
+    }
+  }
+  if (manifest.fallbackRegions) {
+    assert.ok(Array.isArray(manifest.fallbackRegions), "flutter_generation_manifest.fallbackRegions must be an array.");
+    for (const region of manifest.fallbackRegions) {
+      assert.equal(traceableIds.has(region.nodeId), true, `flutter_generation_manifest fallback region references unknown nodeId ${region.nodeId}.`);
+      assertSourceRefs(rawSourceNodeIds, `flutter_generation_manifest.fallbackRegions.${region.nodeId}`, [region], (entry) => entry.sourceNodeIds ?? []);
+      assert.ok(region.strategy, `flutter_generation_manifest fallback region ${region.nodeId} must include strategy.`);
+      assert.ok(region.reason, `flutter_generation_manifest fallback region ${region.nodeId} must include reason.`);
+    }
+  }
+  if (manifest.unresolvedReviewTasks) {
+    assert.ok(Array.isArray(manifest.unresolvedReviewTasks), "flutter_generation_manifest.unresolvedReviewTasks must be an array.");
+    for (const task of manifest.unresolvedReviewTasks) {
+      assert.ok(task.id, "flutter_generation_manifest unresolved task must include id.");
+      assert.ok(task.type, `flutter_generation_manifest unresolved task ${task.id} must include type.`);
+      assert.ok(["P0", "P1", "P2"].includes(task.priority), `flutter_generation_manifest unresolved task ${task.id} must include priority.`);
+      assert.ok(task.title, `flutter_generation_manifest unresolved task ${task.id} must include title.`);
+      assertScore(task.confidence, `flutter_generation_manifest.unresolvedReviewTasks.${task.id}.confidence`);
+      assert.ok(task.target && typeof task.target === "object" && !Array.isArray(task.target), `flutter_generation_manifest unresolved task ${task.id} must include target.`);
+    }
+  }
+  if (manifest.format) {
+    assert.ok(["success", "failed", "skipped", "unknown"].includes(manifest.format.status), "flutter_generation_manifest.format.status must be known.");
+  }
+  if (manifest.analyze) {
+    assert.ok(Number.isInteger(manifest.analyze.errors) && manifest.analyze.errors >= 0, "flutter_generation_manifest.analyze.errors must be a non-negative integer.");
+    assert.ok(Number.isInteger(manifest.analyze.warnings) && manifest.analyze.warnings >= 0, "flutter_generation_manifest.analyze.warnings must be a non-negative integer.");
+  }
+  if (manifest.gates) {
+    assert.equal(typeof manifest.gates.canWrite, "boolean", "flutter_generation_manifest.gates.canWrite must be boolean.");
+    assert.ok(["ready", "blocked"].includes(manifest.gates.status), "flutter_generation_manifest.gates.status must be known.");
+    assert.equal(manifest.gates.canWrite, manifest.gates.status === "ready", "flutter_generation_manifest.gates.canWrite must match gate status.");
+    assert.ok(Array.isArray(manifest.gates.blockers), "flutter_generation_manifest.gates.blockers must be an array.");
+    assert.ok(Array.isArray(manifest.gates.warnings), "flutter_generation_manifest.gates.warnings must be an array.");
+    for (const blocker of manifest.gates.blockers) {
+      assert.ok(blocker.type, "flutter_generation_manifest gate blocker must include type.");
+      assert.ok(blocker.message, `flutter_generation_manifest gate blocker ${blocker.type} must include message.`);
+    }
+    for (const warning of manifest.gates.warnings) {
+      assert.ok(warning.type, "flutter_generation_manifest gate warning must include type.");
+      assert.ok(warning.message, `flutter_generation_manifest gate warning ${warning.type} must include message.`);
+    }
+  }
+}
+
 function assertRepairArtifacts(repairPatch, repairIterationLog) {
   assert.equal(typeof repairPatch.version, "string", "repair_patch.version must be present.");
   assert.equal(typeof repairPatch.generatedAt, "string", "repair_patch.generatedAt must be present.");
@@ -610,6 +706,26 @@ function assertSourceRefs(sourceIds, label, entries, selectIds) {
       assert.equal(sourceIds.has(sourceNodeId), true, `${label} references unknown sourceNodeId ${sourceNodeId}.`);
     }
   }
+}
+
+function assertStringArray(values, label, each = undefined) {
+  assert.ok(Array.isArray(values), `${label} must be an array.`);
+  for (const value of values) {
+    assert.equal(typeof value, "string", `${label} entries must be strings.`);
+    assert.ok(value.length > 0, `${label} entries must not be empty.`);
+    if (each) each(value, `${label}.${value}`);
+  }
+}
+
+function assertSafeRelativePath(path, label) {
+  assert.equal(typeof path, "string", `${label} must be a string.`);
+  assert.ok(path.length > 0, `${label} must not be empty.`);
+  assert.equal(path.startsWith("/"), false, `${label} must be relative.`);
+  assert.equal(path.includes(".."), false, `${label} must not contain parent traversal.`);
+}
+
+function assertHash(value, label) {
+  assert.match(value, /^sha256_[a-f0-9]{64}$/, `${label} must be a sha256 hash.`);
 }
 
 function assertBounds(bounds, label) {

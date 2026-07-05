@@ -65,6 +65,9 @@ importers:
 
   apps/local-api:
     dependencies:
+      '@uxcompiler/codegen-review':
+        specifier: workspace:*
+        version: link:../../packages/codegen-review
       '@uxcompiler/ir-schemas':
         specifier: workspace:*
         version: link:../../packages/ir-schemas

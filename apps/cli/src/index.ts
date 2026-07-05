@@ -1711,6 +1711,7 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
           "visual_ir.json",
           "web_preview_state.json",
           "fidelity_generation_manifest.json",
+          "flutter_generation_manifest.json",
           "node_pixel_map.json",
           "review_tasks.json",
           "task_status_report.json",
@@ -1766,6 +1767,21 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
     writeFile(resolve(outDir, "flutter_preview_format_report.json"), `${JSON.stringify(formatReport, null, 2)}\n`, "utf8"),
     writeFile(resolve(outDir, "flutter_preview_analyze_report.json"), `${JSON.stringify(analyzeReport, null, 2)}\n`, "utf8")
   ]);
+  const codegenReview = createCodegenReview({
+    normalizedDesignIR: artifacts.reviewedNormalizedDesignIR,
+    assetManifest: artifacts.reviewedAssetManifest,
+    i18nManifest: artifacts.reviewedI18nManifest,
+    flutterPreviewFiles: artifacts.flutterPreviewProject.files,
+    reviewTasks: artifacts.reviewTasks,
+    taskStatusReport: artifacts.taskStatusReport,
+    fidelityGenerationManifest: artifacts.fidelityGenerationManifest,
+    nodePixelMap: artifacts.nodePixelMap,
+    overrideSet: artifacts.overrideSet,
+    staleOverrideReport: artifacts.staleOverrideReport,
+    format: normalizeFormatSummary(formatReport, "flutter_preview_format_report.json"),
+    analyze: normalizeAnalyzeSummary(analyzeReport, "flutter_preview_analyze_report.json")
+  });
+  await writeCodegenReviewArtifacts(outDir, codegenReview);
 }
 
 async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: PipelineArtifacts, runReport: FigmaRunReport): Promise<void> {
