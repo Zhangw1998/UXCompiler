@@ -68,7 +68,9 @@ function normalizeNode(
   });
   layoutDecisions.push(decision.decision);
 
-  if (decision.decision.fallback) {
+  const usesFidelityFallback =
+    decision.decision.confidence < 0.7 || decision.decision.layout === "absolute";
+  if (usesFidelityFallback) {
     fallbacks.push({
       nodeId: node.id,
       reason: decision.decision.evidence.join(" "),
@@ -111,7 +113,8 @@ function decideLayout(
         layout: "leaf",
         score: 1,
         confidence: 1,
-        evidence: leaf.evidence
+        evidence: leaf.evidence,
+        fallback: "leaf"
       }
     };
   }
@@ -152,7 +155,7 @@ function decideLayout(
       score: winner.score,
       confidence: fallbackNeeded ? Math.min(winner.score, 0.68) : Math.min(0.98, winner.score),
       evidence: winner.evidence,
-      fallback: fallbackNeeded && winner.layout !== "absolute" ? "absolute" : undefined
+      fallback: "absolute"
     }
   };
 }

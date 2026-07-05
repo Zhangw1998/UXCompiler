@@ -18,7 +18,7 @@ export interface LayoutDecision {
   score: number;
   confidence: number;
   evidence: string[];
-  fallback?: LayoutType;
+  fallback: LayoutType;
 }
 
 export interface LayoutCandidate {

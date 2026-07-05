@@ -68,7 +68,7 @@ export function generateReviewTasks(input: GenerateReviewTasksInput): ReviewTask
 function layoutTasks(input: GenerateReviewTasksInput): ReviewTask[] {
   const candidateMap = new Map(input.layoutCandidates.map((candidate) => [candidate.nodeId, candidate]));
   return input.layoutDecisions
-    .filter((decision) => decision.confidence < 0.7 || !!decision.fallback)
+    .filter((decision) => decision.confidence < 0.7)
     .map((decision) => {
       const candidates = candidateMap.get(decision.nodeId)?.candidates ?? [];
       const actions = candidates

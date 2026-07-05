@@ -445,6 +445,7 @@ function assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, candidat
   assert.ok(Array.isArray(candidates), "layout_candidates must be an array.");
   assert.ok(Array.isArray(decisions), "layout_decisions must be an array.");
   const candidateNodeIds = new Set(candidates.map((candidate) => candidate.nodeId));
+  const candidatesByNodeId = new Map(candidates.map((candidate) => [candidate.nodeId, candidate.candidates ?? []]));
   const decisionNodeIds = new Set(decisions.map((decision) => decision.nodeId));
   const decisionSourceNodeIds = new Set(decisions.flatMap((decision) => decision.sourceNodeIds ?? []));
   for (const region of regions) {
@@ -471,6 +472,25 @@ function assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, candidat
     assertScore(decision.score, `layout_decisions.${decision.nodeId}.score`);
     assertScore(decision.confidence, `layout_decisions.${decision.nodeId}.confidence`);
     assert.ok(Array.isArray(decision.evidence) && decision.evidence.length > 0, `layout decision ${decision.nodeId} must include evidence.`);
+    const candidateOptions = candidatesByNodeId.get(decision.nodeId) ?? [];
+    assert.equal(
+      candidateOptions.some((option) => option.layout === decision.layout),
+      true,
+      `layout decision ${decision.nodeId} selected layout ${decision.layout} must be present in candidates.`
+    );
+    assert.ok(decision.fallback, `layout decision ${decision.nodeId} must include fallback.`);
+    assert.equal(
+      candidateOptions.some((option) => option.layout === decision.fallback),
+      true,
+      `layout decision ${decision.nodeId} fallback ${decision.fallback} must be present in candidates.`
+    );
+    if (decision.confidence < 0.7) {
+      assert.equal(
+        decision.layout === "absolute" || decision.fallback === "absolute",
+        true,
+        `layout decision ${decision.nodeId} low-confidence layout must include absolute fidelity fallback.`
+      );
+    }
   }
 }
 

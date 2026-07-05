@@ -31,7 +31,6 @@ const cases = [
   {
     name: "grid",
     expected: "grid",
-    fallback: "absolute",
     children: [
       rect("c_grid_a", 16, 16, 32, 32),
       rect("c_grid_b", 76, 16, 32, 32),
@@ -72,22 +71,25 @@ for (const testCase of cases) {
   assert.equal(decision.layout, testCase.expected, `${testCase.name} root should infer ${testCase.expected}`);
   assert.equal(result.normalizedDesignIR.tree.layout.type, testCase.expected);
 
-  if (testCase.fallback) {
-    assert.equal(decision.fallback, testCase.fallback, `${testCase.name} should preserve fidelity fallback`);
-    assert.ok(
-      result.normalizedDesignIR.fallbacks.some(
-        (fallback) => fallback.nodeId === rootId && fallback.strategy === testCase.fallback
-      ),
-      `${testCase.name} fallback should be recorded in normalized IR`
-    );
-  }
-
   if (testCase.expected === "absolute") {
     assert.ok(decision.confidence < 0.7, "absolute fallback decisions should stay low confidence");
   }
 
   const rootCandidates = findCandidates(result, rootId);
   assert.ok(rootCandidates.some((candidate) => candidate.layout === testCase.expected));
+  assert.equal(decision.fallback, testCase.expected === "leaf" ? "leaf" : "absolute");
+  assert.ok(
+    rootCandidates.some((candidate) => candidate.layout === decision.fallback),
+    `${testCase.name} fallback should be present in candidates`
+  );
+  const hasNormalizedFallback = result.normalizedDesignIR.fallbacks.some(
+    (fallback) => fallback.nodeId === rootId && fallback.strategy === decision.fallback
+  );
+  assert.equal(
+    hasNormalizedFallback,
+    decision.confidence < 0.7 || decision.layout === "absolute",
+    `${testCase.name} normalized IR should record only active fidelity fallbacks`
+  );
   if (testCase.expected !== "leaf") {
     assert.ok(rootCandidates.some((candidate) => candidate.layout === "absolute"));
   }
@@ -117,6 +119,12 @@ function assertArtifactShape(result, name) {
     assert.ok(decision.score >= 0 && decision.score <= 1, `${decision.nodeId} score should be normalized`);
     assert.ok(decision.confidence >= 0 && decision.confidence <= 1, `${decision.nodeId} confidence should be normalized`);
     assert.ok(decision.evidence.length > 0, `${decision.nodeId} decision should include evidence`);
+    assert.ok(decision.fallback, `${decision.nodeId} decision should include fallback`);
+    const candidates = findCandidates(result, decision.nodeId);
+    assert.ok(
+      candidates.some((candidate) => candidate.layout === decision.fallback),
+      `${decision.nodeId} fallback should be represented by a candidate`
+    );
     if (decision.confidence < 0.7) {
       assert.ok(
         decision.layout === "absolute" || decision.fallback === "absolute",

@@ -625,7 +625,7 @@ function createI18nKeySuggestionsArtifact(i18nManifest: I18nManifest, semanticLa
 
 function createUpliftDecisionArtifact(input: {
   regions: Region[];
-  layoutDecisions: Array<{ sourceNodeIds: string[]; layout: string; confidence: number; fallback?: string }>;
+  layoutDecisions: Array<{ sourceNodeIds: string[]; layout: string; confidence: number; fallback: string }>;
   semanticLabels: SemanticLabelsArtifact;
   inferredComponents: InferredComponentsArtifact;
   fidelityGenerationManifest: { warnings: Array<{ sourceNodeId?: string; type: string }>; renderDecisions: Array<{ sourceNodeId: string; strategy: string; editable: boolean }> };
@@ -680,13 +680,13 @@ function regionSemanticConfidence(region: Region, semanticLabels: SemanticLabels
 
 function regionLayoutSignal(
   region: Region,
-  layoutDecisions: Array<{ sourceNodeIds: string[]; layout: string; confidence: number; fallback?: string }>
+  layoutDecisions: Array<{ sourceNodeIds: string[]; layout: string; confidence: number; fallback: string }>
 ): { layout: string; confidence: number } {
   const direct = layoutDecisions.find((decision) => decision.sourceNodeIds.some((sourceNodeId) => region.sourceNodeIds.includes(sourceNodeId)));
   if (direct && direct.layout !== "leaf") {
     return {
       layout: direct.layout,
-      confidence: direct.fallback ? Math.min(0.72, direct.confidence) : direct.confidence
+      confidence: direct.confidence
     };
   }
   const leafScores = layoutDecisions
