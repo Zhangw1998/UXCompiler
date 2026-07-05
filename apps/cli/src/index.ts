@@ -120,6 +120,8 @@ interface PreviewDiffOptions {
 interface PreviewCaptureOptions {
   project: string;
   out: string;
+  viewport?: { width: number; height: number };
+  dpr?: number;
 }
 
 interface WriteVisualDiffOptions {
@@ -131,6 +133,12 @@ interface WriteVisualDiffOptions {
   dpr?: number;
   fonts?: string[];
   flutterVersion?: string;
+}
+
+interface PreviewCaptureMetadata {
+  viewport?: { width: number; height: number };
+  dpr?: number;
+  fonts?: string[];
 }
 
 interface ProjectCliOptions {
@@ -613,7 +621,10 @@ async function runPreviewCommand(args: string[]): Promise<void> {
     const options = parsePreviewCaptureOptions(rest);
     const projectDir = resolve(process.cwd(), options.project);
     const outPath = resolve(process.cwd(), options.out);
-    const result = await captureFlutterPreview(projectDir, outPath);
+    const result = await captureFlutterPreview(projectDir, outPath, {
+      viewport: options.viewport,
+      dpr: options.dpr
+    });
     console.log(`UXCompiler preview capture completed.`);
     console.log(`Screenshot: ${outPath}`);
     console.log(`Golden source: ${result.goldenPath}`);
@@ -779,7 +790,7 @@ async function runProjectCommand(args: string[]): Promise<void> {
   console.log(`Entries: ${result.entries}`);
 }
 
-async function captureFlutterPreview(projectDir: string, outPath: string): Promise<Record<string, unknown>> {
+async function captureFlutterPreview(projectDir: string, outPath: string, metadata: PreviewCaptureMetadata = {}): Promise<Record<string, unknown>> {
   const goldenPath = resolve(projectDir, "test/goldens/flutter_preview.png");
   const flutterVersion = await commandVersion("flutter", ["--version"]);
   await execFileAsync("flutter", ["pub", "get"], { cwd: projectDir });
@@ -796,6 +807,9 @@ async function captureFlutterPreview(projectDir: string, outPath: string): Promi
     output: outPath,
     goldenPath,
     flutterVersion: flutterVersion.ok ? flutterVersion.summary : undefined,
+    viewport: metadata.viewport,
+    dpr: metadata.dpr,
+    fonts: metadata.fonts ?? [],
     stdout: testResult.stdout,
     stderr: testResult.stderr,
     generatedAt: new Date().toISOString()
@@ -922,7 +936,17 @@ async function runEndToEndPreview(
   artifacts: PipelineArtifacts
 ): Promise<FigmaRunReport> {
   const previewPath = resolve(outDir, "flutter_preview.png");
-  const captureReport = await captureFlutterPreview(resolve(outDir, "flutter_preview"), previewPath);
+  const captureMetadata = {
+    viewport: extraction.rawFigmaScene.source.viewport
+      ? {
+          width: extraction.rawFigmaScene.source.viewport.width,
+          height: extraction.rawFigmaScene.source.viewport.height
+        }
+      : undefined,
+    dpr: extraction.rawFigmaScene.source.viewport?.scale ?? 1,
+    fonts: collectFontFamilies(artifacts)
+  };
+  const captureReport = await captureFlutterPreview(resolve(outDir, "flutter_preview"), previewPath, captureMetadata);
   const referencePath = resolve(outDir, `figma_reference.${extraction.referenceImageExtension}`);
   const diffDir = resolve(outDir, "diff");
   let diffStep: FigmaRunReport["steps"]["visualDiff"];
@@ -933,14 +957,9 @@ async function runEndToEndPreview(
       candidatePath: previewPath,
       outDir: diffDir,
       nodePixelMapPath: resolve(outDir, "node_pixel_map.json"),
-      viewport: extraction.rawFigmaScene.source.viewport
-        ? {
-            width: extraction.rawFigmaScene.source.viewport.width,
-            height: extraction.rawFigmaScene.source.viewport.height
-          }
-        : undefined,
-      dpr: extraction.rawFigmaScene.source.viewport?.scale ?? 1,
-      fonts: collectFontFamilies(artifacts),
+      viewport: captureMetadata.viewport,
+      dpr: captureMetadata.dpr,
+      fonts: captureMetadata.fonts,
       flutterVersion: stringValue(captureReport.flutterVersion)
     });
     diffStep = {
@@ -1231,6 +1250,17 @@ function parsePreviewCaptureOptions(args: string[]): PreviewCaptureOptions {
     } else if (arg === "--out" || arg === "-o") {
       if (!next) throw new Error("Missing value for --out.");
       options.out = next;
+      index += 1;
+    } else if (arg === "--viewport") {
+      if (!next) throw new Error("Missing value for --viewport.");
+      const match = next.match(/^(\d+)x(\d+)$/);
+      if (!match) throw new Error("--viewport must use WIDTHxHEIGHT, for example 390x844.");
+      options.viewport = { width: Number(match[1]), height: Number(match[2]) };
+      index += 1;
+    } else if (arg === "--dpr") {
+      if (!next) throw new Error("Missing value for --dpr.");
+      options.dpr = Number(next);
+      if (!Number.isFinite(options.dpr) || options.dpr <= 0) throw new Error("--dpr must be a positive number.");
       index += 1;
     } else {
       throw new Error(`Unknown preview capture option "${arg}".`);

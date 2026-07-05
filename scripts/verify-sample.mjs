@@ -232,7 +232,11 @@ if (commandExists("flutter")) {
       "--project",
       "artifacts/sample/flutter_preview",
       "--out",
-      "artifacts/sample/flutter_preview.png"
+      "artifacts/sample/flutter_preview.png",
+      "--viewport",
+      "390x844",
+      "--dpr",
+      "1"
     ],
     {
       stdio: "pipe"
@@ -240,6 +244,10 @@ if (commandExists("flutter")) {
   );
   assert.equal(existsSync(resolve(root, "flutter_preview.png")), true, "Expected preview capture PNG");
   assert.equal(existsSync(resolve(root, "flutter_preview_capture_report.json")), true, "Expected preview capture report");
+  const captureReport = readJson("flutter_preview_capture_report.json");
+  assert.deepEqual(captureReport.viewport, { width: 390, height: 844 });
+  assert.equal(captureReport.dpr, 1);
+  assert.deepEqual(captureReport.fonts, []);
 }
 
 console.log("sample verification passed");

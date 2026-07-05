@@ -161,6 +161,11 @@ try {
   assert.equal(pipelineRunReport.steps.flutterAnalyze.report, resolve(result.artifactDir, "flutter_preview_analyze_report.json"));
   assert.equal(pipelineRunReport.steps.flutterCapture.status, "success");
   assert.equal(pipelineRunReport.steps.visualDiff.status, "success");
+  const captureReport = JSON.parse(readFileSync(resolve(result.artifactDir, "flutter_preview_capture_report.json"), "utf8"));
+  assert.deepEqual(captureReport.viewport, { width: 390, height: 844 });
+  assert.equal(captureReport.dpr, 1);
+  assert.ok(captureReport.fonts.includes("Inter"));
+  assert.match(captureReport.flutterVersion, /^Flutter /);
   const previewArtifact = JSON.parse(readFileSync(resolve(result.artifactDir, "preview_artifact.json"), "utf8"));
   assert.equal(previewArtifact.files.webPreviewState, resolve(result.artifactDir, "web_preview_state.json"));
   assert.equal(previewArtifact.files.diffIssues, resolve(result.artifactDir, "diff/diff_issues.json"));

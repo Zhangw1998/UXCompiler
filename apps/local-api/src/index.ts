@@ -66,6 +66,12 @@ interface MaterializedAssetReport {
   }>;
 }
 
+interface PreviewCaptureMetadata {
+  viewport?: { width: number; height: number };
+  dpr?: number;
+  fonts?: string[];
+}
+
 interface LocalPipelineRunReport {
   version: string;
   generatedAt: string;
@@ -582,7 +588,17 @@ async function runLocalPipeline(
   if (shouldRunPreview) {
     try {
       const previewPath = resolve(artifactDir, "flutter_preview.png");
-      const captureReport = await captureFlutterPreview(resolve(artifactDir, "flutter_preview"), previewPath);
+      const captureMetadata = {
+        viewport: source.viewport
+          ? {
+              width: source.viewport.width,
+              height: source.viewport.height
+            }
+          : undefined,
+        dpr: source.viewport?.scale ?? 1,
+        fonts: collectFontFamilies(artifacts)
+      };
+      const captureReport = await captureFlutterPreview(resolve(artifactDir, "flutter_preview"), previewPath, captureMetadata);
       flutterCapture = {
         status: "success",
         output: previewPath,
@@ -766,7 +782,7 @@ async function analyzeFlutterPreview(previewDir: string): Promise<Record<string,
   }
 }
 
-async function captureFlutterPreview(projectDir: string, outPath: string): Promise<Record<string, unknown>> {
+async function captureFlutterPreview(projectDir: string, outPath: string, metadata: PreviewCaptureMetadata = {}): Promise<Record<string, unknown>> {
   const goldenPath = resolve(projectDir, "test/goldens/flutter_preview.png");
   const flutterVersion = await commandVersion("flutter", ["--version"]);
   await execFileAsync("flutter", ["pub", "get"], { cwd: projectDir });
@@ -783,6 +799,9 @@ async function captureFlutterPreview(projectDir: string, outPath: string): Promi
     output: outPath,
     goldenPath,
     flutterVersion,
+    viewport: metadata.viewport,
+    dpr: metadata.dpr,
+    fonts: metadata.fonts ?? [],
     stdout: testResult.stdout,
     stderr: testResult.stderr,
     generatedAt: new Date().toISOString()
