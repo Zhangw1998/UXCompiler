@@ -151,6 +151,19 @@ function planGeneratedFiles(input: CreateCodegenReviewInput): PlannedFile[] {
     .filter(([path]) => path.startsWith("lib/") && path.endsWith(".dart"))
     .sort(([left], [right]) => left.localeCompare(right));
 
+  return [
+    ...previewFilesFromFlutterPreview(dartFiles, rootSourceNodeId, allSourceNodeIds, pixelMapSourceNodeIds, input.promotionRules ?? []),
+    ...productionScaffoldFiles(input, rootSourceNodeId, allSourceNodeIds)
+  ];
+}
+
+function previewFilesFromFlutterPreview(
+  dartFiles: Array<[string, string]>,
+  rootSourceNodeId: string,
+  allSourceNodeIds: string[],
+  pixelMapSourceNodeIds: string[],
+  promotionRules: ComponentPromotionRule[]
+): PlannedFile[] {
   return dartFiles.map(([path, rawContent]) => {
     const sourceNodeIds = path.includes("preview_page")
       ? unique(pixelMapSourceNodeIds.length > 0 ? pixelMapSourceNodeIds : allSourceNodeIds)
@@ -158,7 +171,7 @@ function planGeneratedFiles(input: CreateCodegenReviewInput): PlannedFile[] {
     const strategy = path.includes("preview_page") ? "fidelity_preview" : "generated_flutter_entrypoint";
     const regionHash = hashText(`${path}\n${sourceNodeIds.join("\n")}\n${rawContent}`);
     const content = wrapDartGeneratedFile(rawContent, rootSourceNodeId, regionHash, strategy);
-    const promotionRule = matchingPromotionRule(path, input.promotionRules ?? []);
+    const promotionRule = matchingPromotionRule(path, promotionRules);
     return {
       path,
       content,
@@ -166,6 +179,73 @@ function planGeneratedFiles(input: CreateCodegenReviewInput): PlannedFile[] {
       sourceNodeIds,
       strategy,
       promotionRule
+    };
+  });
+}
+
+function productionScaffoldFiles(input: CreateCodegenReviewInput, rootSourceNodeId: string, allSourceNodeIds: string[]): PlannedFile[] {
+  const feature = featureName(input.normalizedDesignIR.tree.name);
+  const classPrefix = pascalCase(feature);
+  const sourceNodeIds = allSourceNodeIds.length > 0 ? allSourceNodeIds : [rootSourceNodeId];
+  const files: Array<{ path: string; content: string; sourceNodeIds: string[]; strategy: string }> = [
+    {
+      path: `lib/features/${feature}/presentation/pages/${feature}_page.dart`,
+      content: buildPageFacade(classPrefix, feature),
+      sourceNodeIds,
+      strategy: "semantic_page_facade"
+    },
+    {
+      path: `lib/features/${feature}/presentation/widgets/${feature}_content.dart`,
+      content: buildContentWidget(classPrefix),
+      sourceNodeIds,
+      strategy: "semantic_content_widget"
+    },
+    {
+      path: "lib/theme/app_colors.dart",
+      content: buildColorsFile(input.normalizedDesignIR.tokens.colors),
+      sourceNodeIds: tokenSourceNodeIds(input.normalizedDesignIR.tokens.colors, rootSourceNodeId),
+      strategy: "theme_tokens"
+    },
+    {
+      path: "lib/theme/app_spacing.dart",
+      content: buildSpacingFile(input.normalizedDesignIR.tokens.spacing),
+      sourceNodeIds: tokenSourceNodeIds(input.normalizedDesignIR.tokens.spacing, rootSourceNodeId),
+      strategy: "theme_tokens"
+    },
+    {
+      path: "lib/theme/app_radii.dart",
+      content: buildRadiiFile(input.normalizedDesignIR.tokens.radii),
+      sourceNodeIds: tokenSourceNodeIds(input.normalizedDesignIR.tokens.radii, rootSourceNodeId),
+      strategy: "theme_tokens"
+    },
+    {
+      path: "lib/theme/app_text_styles.dart",
+      content: buildTextStylesFile(input.normalizedDesignIR.tokens.typography),
+      sourceNodeIds: tokenSourceNodeIds(input.normalizedDesignIR.tokens.typography, rootSourceNodeId),
+      strategy: "theme_tokens"
+    },
+    {
+      path: "lib/theme/app_shadows.dart",
+      content: buildShadowsFile(),
+      sourceNodeIds,
+      strategy: "theme_tokens"
+    },
+    {
+      path: "lib/generated/assets.gen.dart",
+      content: buildAssetsFile(input.assetManifest),
+      sourceNodeIds: input.assetManifest.assets.map((asset) => asset.sourceNodeId),
+      strategy: "asset_references"
+    }
+  ];
+  return files.map((file) => {
+    const sourceIds = unique(file.sourceNodeIds.length > 0 ? file.sourceNodeIds : [rootSourceNodeId]);
+    const regionHash = hashText(`${file.path}\n${sourceIds.join("\n")}\n${file.content}`);
+    return {
+      path: file.path,
+      content: wrapDartGeneratedFile(file.content, sourceIds[0] ?? rootSourceNodeId, regionHash, file.strategy),
+      regionHash,
+      sourceNodeIds: sourceIds,
+      strategy: file.strategy
     };
   });
 }
@@ -245,6 +325,86 @@ function toGeneratedRegions(file: PlannedFile): CodegenFilePlan["generatedRegion
 
 function matchingPromotionRule(path: string, rules: ComponentPromotionRule[]): ComponentPromotionRule | undefined {
   return rules.find((rule) => rule.generatedFilePath === path && rule.skipGeneratedRegions);
+}
+
+function buildPageFacade(classPrefix: string, feature: string): string {
+  return [
+    "import 'package:flutter/widgets.dart';",
+    "",
+    `import '../widgets/${feature}_content.dart';`,
+    "",
+    `class ${classPrefix}Page extends StatelessWidget {`,
+    `  const ${classPrefix}Page({super.key});`,
+    "",
+    "  @override",
+    "  Widget build(BuildContext context) {",
+    `    return const ${classPrefix}Content();`,
+    "  }",
+    "}"
+  ].join("\n");
+}
+
+function buildContentWidget(classPrefix: string): string {
+  return [
+    "import 'package:flutter/widgets.dart';",
+    "",
+    `class ${classPrefix}Content extends StatelessWidget {`,
+    `  const ${classPrefix}Content({super.key});`,
+    "",
+    "  @override",
+    "  Widget build(BuildContext context) {",
+    "    return const SizedBox.expand();",
+    "  }",
+    "}"
+  ].join("\n");
+}
+
+function buildColorsFile(tokens: NormalizedDesignIR["tokens"]["colors"]): string {
+  const lines = tokens.length > 0 ? tokens.map((token) => `  static const ${dartIdentifier(token.name, "color")} = Color(${hexToDartColor(token.value)});`) : ["  static const transparent = Color(0x00000000);"];
+  return ["import 'package:flutter/widgets.dart';", "", "class AppColors {", "  const AppColors._();", ...lines, "}"].join("\n");
+}
+
+function buildSpacingFile(tokens: NormalizedDesignIR["tokens"]["spacing"]): string {
+  const lines = tokens.length > 0 ? tokens.map((token) => `  static const ${dartIdentifier(token.name, "spacing")} = ${dartNumber(token.value)};`) : ["  static const zero = 0.0;"];
+  return ["class AppSpacing {", "  const AppSpacing._();", ...lines, "}"].join("\n");
+}
+
+function buildRadiiFile(tokens: NormalizedDesignIR["tokens"]["radii"]): string {
+  const lines = tokens.length > 0 ? tokens.map((token) => `  static const ${dartIdentifier(token.name, "radius")} = ${dartNumber(token.value)};`) : ["  static const none = 0.0;"];
+  return ["class AppRadii {", "  const AppRadii._();", ...lines, "}"].join("\n");
+}
+
+function buildTextStylesFile(tokens: NormalizedDesignIR["tokens"]["typography"]): string {
+  const lines =
+    tokens.length > 0
+      ? tokens.flatMap((token) => [
+          `  static const ${dartIdentifier(token.name, "textStyle")} = TextStyle(`,
+          `    fontFamily: '${escapeDartString(token.fontFamily || "Inter")}',`,
+          `    fontSize: ${dartNumber(token.fontSize)},`,
+          `    fontWeight: FontWeight.w${closestFontWeight(token.fontWeight)},`,
+          `    height: ${dartNumber(token.lineHeight / Math.max(1, token.fontSize))},`,
+          `    letterSpacing: ${dartNumber(token.letterSpacing)},`,
+          "  );"
+        ])
+      : ["  static const body = TextStyle();"];
+  return ["import 'package:flutter/widgets.dart';", "", "class AppTextStyles {", "  const AppTextStyles._();", ...lines, "}"].join("\n");
+}
+
+function buildShadowsFile(): string {
+  return ["import 'package:flutter/widgets.dart';", "", "class AppShadows {", "  const AppShadows._();", "  static const none = <BoxShadow>[];", "}"].join("\n");
+}
+
+function buildAssetsFile(assetManifest: AssetManifest): string {
+  const assetLines = assetManifest.assets
+    .filter((asset) => asset.path)
+    .map((asset) => `  static const ${dartIdentifier(asset.sourceName || asset.id, "asset")} = '${escapeDartString(asset.path ?? "")}';`);
+  const lines = assetLines.length > 0 ? assetLines : ["  static const none = '';"];
+  return ["class AppAssets {", "  const AppAssets._();", ...lines, "}"].join("\n");
+}
+
+function tokenSourceNodeIds(tokens: Array<{ sourceNodeIds: string[] }>, fallback: string): string[] {
+  const ids = unique(tokens.flatMap((token) => token.sourceNodeIds));
+  return ids.length > 0 ? ids : [fallback];
 }
 
 function buildAssetPlans(assetManifest: AssetManifest, existingPubspecAssets: ReadonlySet<string>): CodegenAssetPlan[] {
@@ -583,6 +743,55 @@ function makeBuildId(normalizedDesignIR: NormalizedDesignIR, generatedAt: string
 
 function safeId(value: string): string {
   return value.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "generated";
+}
+
+function featureName(value: string): string {
+  const id = wordsFrom(value).join("_").toLowerCase();
+  return id || "uxcompiler";
+}
+
+function pascalCase(value: string): string {
+  return wordsFrom(value)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join("") || "Generated";
+}
+
+function dartIdentifier(value: string, fallback: string): string {
+  const parts = safeId(value).split("_").filter(Boolean);
+  const [first, ...rest] = parts.length > 0 ? parts : [fallback];
+  const identifier = [
+    first.toLowerCase(),
+    ...rest.map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
+  ].join("");
+  return /^[A-Za-z_]/.test(identifier) ? identifier : `${fallback}${identifier}`;
+}
+
+function hexToDartColor(value: string): string {
+  const hex = value.trim().replace(/^#/, "");
+  if (/^[0-9A-Fa-f]{8}$/.test(hex)) return `0x${hex.toUpperCase()}`;
+  if (/^[0-9A-Fa-f]{6}$/.test(hex)) return `0xFF${hex.toUpperCase()}`;
+  return "0x00000000";
+}
+
+function dartNumber(value: number): string {
+  if (!Number.isFinite(value)) return "0.0";
+  return Number.isInteger(value) ? `${value}.0` : `${Math.round(value * 1000) / 1000}`;
+}
+
+function closestFontWeight(value: number): number {
+  return Math.max(100, Math.min(900, Math.round(value / 100) * 100)) || 400;
+}
+
+function escapeDartString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function wordsFrom(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
 }
 
 function unique(values: string[]): string[] {

@@ -47,7 +47,17 @@ assert.equal(result.codegenReview.normalizedIrId, "nir_login");
 assert.equal(result.codegenReview.gates.status, "ready");
 assert.equal(result.codegenReview.format.status, "unknown");
 assert.ok(result.filesToCreate.some((file) => file.path === "lib/generated/fidelity/preview_page.dart"));
+assert.ok(result.filesToCreate.some((file) => file.path === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart"));
+assert.ok(result.filesToCreate.some((file) => file.path === "lib/features/login_mobile/presentation/widgets/login_mobile_content.dart"));
+assert.ok(result.filesToCreate.some((file) => file.path === "lib/theme/app_colors.dart"));
+assert.ok(result.filesToCreate.some((file) => file.path === "lib/generated/assets.gen.dart"));
 assert.ok(result.generatedFiles.every((file) => file.content.includes("@uxc-generated:start")));
+assert.ok(
+  result.codegenReview.files.some((file) =>
+    file.path === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart" &&
+    file.generatedRegions.some((region) => region.strategy === "semantic_page_facade")
+  )
+);
 assert.ok(result.assetsToAdd.some((asset) => asset.path === "assets/icons/divider_dot.svg"));
 assert.ok(result.arbPatch.keysToAdd.some((message) => message.key === "button_label"));
 assert.equal(result.arbPatch.patch["@button_label"].placeholders.ctaLabel.type, "String");
@@ -117,6 +127,14 @@ for (const file of [
   "pubspec_patch.json",
   "merge_report.json",
   "incremental_sync_report.json",
+  "generated/lib/features/login_mobile/presentation/pages/login_mobile_page.dart",
+  "generated/lib/features/login_mobile/presentation/widgets/login_mobile_content.dart",
+  "generated/lib/theme/app_colors.dart",
+  "generated/lib/theme/app_spacing.dart",
+  "generated/lib/theme/app_radii.dart",
+  "generated/lib/theme/app_text_styles.dart",
+  "generated/lib/theme/app_shadows.dart",
+  "generated/lib/generated/assets.gen.dart",
   "generated/lib/generated/fidelity/preview_page.dart"
 ]) {
   assert.equal(existsSync(resolve(reviewDir, file)), true, `Missing ${file}`);
@@ -126,6 +144,9 @@ assert.equal(cliReview.gates.status, "ready");
 assert.equal(cliReview.format.status, "success");
 assert.equal(cliReview.analyze.source, "flutter_preview_analyze_report.json");
 assert.ok(cliReview.filesToCreate.includes("lib/main.dart"));
+assert.ok(cliReview.filesToCreate.includes("lib/features/login_mobile/presentation/pages/login_mobile_page.dart"));
+assert.match(readFileSync(resolve(reviewDir, "generated/lib/features/login_mobile/presentation/pages/login_mobile_page.dart"), "utf8"), /class LoginMobilePage/);
+assert.match(readFileSync(resolve(reviewDir, "generated/lib/generated/assets.gen.dart"), "utf8"), /static const dividerDot/);
 
 writeFile(resolve(projectDir, "lib/main.dart"), "void main() {}\n");
 execFileSync(
