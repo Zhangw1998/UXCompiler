@@ -126,6 +126,14 @@ export interface UpliftDecisionArtifact {
     sourceNodeIds: string[];
     from: string;
     to: string;
+    strategy?: string;
+    gate?: "auto_diff_required" | "review_diff_required" | "keep_fidelity";
+    scoreBreakdown?: {
+      semanticConfidence: number;
+      layoutConfidence: number;
+      componentConfidence: number;
+      expectedDiffSafety: number;
+    };
     confidence: number;
     accepted: boolean;
     reason: string;

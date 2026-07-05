@@ -156,6 +156,23 @@ assert.equal(semanticIR.semanticLabels.source, "deterministic_fallback");
 assert.equal(upliftDecisions.version, "2.0");
 assert.ok(upliftDecisions.decisions.length >= regions.length);
 assert.ok(upliftDecisions.decisions.every((decision) => decision.accepted === false));
+assert.ok(upliftDecisions.decisions.every((decision) => decision.confidence > 0), "Expected scored semantic uplift candidates");
+assert.ok(
+  upliftDecisions.decisions.every((decision) => ["auto_diff_required", "review_diff_required", "keep_fidelity"].includes(decision.gate)),
+  "Expected semantic uplift gate on each candidate"
+);
+assert.ok(
+  upliftDecisions.decisions.some(
+    (decision) => decision.regionId === "region_2" && decision.strategy === "semantic_column_region" && decision.gate === "review_diff_required"
+  ),
+  "Expected content region to be scored as a semantic column uplift candidate"
+);
+for (const decision of upliftDecisions.decisions) {
+  assertScore(decision.scoreBreakdown.semanticConfidence, `${decision.regionId}.semanticConfidence`);
+  assertScore(decision.scoreBreakdown.layoutConfidence, `${decision.regionId}.layoutConfidence`);
+  assertScore(decision.scoreBreakdown.componentConfidence, `${decision.regionId}.componentConfidence`);
+  assertScore(decision.scoreBreakdown.expectedDiffSafety, `${decision.regionId}.expectedDiffSafety`);
+}
 assert.equal(upliftDiffReport.status, "not_run");
 assert.equal(normalizationReport.source.frameNodeId, "1:1");
 assert.equal(normalizationReport.score.overall, normalized.confidence.overall);
@@ -219,6 +236,11 @@ function assertDecision(decisions, nodeId, layout) {
   assert.ok(decision, `Missing layout decision for ${nodeId}`);
   assert.equal(decision.layout, layout);
   assert.ok(decision.confidence > 0.8, `Low confidence for ${nodeId}`);
+}
+
+function assertScore(value, label) {
+  assert.equal(typeof value, "number", `${label} must be a number`);
+  assert.ok(value >= 0 && value <= 1, `${label} must be normalized`);
 }
 
 function commandExists(command) {

@@ -86,7 +86,13 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
   const namingMap = createNamingMapArtifact(semanticLabels);
   const i18nKeySuggestions = createI18nKeySuggestionsArtifact(assetI18nResult.i18nManifest, semanticLabels);
   const semanticIR = createSemanticIRArtifact(layoutResult.normalizedDesignIR, inferredComponents, semanticLabels);
-  const upliftDecisions = createUpliftDecisionArtifact(layoutResult.regions);
+  const upliftDecisions = createUpliftDecisionArtifact({
+    regions: layoutResult.regions,
+    layoutDecisions: layoutResult.layoutDecisions,
+    semanticLabels,
+    inferredComponents,
+    fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest
+  });
   const upliftDiffReport = createUpliftDiffReportArtifact();
   const normalizationReport = createNormalizationReportArtifact({
     rawFigmaScene,
@@ -616,19 +622,111 @@ function createI18nKeySuggestionsArtifact(i18nManifest: I18nManifest, semanticLa
   };
 }
 
-function createUpliftDecisionArtifact(regions: Region[]): UpliftDecisionArtifact {
+function createUpliftDecisionArtifact(input: {
+  regions: Region[];
+  layoutDecisions: Array<{ sourceNodeIds: string[]; layout: string; confidence: number; fallback?: string }>;
+  semanticLabels: SemanticLabelsArtifact;
+  inferredComponents: InferredComponentsArtifact;
+  fidelityGenerationManifest: { warnings: Array<{ sourceNodeId?: string; type: string }>; renderDecisions: Array<{ sourceNodeId: string; strategy: string; editable: boolean }> };
+}): UpliftDecisionArtifact {
   return {
     version: "2.0",
-    decisions: regions.map((region) => ({
-      regionId: region.id,
-      sourceNodeIds: region.sourceNodeIds,
-      from: "absolute_widget",
-      to: "semantic_layout",
-      confidence: 0,
-      accepted: false,
-      reason: "Semantic uplift has not run with before/after visual diff validation for this region."
-    }))
+    decisions: input.regions.map((region) => {
+      const semanticConfidence = regionSemanticConfidence(region, input.semanticLabels);
+      const layout = regionLayoutSignal(region, input.layoutDecisions);
+      const componentConfidence = regionComponentConfidence(region, input.inferredComponents);
+      const expectedDiffSafety = regionDiffSafety(region, input.fidelityGenerationManifest);
+      const confidence = round(
+        semanticConfidence * 0.3 +
+          layout.confidence * 0.25 +
+          componentConfidence * 0.25 +
+          expectedDiffSafety * 0.2
+      );
+      const gate = confidence >= 0.9 ? "auto_diff_required" as const : confidence >= 0.75 ? "review_diff_required" as const : "keep_fidelity" as const;
+      const strategy = upliftStrategyFor(region, layout.layout);
+      return {
+        regionId: region.id,
+        sourceNodeIds: region.sourceNodeIds,
+        from: "absolute_widget",
+        to: strategy === "keep_fidelity_region" ? "fidelity_region" : "semantic_layout",
+        strategy,
+        gate,
+        scoreBreakdown: {
+          semanticConfidence,
+          layoutConfidence: layout.confidence,
+          componentConfidence,
+          expectedDiffSafety
+        },
+        confidence,
+        accepted: false,
+        reason:
+          gate === "keep_fidelity"
+            ? "Uplift score is below review threshold, so the fidelity region remains authoritative."
+            : "Uplift candidate is scored but not accepted until before/after visual diff evidence passes."
+      };
+    })
   };
+}
+
+function regionSemanticConfidence(region: Region, semanticLabels: SemanticLabelsArtifact): number {
+  const label = semanticLabels.regions.find((entry) => entry.regionId === region.id);
+  if (label) return label.confidence;
+  const nodeScores = semanticLabels.nodes
+    .filter((node) => node.sourceNodeIds.some((sourceNodeId) => region.sourceNodeIds.includes(sourceNodeId)))
+    .map((node) => node.confidence);
+  return nodeScores.length > 0 ? average(nodeScores) : 0.5;
+}
+
+function regionLayoutSignal(
+  region: Region,
+  layoutDecisions: Array<{ sourceNodeIds: string[]; layout: string; confidence: number; fallback?: string }>
+): { layout: string; confidence: number } {
+  const direct = layoutDecisions.find((decision) => decision.sourceNodeIds.some((sourceNodeId) => region.sourceNodeIds.includes(sourceNodeId)));
+  if (direct && direct.layout !== "leaf") {
+    return {
+      layout: direct.layout,
+      confidence: direct.fallback ? Math.min(0.72, direct.confidence) : direct.confidence
+    };
+  }
+  const leafScores = layoutDecisions
+    .filter((decision) => decision.sourceNodeIds.some((sourceNodeId) => region.sourceNodeIds.includes(sourceNodeId)))
+    .map((decision) => decision.confidence);
+  if (leafScores.length > 1) return { layout: region.role === "footer" ? "row" : "column", confidence: Math.min(0.78, average(leafScores)) };
+  return { layout: "absolute", confidence: 0.55 };
+}
+
+function regionComponentConfidence(region: Region, inferredComponents: InferredComponentsArtifact): number {
+  const sourceNodeIds = new Set(region.sourceNodeIds);
+  const scores = inferredComponents.candidates
+    .map((candidate) => recordValue(candidate))
+    .filter((candidate): candidate is Record<string, unknown> => Boolean(candidate))
+    .filter((candidate) => stringArrayValue(candidate.sourceInstances)?.some((sourceNodeId) => sourceNodeIds.has(sourceNodeId)))
+    .map((candidate) => numberValue(candidate.confidence) ?? numberValue(candidate.similarity) ?? 0.75);
+  if (scores.length > 0) return Math.max(...scores);
+  return inferredComponents.status === "no_reusable_components_detected" ? 0.7 : Math.max(0.65, inferredComponents.confidence);
+}
+
+function regionDiffSafety(
+  region: Region,
+  fidelityGenerationManifest: { warnings: Array<{ sourceNodeId?: string; type: string }>; renderDecisions: Array<{ sourceNodeId: string; strategy: string; editable: boolean }> }
+): number {
+  const sourceNodeIds = new Set(region.sourceNodeIds);
+  const warnings = fidelityGenerationManifest.warnings.filter((warning) => warning.sourceNodeId && sourceNodeIds.has(warning.sourceNodeId));
+  if (warnings.some((warning) => warning.type === "placeholder_asset" || warning.type === "frame_screenshot_fallback")) return 0.45;
+  const decisions = fidelityGenerationManifest.renderDecisions.filter((decision) => sourceNodeIds.has(decision.sourceNodeId));
+  if (decisions.length === 0) return 0.75;
+  if (decisions.some((decision) => decision.editable === false)) return 0.55;
+  if (decisions.every((decision) => decision.strategy === "real_text" || decision.strategy === "flutter_shape")) return 0.88;
+  return 0.8;
+}
+
+function upliftStrategyFor(region: Region, layout: string): string {
+  if (layout === "column") return "semantic_column_region";
+  if (layout === "row") return "semantic_row_region";
+  if (layout === "grid") return "semantic_grid_region";
+  if (region.role === "footer") return "semantic_row_region";
+  if (region.role === "header") return "semantic_column_region";
+  return "keep_fidelity_region";
 }
 
 function createUpliftDiffReportArtifact(): UpliftDiffReportArtifact {
@@ -746,6 +844,10 @@ function collectNormalizedSourceNodeIds(root: NormalizedNode): string[] {
 
 function scoreFromWarnings(count: number): number {
   return Math.max(0, round(1 - Math.min(0.5, count * 0.05)));
+}
+
+function average(values: number[]): number {
+  return values.length > 0 ? round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
 }
 
 function round(value: number): number {
