@@ -38,6 +38,8 @@ interface NodeProfile {
   textHash: string;
   visualHash: string;
   tokenHash: string;
+  assetHash: string;
+  structureHash: string;
   stableKey: string;
   text: string;
   bounds?: { x: number; y: number; width: number; height: number };
@@ -204,6 +206,8 @@ function scoreProfiles(oldProfile: NodeProfile, newProfile: NodeProfile): number
 function toMatch(oldProfile: NodeProfile, newProfile: NodeProfile, score: number, method: NodeRemapMatch["method"]): NodeRemapMatch {
   const textChanged = oldProfile.textHash !== newProfile.textHash;
   const tokenChanged = oldProfile.tokenHash !== newProfile.tokenHash;
+  const assetChanged = oldProfile.assetHash !== newProfile.assetHash;
+  const structureChanged = oldProfile.structureHash !== newProfile.structureHash;
   const visualChanged = oldProfile.visualHash !== newProfile.visualHash;
   const layoutChanged = boundsSimilarity(oldProfile.bounds, newProfile.bounds) < 0.98;
   return {
@@ -215,11 +219,15 @@ function toMatch(oldProfile: NodeProfile, newProfile: NodeProfile, score: number
       ? "text_change"
       : tokenChanged
         ? "token_value_change"
-        : layoutChanged
-          ? "layout_change"
-          : visualChanged
-            ? "visual_only_change"
-            : "unchanged",
+        : assetChanged
+          ? "asset_change"
+          : layoutChanged
+            ? "layout_change"
+            : structureChanged
+              ? "component_structure_change"
+              : visualChanged
+                ? "visual_only_change"
+                : "unchanged",
     overrideReapplied: false,
     reviewRequired: score < autoReapplyThreshold,
     evidence: {
@@ -490,9 +498,20 @@ function indexScene(scene: RawFigmaScene): Map<string, NodeProfile> {
       strokes: node.strokes,
       effects: node.effects,
       cornerRadius: node.cornerRadius,
-      opacity: node.opacity
+      opacity: node.opacity,
+      imageHash: node.imageHash
     };
     const tokenSignature = collectNodeTokens(node, path).map(({ kind, slot, value }) => ({ kind, slot, value }));
+    const assetSignature = assetFingerprint(node);
+    const structureSignature = {
+      children: (node.children ?? []).map((child) => ({
+        type: child.type,
+        name: child.name,
+        componentId: child.componentId,
+        componentKey: child.componentKey,
+        variantProperties: child.variantProperties
+      }))
+    };
     const profile: NodeProfile = {
       id: node.id,
       type: node.type,
@@ -503,6 +522,8 @@ function indexScene(scene: RawFigmaScene): Map<string, NodeProfile> {
       textHash: hashStable(text),
       visualHash: hashStable(visual),
       tokenHash: hashStable(tokenSignature),
+      assetHash: hashStable(assetSignature),
+      structureHash: hashStable(structureSignature),
       stableKey: hashStable({
         type: node.type,
         name: node.name,
@@ -531,6 +552,21 @@ function collectSceneTokens(scene: RawFigmaScene): TokenObservation[] {
   };
   walk(scene.root, []);
   return tokens;
+}
+
+function assetFingerprint(node: RawFigmaNode): unknown {
+  const imagePaints = [...(node.fills ?? []), ...(node.strokes ?? [])]
+    .filter((paint) => paint.visible !== false && (paint.type === "IMAGE" || paint.imageHash))
+    .map((paint) => ({
+      type: paint.type,
+      imageHash: paint.imageHash,
+      scaleMode: paint.scaleMode,
+      opacity: paint.opacity
+    }));
+  return {
+    imageHash: node.imageHash,
+    imagePaints
+  };
 }
 
 function collectNodeTokens(node: RawFigmaNode, path: string): TokenObservation[] {

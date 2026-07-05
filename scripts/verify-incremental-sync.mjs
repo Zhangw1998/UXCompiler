@@ -15,12 +15,14 @@ rmSync(root, { recursive: true, force: true });
 mkdirSync(root, { recursive: true });
 
 const oldRaw = JSON.parse(readFileSync("examples/fixtures/login_raw_figma_scene.json", "utf8"));
+addImageNode(oldRaw.root, "asset_hash_001");
 const newRaw = JSON.parse(JSON.stringify(oldRaw));
 newRaw.source.version = "snap_002";
 renameNode(newRaw.root, "1:3", "2:3");
 renameNode(newRaw.root, "1:4", "2:4", { name: "Subtitle Copy" });
 removeNode(newRaw.root, "1:17");
 setSolidFillColor(newRaw.root, "1:13", { r: 0.1686, g: 0.4275, b: 0.902 });
+setImageHash(newRaw.root, "1:19", "asset_hash_002");
 
 const overrideSet = {
   id: "ovset_incremental_smoke",
@@ -89,6 +91,13 @@ assert.equal(
   true
 );
 
+const rootMatch = matchFor(result, "1:1");
+assert.equal(rootMatch.changeType, "component_structure_change");
+
+const heroImageMatch = matchFor(result, "1:19");
+assert.equal(heroImageMatch.newSourceNodeId, "1:19");
+assert.equal(heroImageMatch.changeType, "asset_change");
+
 const dividerMatch = matchFor(result, "1:17");
 assert.equal(dividerMatch.method, "unmatched");
 assert.equal(result.staleOverrides.some((entry) => entry.overrideId === "ovr_divider_ignore"), true);
@@ -138,6 +147,8 @@ for (const file of [
 }
 const cliReport = JSON.parse(readFileSync(resolve(outDir, "node_remap_report.json"), "utf8"));
 assert.equal(cliReport.matches.some((entry) => entry.oldSourceNodeId === "1:3" && entry.newSourceNodeId === "2:3"), true);
+assert.equal(cliReport.matches.some((entry) => entry.oldSourceNodeId === "1:19" && entry.changeType === "asset_change"), true);
+assert.equal(cliReport.matches.some((entry) => entry.oldSourceNodeId === "1:1" && entry.changeType === "component_structure_change"), true);
 assert.equal(cliReport.visualDiffChange.visualScoreDelta, -0.05);
 const cliTokenMigrationReport = JSON.parse(readFileSync(resolve(outDir, "token_migration_report.json"), "utf8"));
 assert.notEqual(cliTokenMigrationReport.status, "unchanged");
@@ -178,6 +189,34 @@ function removeNode(root, id) {
     return true;
   }
   return root.children.some((child) => removeNode(child, id));
+}
+
+function addImageNode(root, imageHash) {
+  root.children.push({
+    id: "1:19",
+    type: "RECTANGLE",
+    name: "Hero Image",
+    fills: [
+      {
+        type: "IMAGE",
+        imageHash,
+        scaleMode: "FILL"
+      }
+    ],
+    absoluteBoundingBox: {
+      x: 24,
+      y: 480,
+      width: 120,
+      height: 80
+    }
+  });
+}
+
+function setImageHash(root, id, imageHash) {
+  const node = findNode(root, id);
+  assert.ok(node, `Missing node ${id}`);
+  assert.equal(node.fills?.[0]?.type, "IMAGE", `Node ${id} first fill is not IMAGE`);
+  node.fills[0].imageHash = imageHash;
 }
 
 function setSolidFillColor(root, id, color) {

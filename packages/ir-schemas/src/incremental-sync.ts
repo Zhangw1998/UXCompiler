@@ -8,6 +8,7 @@ export type DesignChangeType =
   | "visual_only_change"
   | "text_change"
   | "token_value_change"
+  | "asset_change"
   | "layout_change"
   | "node_added"
   | "node_removed"
