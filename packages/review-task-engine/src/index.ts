@@ -12,6 +12,7 @@ import type {
   ReviewTaskResult,
   ReviewTaskStatusReport,
   ReviewTaskSuggestedAction,
+  ReviewTaskTarget,
   ReviewTaskType,
   StaleOverrideReport,
   TokenConfidenceReport,
@@ -186,10 +187,10 @@ function assetTasks(input: GenerateReviewTasksInput): ReviewTask[] {
       id: taskId("asset", `${warning.sourceNodeId ?? "global"}_${warning.type}`),
       type: priority === "P0" ? "resource_export_failed" : "asset_strategy_uncertain",
       priority,
-      target: {
+      target: traceableTarget(input, {
         sourceNodeIds: warning.sourceNodeId ? [warning.sourceNodeId] : undefined,
         assetId: asset?.id
-      },
+      }),
       title: priority === "P0" ? "Resolve blocking asset strategy" : "Confirm asset strategy",
       description: warning.message,
       confidence: asset?.confidence ?? 0.5,
@@ -224,9 +225,9 @@ function fidelityTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         id: taskId("resource", warning.sourceNodeId ?? warning.type),
         type: "resource_export_failed",
         priority: "P0",
-        target: {
+        target: traceableTarget(input, {
           sourceNodeIds: warning.sourceNodeId ? [warning.sourceNodeId] : undefined
-        },
+        }),
         title: "Export missing render asset",
         description: warning.message,
         confidence: 0.3,
@@ -289,9 +290,9 @@ function fidelityTasks(input: GenerateReviewTasksInput): ReviewTask[] {
       id: taskId("fidelity", warning.sourceNodeId ?? warning.type),
       type: "asset_strategy_uncertain",
       priority: "P2",
-      target: {
+      target: traceableTarget(input, {
         sourceNodeIds: warning.sourceNodeId ? [warning.sourceNodeId] : undefined
-      },
+      }),
       title: "Review fidelity warning",
       description: warning.message,
       confidence: 0.6,
@@ -322,9 +323,9 @@ function fontTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         id: taskId("font_missing", `${warning.type}_${warning.sourceNodeIds?.join("_") ?? warning.message}`),
         type: "font_missing",
         priority: "P1",
-        target: {
+        target: traceableTarget(input, {
           sourceNodeIds: warning.sourceNodeIds
-        },
+        }),
         title: "Map missing text font",
         description: warning.type === "no_typography" ? "No typography samples were discovered; configure a font mapping before trusting text fidelity." : warning.message,
         confidence: 0.25,
@@ -357,10 +358,10 @@ function fontTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         id: taskId("font_missing", token.name),
         type: "font_missing",
         priority: "P1",
-        target: {
+        target: traceableTarget(input, {
           tokenName: token.name,
           sourceNodeIds: token.sourceNodeIds
-        },
+        }),
         title: "Map missing text font",
         description: `Typography token ${token.name} uses ${token.fontFamily || "an unknown font family"}; configure a project font mapping.`,
         confidence: token.confidence,
@@ -407,10 +408,10 @@ function tokenTasks(input: GenerateReviewTasksInput): ReviewTask[] {
         id: taskId("token", `${token.kind}_${token.name}`),
         type: "token_conflict",
         priority: "P2",
-        target: {
+        target: traceableTarget(input, {
           tokenName: token.name,
           sourceNodeIds: token.sourceNodeIds
-        },
+        }),
         title: "Review low-confidence token",
         description: `${token.kind} token ${token.name} has confidence ${round(token.confidence)}.`,
         confidence: token.confidence,
@@ -479,13 +480,13 @@ function staleOverrideTasks(input: GenerateReviewTasksInput): ReviewTask[] {
       id: taskId("stale_override", entry.overrideId),
       type: "stale_override",
       priority: "P1",
-      target: {
+      target: traceableTarget(input, {
         normalizedNodeId: entry.target.normalizedNodeId,
         sourceNodeIds: entry.target.sourceNodeId ? [entry.target.sourceNodeId] : undefined,
         assetId: entry.target.assetId,
         tokenName: entry.target.tokenName,
         messageKey: entry.target.messageKey
-      },
+      }),
       title: "Review stale override",
       description: `${entry.overrideId} no longer applies: ${entry.reason}`,
       confidence: 0.2,
@@ -752,6 +753,18 @@ function dedupeTasks(tasks: ReviewTask[]): ReviewTask[] {
 function compareTasks(left: ReviewTask, right: ReviewTask): number {
   const priorityOrder = { P0: 0, P1: 1, P2: 2 };
   return priorityOrder[left.priority] - priorityOrder[right.priority] || left.id.localeCompare(right.id);
+}
+
+function traceableTarget(input: GenerateReviewTasksInput, target: ReviewTaskTarget): ReviewTaskTarget {
+  const sourceNodeIds = stringArrayValue(target.sourceNodeIds);
+  if (target.normalizedNodeId || sourceNodeIds) {
+    return sourceNodeIds ? { ...target, sourceNodeIds } : target;
+  }
+  return {
+    ...target,
+    normalizedNodeId: input.normalizedDesignIR.tree.id,
+    sourceNodeIds: input.normalizedDesignIR.tree.sourceNodeIds
+  };
 }
 
 function taskId(prefix: string, value: string): string {

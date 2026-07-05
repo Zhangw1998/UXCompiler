@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { assertReviewTaskContract } from "./review-task-contract.mjs";
 
 const root = resolve("artifacts/sample");
 const requiredFiles = [
@@ -117,6 +118,7 @@ assert.ok(webPreviewState.commands.length >= 10, "Expected web preview commands"
 assert.ok(webPreviewState.commands.some((command) => command.type === "text"), "Expected text web preview command");
 assert.ok(nodePixelMap.length >= 10, "Expected node pixel map entries");
 assert.ok(reviewTasks.length > 0, "Expected review tasks");
+assertReviewTaskContract(reviewTasks, "sample review tasks");
 assert.ok(reviewTasks.every((task) => task.status === "open"), "Expected open review tasks");
 assert.ok(reviewTasks.every((task) => task.suggestedActions?.length > 0), "Expected task suggested actions");
 assert.ok(reviewTasks.some((task) => task.type === "token_conflict"), "Expected token review task");

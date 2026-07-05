@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { generateReviewTasks } from "../packages/review-task-engine/dist/index.js";
+import { assertReviewTaskContract } from "./review-task-contract.mjs";
 
 const baseInput = {
   normalizedDesignIR: {
@@ -50,6 +51,51 @@ assert.deepEqual(noTypographyTask.target.sourceNodeIds, ["text:1"]);
 assert.equal(noTypographyTask.suggestedActions[0].override.type, "font_mapping_override");
 assert.equal(noTypography.taskStatusReport.byType.font_missing, 2);
 assert.equal(noTypography.taskStatusReport.codegenWriteBlocked, false);
+assertReviewTaskContract(noTypography.reviewTasks, "no typography review tasks");
+
+const globalWarnings = generateReviewTasks({
+  ...baseInput,
+  tokenConfidenceReport: {
+    warnings: [{ type: "missing_font", message: "Unknown project font." }]
+  },
+  inferredTokens: {
+    ...emptyTokens(),
+    colors: [
+      {
+        name: "color_low",
+        value: "#123456",
+        confidence: 0.4,
+        usageCount: 1,
+        sourceNodeIds: []
+      }
+    ]
+  },
+  assetManifest: {
+    version: "0.1.0",
+    assets: [],
+    warnings: [{ type: "export_failed", message: "Global export warning." }]
+  },
+  fidelityGenerationManifest: {
+    ...baseInput.fidelityGenerationManifest,
+    warnings: [{ type: "unsupported_effect", message: "Unsupported global effect." }]
+  },
+  staleOverrideReport: {
+    version: "0.1.0",
+    generatedAt: "2026-07-04T00:00:00.000Z",
+    staleOverrides: [
+      {
+        overrideId: "ovr_missing_token",
+        type: "token_rename_override",
+        target: { kind: "token", tokenName: "old_color" },
+        reason: "Token no longer exists."
+      }
+    ],
+    appliedOverrideIds: []
+  }
+});
+assert.ok(globalWarnings.reviewTasks.length >= 5, "Expected global warnings to create review tasks");
+assert.ok(globalWarnings.reviewTasks.every((task) => task.target.normalizedNodeId === "root" || task.target.sourceNodeIds?.length > 0));
+assertReviewTaskContract(globalWarnings.reviewTasks, "global warning review tasks");
 
 const systemFont = generateReviewTasks({
   ...baseInput,
@@ -76,6 +122,7 @@ assert.ok(systemFontTask, "Expected System font fallback to create a font_missin
 assert.equal(systemFontTask.target.tokenName, "text_unknown");
 assert.equal(systemFontTask.evidence.fontFamily, "System");
 assert.equal(systemFontTask.suggestedActions[0].override.payload.fromFamily, "System");
+assertReviewTaskContract(systemFont.reviewTasks, "system font review tasks");
 
 const mappedFont = generateReviewTasks({
   ...baseInput,
@@ -98,6 +145,7 @@ const mappedFont = generateReviewTasks({
   tokenConfidenceReport: { warnings: [] }
 });
 assert.equal(mappedFont.reviewTasks.some((task) => task.type === "font_missing"), false);
+assertReviewTaskContract(mappedFont.reviewTasks, "mapped font review tasks");
 
 const componentCandidate = generateReviewTasks({
   ...baseInput,
@@ -138,6 +186,7 @@ assert.ok(fallbackComponentTask, "Expected component candidates without instance
 assert.deepEqual(fallbackComponentTask.target.sourceNodeIds, ["frame:1"]);
 assert.deepEqual(fallbackComponentTask.suggestedActions[0].override.payload.instances, ["frame:1"]);
 assert.equal(componentCandidate.taskStatusReport.byType.low_confidence_component, 2);
+assertReviewTaskContract(componentCandidate.reviewTasks, "component review tasks");
 
 const visualDiff = generateReviewTasks({
   ...baseInput,
@@ -171,6 +220,7 @@ const unmappedRegionTask = visualDiff.reviewTasks.find((task) => task.target.dif
 assert.ok(unmappedRegionTask, "Expected unmapped diff issue to create a region task");
 assert.equal(unmappedRegionTask.target.normalizedNodeId, "root");
 assert.deepEqual(unmappedRegionTask.target.sourceNodeIds, ["frame:1"]);
+assertReviewTaskContract(visualDiff.reviewTasks, "visual diff review tasks");
 
 const flutterCapture = generateReviewTasks({
   ...baseInput,
@@ -180,6 +230,7 @@ const flutterTask = flutterCapture.reviewTasks.find((task) => task.id === "task_
 assert.ok(flutterTask, "Expected failed Flutter capture to create a task");
 assert.equal(flutterTask.target.normalizedNodeId, "root");
 assert.deepEqual(flutterTask.target.sourceNodeIds, ["frame:1"]);
+assertReviewTaskContract(flutterCapture.reviewTasks, "flutter capture review tasks");
 
 const semanticUplift = generateReviewTasks({
   ...baseInput,
@@ -221,6 +272,7 @@ assert.equal(semanticTask.priority, "P2");
 assert.deepEqual(semanticTask.target.sourceNodeIds, ["frame:1", "text:1"]);
 assert.equal(semanticTask.suggestedActions[0].override.payload.action, "run_semantic_uplift_diff");
 assert.equal(semanticUplift.taskStatusReport.byType.semantic_uplift_pending, 1);
+assertReviewTaskContract(semanticUplift.reviewTasks, "semantic uplift review tasks");
 
 const handledSemanticUplift = generateReviewTasks({
   ...baseInput,
@@ -249,6 +301,7 @@ const handledSemanticUplift = generateReviewTasks({
   }
 });
 assert.equal(handledSemanticUplift.reviewTasks.some((task) => task.type === "semantic_uplift_pending"), false);
+assertReviewTaskContract(handledSemanticUplift.reviewTasks, "handled semantic uplift review tasks");
 
 console.log("review task engine verification passed");
 
