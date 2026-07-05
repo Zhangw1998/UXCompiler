@@ -753,7 +753,11 @@ async function applyWorkbenchCodegenReview(body) {
     filesToCreate: result.filesToCreate.length,
     filesToModify: result.filesToModify.length,
     assetsToAdd: result.assetsToAdd.length,
-    arbKeysToAdd: result.codegenReview.arbKeysToAdd.length
+    arbKeysToAdd: result.codegenReview.arbKeysToAdd.length,
+    generatedWidgets: result.codegenReview.generatedWidgets.length,
+    fallbackRegions: result.codegenReview.fallbackRegions.length,
+    unresolvedReviewTasks: result.codegenReview.unresolvedReviewTasks.length,
+    manualOverrides: result.codegenReview.manualOverrideSummary.active
   };
   await writeJson(resolve(artifactDir, "workbench_codegen_review_report.json"), report);
   return {

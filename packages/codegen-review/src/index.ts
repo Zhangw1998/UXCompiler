@@ -6,14 +6,18 @@ import type {
   CodegenAssetPlan,
   CodegenFilePatch,
   CodegenFilePlan,
+  CodegenFallbackRegionSummary,
   CodegenFormatSummary,
   CodegenGeneratedFile,
+  CodegenGeneratedWidgetSummary,
   CodegenGateIssue,
   CodegenGateStatus,
+  CodegenManualOverrideSummary,
   CodegenMergeReport,
   CodegenPubspecPatch,
   CodegenReviewManifest,
   CodegenReviewResult,
+  CodegenUnresolvedTaskSummary,
   ComponentPromotionRule,
   FidelityGenerationManifest,
   I18nManifest,
@@ -95,6 +99,10 @@ export function createCodegenReview(input: CreateCodegenReviewInput): CodegenRev
   const pubspecPatch = buildPubspecPatch(assetPlans);
   const format = input.format ?? { status: "unknown" };
   const analyze = input.analyze ?? { errors: 0, warnings: 0 };
+  const generatedWidgets = buildGeneratedWidgetSummary(filePlans);
+  const fallbackRegions = buildFallbackRegionSummary(input.normalizedDesignIR);
+  const unresolvedReviewTasks = buildUnresolvedTaskSummary(input.reviewTasks ?? []);
+  const manualOverrideSummary = buildManualOverrideSummary(input.overrideSet);
   const gates = buildGateStatus({
     input,
     filePlans,
@@ -124,6 +132,10 @@ export function createCodegenReview(input: CreateCodegenReviewInput): CodegenRev
     assetsToAdd: assetPlans.filter((asset) => asset.action === "add"),
     arbKeysToAdd: arbPatch.keysToAdd.map((message) => message.key),
     blockingTasks: input.reviewTasks?.filter((task) => task.status === "open" && task.priority === "P0").map((task) => task.id) ?? [],
+    generatedWidgets,
+    fallbackRegions,
+    unresolvedReviewTasks,
+    manualOverrideSummary,
     gates
   };
   const mergeReport = buildMergeReport(filePlans, generatedAt);
@@ -726,6 +738,106 @@ function buildFileChanges(currentManifest: CodegenReviewManifest, previousManife
     }
   }
   return changes.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function buildGeneratedWidgetSummary(filePlans: CodegenFilePlan[]): CodegenGeneratedWidgetSummary[] {
+  return filePlans
+    .flatMap((file) =>
+      file.generatedRegions.map((region) => ({
+        path: file.path,
+        action: file.action,
+        regionId: region.id,
+        sourceNodeIds: region.sourceNodeIds,
+        strategy: region.strategy,
+        hash: region.hash
+      }))
+    )
+    .sort((left, right) => `${left.path}:${left.regionId}`.localeCompare(`${right.path}:${right.regionId}`));
+}
+
+function buildFallbackRegionSummary(normalizedDesignIR: NormalizedDesignIR): CodegenFallbackRegionSummary[] {
+  const byNodeId = new Map<string, CodegenFallbackRegionSummary>();
+  const nodeIndex = indexNormalizedNodes(normalizedDesignIR.tree);
+  for (const fallback of normalizedDesignIR.fallbacks ?? []) {
+    const node = nodeIndex.get(fallback.nodeId);
+    byNodeId.set(fallback.nodeId, {
+      nodeId: fallback.nodeId,
+      name: node?.name,
+      sourceNodeIds: node?.sourceNodeIds ?? [],
+      strategy: fallback.strategy,
+      reason: fallback.reason
+    });
+  }
+  for (const node of nodeIndex.values()) {
+    const strategy = node.render?.strategy;
+    const isFallbackStrategy = strategy && (node.render?.locked || /fallback|asset|screenshot|absolute/i.test(strategy));
+    if (!strategy || !isFallbackStrategy || byNodeId.has(node.id)) continue;
+    byNodeId.set(node.id, {
+      nodeId: node.id,
+      name: node.name,
+      sourceNodeIds: node.sourceNodeIds,
+      strategy,
+      reason: node.render?.locked ? "Render strategy is locked for fidelity or user override." : "Render strategy requires a fidelity fallback.",
+      locked: node.render?.locked
+    });
+  }
+  return [...byNodeId.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId));
+}
+
+function buildUnresolvedTaskSummary(reviewTasks: ReviewTask[]): CodegenUnresolvedTaskSummary[] {
+  return reviewTasks
+    .filter((task) => task.status === "open")
+    .map((task) => ({
+      id: task.id,
+      type: task.type,
+      priority: task.priority,
+      title: task.title,
+      confidence: task.confidence,
+      target: task.target
+    }))
+    .sort((left, right) => priorityRank(left.priority) - priorityRank(right.priority) || left.id.localeCompare(right.id));
+}
+
+function buildManualOverrideSummary(overrideSet?: OverrideSet): CodegenManualOverrideSummary {
+  const overrides = overrideSet?.overrides ?? [];
+  const byType: CodegenManualOverrideSummary["byType"] = {};
+  for (const override of overrides.filter((entry) => entry.status === "active")) {
+    byType[override.type] = (byType[override.type] ?? 0) + 1;
+  }
+  const latest = [...overrides]
+    .sort((left, right) => overrideTime(right) - overrideTime(left))
+    .slice(0, 5)
+    .map((override) => ({
+      id: override.id,
+      type: override.type,
+      status: override.status,
+      target: override.target,
+      updatedAt: override.updatedAt ?? override.createdAt
+    }));
+  return {
+    active: overrides.filter((override) => override.status === "active").length,
+    disabled: overrides.filter((override) => override.status === "disabled").length,
+    byType,
+    latest
+  };
+}
+
+function indexNormalizedNodes(root: NormalizedNode): Map<string, NormalizedNode> {
+  const nodes = new Map<string, NormalizedNode>();
+  const walk = (node: NormalizedNode): void => {
+    nodes.set(node.id, node);
+    for (const child of node.children) walk(child);
+  };
+  walk(root);
+  return nodes;
+}
+
+function priorityRank(priority: ReviewTask["priority"]): number {
+  return priority === "P0" ? 0 : priority === "P1" ? 1 : 2;
+}
+
+function overrideTime(override: OverrideSet["overrides"][number]): number {
+  return Date.parse(override.updatedAt ?? override.createdAt) || 0;
 }
 
 function sourceNodeIdsForManifest(manifest: CodegenReviewManifest): string[] {

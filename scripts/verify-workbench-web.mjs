@@ -178,6 +178,10 @@ try {
   assert.match(js, /ARB Changes/);
   assert.match(js, /Pubspec Patch/);
   assert.match(js, /Merge Report/);
+  assert.match(js, /Generated Widgets/);
+  assert.match(js, /Fallback Regions/);
+  assert.match(js, /Unresolved Review Tasks/);
+  assert.match(js, /Manual Overrides/);
   assert.match(modelJs, /buildWorkbenchModel/);
   assert.match(css, /preview-stage/);
   assert.match(css, /code-block/);
@@ -731,6 +735,14 @@ try {
   assert.equal(typeof codegenPubspecPatch.patch, "string");
   assert.match(codegenPubspecPatch.patch, /pubspec.yaml/);
   assert.equal(Array.isArray(codegenMergeReport.files), true);
+  assert.equal(codegenReview.generatedWidgets.some((widget) => widget.strategy === "semantic_page_facade"), true);
+  assert.equal(Array.isArray(codegenReview.fallbackRegions), true);
+  assert.equal(codegenReview.unresolvedReviewTasks.length > 0, true);
+  assert.equal(codegenReview.manualOverrideSummary.active > 0, true);
+  assert.equal(codegenReviewReport.generatedWidgets, codegenReview.generatedWidgets.length);
+  assert.equal(codegenReviewReport.fallbackRegions, codegenReview.fallbackRegions.length);
+  assert.equal(codegenReviewReport.unresolvedReviewTasks, codegenReview.unresolvedReviewTasks.length);
+  assert.equal(codegenReviewReport.manualOverrides, codegenReview.manualOverrideSummary.active);
   assert.match(generatedMain, /@uxc-generated:start/);
 
   const codegenWriteResponse = await fetch(`${base}/api/workbench/codegen-write`, {

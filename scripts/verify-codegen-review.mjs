@@ -58,11 +58,40 @@ assert.ok(
     file.generatedRegions.some((region) => region.strategy === "semantic_page_facade")
   )
 );
+assert.ok(
+  result.codegenReview.generatedWidgets.some(
+    (widget) =>
+      widget.path === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart" &&
+      widget.strategy === "semantic_page_facade"
+  )
+);
+assert.equal(result.codegenReview.unresolvedReviewTasks.length, input.reviewTasks.filter((task) => task.status === "open").length);
+assert.equal(result.codegenReview.manualOverrideSummary.active, 0);
+assert.deepEqual(result.codegenReview.manualOverrideSummary.byType, {});
 assert.ok(result.assetsToAdd.some((asset) => asset.path === "assets/icons/divider_dot.svg"));
 assert.ok(result.arbPatch.keysToAdd.some((message) => message.key === "button_label"));
 assert.equal(result.arbPatch.patch["@button_label"].placeholders.ctaLabel.type, "String");
 assert.match(result.pubspecPatch.patch, /assets\/icons\/divider_dot\.svg/);
 assert.equal(result.incrementalSyncReport.mode, "initial_generation");
+
+const fallbackSummary = createCodegenReview({
+  ...input,
+  normalizedDesignIR: {
+    ...input.normalizedDesignIR,
+    fallbacks: [
+      {
+        nodeId: input.normalizedDesignIR.tree.id,
+        reason: "Verify fallback summary.",
+        strategy: "absolute_widget"
+      }
+    ]
+  }
+});
+assert.ok(
+  fallbackSummary.codegenReview.fallbackRegions.some(
+    (region) => region.nodeId === input.normalizedDesignIR.tree.id && region.strategy === "absolute_widget"
+  )
+);
 
 const incremental = createCodegenReview({
   ...input,
@@ -114,6 +143,8 @@ assert.equal(
   false,
   "Explicit low visual score override should remove visual diff blocker"
 );
+assert.equal(visualOverrideAllowed.codegenReview.manualOverrideSummary.active, 1);
+assert.equal(visualOverrideAllowed.codegenReview.manualOverrideSummary.byType.render_strategy_override, 1);
 
 const taskStatusBlocked = createCodegenReview({
   ...input,

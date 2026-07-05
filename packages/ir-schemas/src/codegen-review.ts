@@ -1,6 +1,6 @@
 import type { AssetManifestEntry, I18nMessage } from "./asset-i18n.js";
-import type { ReviewTaskPriority } from "./review-task.js";
-import type { StaleOverride } from "./override.js";
+import type { OverrideTarget, OverrideType, StaleOverride } from "./override.js";
+import type { ReviewTaskPriority, ReviewTaskTarget, ReviewTaskType } from "./review-task.js";
 
 export type CodegenFileAction = "create" | "modify" | "unchanged" | "conflict";
 
@@ -74,6 +74,46 @@ export interface CodegenGateStatus {
   warnings: Array<{ type: string; message: string; filePath?: string }>;
 }
 
+export interface CodegenGeneratedWidgetSummary {
+  path: string;
+  action: CodegenFileAction;
+  regionId: string;
+  sourceNodeIds: string[];
+  strategy: string;
+  hash: string;
+}
+
+export interface CodegenFallbackRegionSummary {
+  nodeId: string;
+  name?: string;
+  sourceNodeIds: string[];
+  strategy: string;
+  reason: string;
+  locked?: boolean;
+}
+
+export interface CodegenUnresolvedTaskSummary {
+  id: string;
+  type: ReviewTaskType;
+  priority: ReviewTaskPriority;
+  title: string;
+  confidence: number;
+  target: ReviewTaskTarget;
+}
+
+export interface CodegenManualOverrideSummary {
+  active: number;
+  disabled: number;
+  byType: Partial<Record<OverrideType, number>>;
+  latest: Array<{
+    id: string;
+    type: OverrideType;
+    status: "active" | "disabled";
+    target: OverrideTarget;
+    updatedAt?: string;
+  }>;
+}
+
 export interface CodegenAnalyzeSummary {
   errors: number;
   warnings: number;
@@ -107,6 +147,10 @@ export interface CodegenReviewManifest {
   assetsToAdd: CodegenAssetPlan[];
   arbKeysToAdd: string[];
   blockingTasks: string[];
+  generatedWidgets: CodegenGeneratedWidgetSummary[];
+  fallbackRegions: CodegenFallbackRegionSummary[];
+  unresolvedReviewTasks: CodegenUnresolvedTaskSummary[];
+  manualOverrideSummary: CodegenManualOverrideSummary;
   gates: CodegenGateStatus;
 }
 

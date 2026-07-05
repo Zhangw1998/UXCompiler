@@ -947,6 +947,14 @@ function renderCodegen(model: WorkbenchModel): string {
   const mergeReport = asRecord(state.artifacts.mergeReport);
   const mergeFiles = asArray(mergeReport.files).map(asRecord);
   const mergeConflicts = asArray(mergeReport.conflicts).map(asRecord);
+  const generatedWidgets = asArray(review.generatedWidgets).map(asRecord);
+  const fallbackRegions = asArray(review.fallbackRegions).map(asRecord);
+  const unresolvedReviewTasks = asArray(review.unresolvedReviewTasks).map(asRecord);
+  const manualOverrideSummary = asRecord(review.manualOverrideSummary);
+  const latestOverrides = asArray(manualOverrideSummary.latest).map(asRecord);
+  const overrideTypeCounts = Object.entries(asRecord(manualOverrideSummary.byType))
+    .map(([type, count]) => `${type}: ${numberFrom(count) ?? 0}`)
+    .sort((left, right) => left.localeCompare(right));
   const writeReport = asRecord(state.artifacts.projectWriteReport);
   const workbenchReviewReport = asRecord(state.artifacts.workbenchCodegenReviewReport);
   const syncReport = asRecord(state.artifacts.workbenchSyncRemapReport);
@@ -993,6 +1001,7 @@ function renderCodegen(model: WorkbenchModel): string {
         ${renderCodegenButton("write", "Write", canRunCodegen && Boolean(state.artifacts.codegenReview))}
       </div>
       <div class="codegen-summary">
+        <div><strong>${escapeHtml(formatMaybePercent(numberFrom(review.visualScore)))}</strong><span>Visual Score</span></div>
         <div><strong>${escapeHtml(stringFrom(writeReport.mode) ?? "not-run")}</strong><span>Mode</span></div>
         <div><strong>${escapeHtml(String(booleanFrom(writeReport.wrote) ?? false))}</strong><span>Wrote</span></div>
         <div><strong>${writeFiles.filter((file) => stringFrom(file.status) === "created" || stringFrom(file.status) === "updated").length}</strong><span>Changed</span></div>
@@ -1069,6 +1078,31 @@ function renderCodegen(model: WorkbenchModel): string {
           <div class="status-row"><strong>Conflicts</strong><span>${mergeConflicts.length}</span></div>
         </div>
         ${mergeConflicts.length === 0 ? renderEmpty("No merge conflicts.") : mergeConflicts.map((conflict) => renderObjectCard(conflict, "path", "reason")).join("")}
+      </div>
+    </section>
+    <section class="two-column">
+      <div class="panel">
+        <div class="panel-header"><h2>Generated Widgets</h2></div>
+        ${generatedWidgets.length === 0 ? renderEmpty("No generated widget summary.") : generatedWidgets.map((widget) => renderObjectCard(widget, "path", "strategy")).join("")}
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>Fallback Regions</h2></div>
+        ${fallbackRegions.length === 0 ? renderEmpty("No fallback regions.") : fallbackRegions.map((region) => renderObjectCard(region, "name", "strategy")).join("")}
+      </div>
+    </section>
+    <section class="two-column">
+      <div class="panel">
+        <div class="panel-header"><h2>Unresolved Review Tasks</h2></div>
+        ${unresolvedReviewTasks.length === 0 ? renderEmpty("No unresolved review tasks.") : unresolvedReviewTasks.map((task) => renderObjectCard(task, "title", "priority")).join("")}
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>Manual Overrides</h2></div>
+        <div class="status-list">
+          <div class="status-row"><strong>Active</strong><span>${numberFrom(manualOverrideSummary.active) ?? 0}</span></div>
+          <div class="status-row"><strong>Disabled</strong><span>${numberFrom(manualOverrideSummary.disabled) ?? 0}</span></div>
+        </div>
+        ${renderKeyList("Types", overrideTypeCounts)}
+        ${latestOverrides.length === 0 ? renderEmpty("No manual overrides.") : latestOverrides.map((override) => renderObjectCard(override, "id", "type")).join("")}
       </div>
     </section>
   `;
