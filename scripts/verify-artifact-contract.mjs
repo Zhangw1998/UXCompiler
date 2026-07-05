@@ -47,6 +47,7 @@ for (const file of requiredJsonFiles) {
 }
 
 const raw = json("raw_figma_scene.json");
+const rawSchema = JSON.parse(readFileSync(resolve("schemas/raw_figma_scene.schema.json"), "utf8"));
 const extractionReport = json("extraction_report.json");
 const canonical = json("canonical_scene.json");
 const canonicalizationReport = json("canonicalization_report.json");
@@ -81,6 +82,7 @@ const normalizedIds = new Set();
 walkNormalizedNode(normalized.tree, (node) => normalizedIds.add(node.id));
 const traceableIds = new Set([...rawSourceNodeIds, ...canonicalIds, ...normalizedIds]);
 
+assertJsonSchema(rawSchema, raw, "raw_figma_scene.json");
 assert.equal(rawSourceNodeIds.has(canonical.root.sourceNodeId), true, "canonical root must trace to raw root.");
 assert.equal(mapping.rawToCanonical[raw.root.id]?.includes(canonical.root.id), true, "node mapping must trace raw root to canonical root.");
 assert.equal(semanticIR.normalizedDesignIR.tree.id, normalized.tree.id, "semantic_ir must embed the normalized IR baseline.");
@@ -342,6 +344,63 @@ function assertScreenshotContract(report) {
   if (report.screenshot.status === "skipped") {
     assert.ok(report.screenshot.message || report.screenshot.requested === false, "Skipped screenshot report must explain why no reference was exported.");
   }
+}
+
+function assertJsonSchema(schema, value, label) {
+  const issues = [];
+  validateSchemaNode(schema, value, "$", schema, issues);
+  assert.equal(issues.length, 0, `${label} must satisfy JSON Schema:\n${issues.join("\n")}`);
+}
+
+function validateSchemaNode(schemaNode, value, path, rootSchema, issues) {
+  if (!schemaNode || typeof schemaNode !== "object") return;
+  if (schemaNode.$ref) {
+    validateSchemaNode(resolveSchemaRef(rootSchema, schemaNode.$ref), value, path, rootSchema, issues);
+    return;
+  }
+  if (Array.isArray(schemaNode.anyOf)) {
+    const optionIssues = schemaNode.anyOf.map((option) => {
+      const nextIssues = [];
+      validateSchemaNode(option, value, path, rootSchema, nextIssues);
+      return nextIssues;
+    });
+    if (optionIssues.some((entry) => entry.length === 0)) return;
+    issues.push(`${path} must match one anyOf schema (${optionIssues.map((entry) => entry[0]).filter(Boolean).join("; ")})`);
+    return;
+  }
+  if (schemaNode.type) assertSchemaType(schemaNode.type, value, path, issues);
+  if (schemaNode.type === "object" && isPlainObject(value)) {
+    for (const requiredKey of schemaNode.required ?? []) {
+      if (!(requiredKey in value)) issues.push(`${path}.${requiredKey} is required`);
+    }
+    for (const [key, childSchema] of Object.entries(schemaNode.properties ?? {})) {
+      if (key in value) validateSchemaNode(childSchema, value[key], `${path}.${key}`, rootSchema, issues);
+    }
+  }
+  if (schemaNode.type === "array" && Array.isArray(value) && schemaNode.items) {
+    value.forEach((entry, index) => validateSchemaNode(schemaNode.items, entry, `${path}[${index}]`, rootSchema, issues));
+  }
+}
+
+function assertSchemaType(type, value, path, issues) {
+  if (type === "object" && !isPlainObject(value)) issues.push(`${path} must be an object`);
+  else if (type === "array" && !Array.isArray(value)) issues.push(`${path} must be an array`);
+  else if (type === "string" && typeof value !== "string") issues.push(`${path} must be a string`);
+  else if (type === "number" && (typeof value !== "number" || !Number.isFinite(value))) issues.push(`${path} must be a finite number`);
+  else if (type === "boolean" && typeof value !== "boolean") issues.push(`${path} must be a boolean`);
+  else if (type === "null" && value !== null) issues.push(`${path} must be null`);
+}
+
+function resolveSchemaRef(rootSchema, ref) {
+  assert.equal(ref.startsWith("#/"), true, `Unsupported schema ref ${ref}`);
+  return ref
+    .slice(2)
+    .split("/")
+    .reduce((node, segment) => node?.[segment.replaceAll("~1", "/").replaceAll("~0", "~")], rootSchema);
+}
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function assertCanonicalMapping(rawSourceNodeIds, canonicalIds, mapping) {
