@@ -6,6 +6,7 @@ const root = resolve(process.argv[2] ?? "artifacts/sample");
 
 const requiredJsonFiles = [
   "raw_figma_scene.json",
+  "extraction_report.json",
   "canonical_scene.json",
   "canonicalization_report.json",
   "node_mapping.json",
@@ -43,6 +44,7 @@ for (const file of requiredJsonFiles) {
 }
 
 const raw = json("raw_figma_scene.json");
+const extractionReport = json("extraction_report.json");
 const canonical = json("canonical_scene.json");
 const canonicalizationReport = json("canonicalization_report.json");
 const mapping = json("node_mapping.json");
@@ -78,6 +80,7 @@ assert.equal(rawSourceNodeIds.has(canonical.root.sourceNodeId), true, "canonical
 assert.equal(mapping.rawToCanonical[raw.root.id]?.includes(canonical.root.id), true, "node mapping must trace raw root to canonical root.");
 assert.equal(semanticIR.normalizedDesignIR.tree.id, normalized.tree.id, "semantic_ir must embed the normalized IR baseline.");
 
+assertRawExtractionContract(raw, extractionReport);
 assertCanonicalMapping(rawSourceNodeIds, canonicalIds, mapping);
 assertCanonicalizationReport(rawSourceNodeIds, canonicalIds, canonicalizationReport);
 assertSourceRefs(rawSourceNodeIds, "inferred_tokens.colors", tokens.colors, (entry) => entry.sourceNodeIds ?? []);
@@ -199,6 +202,51 @@ function assertVisibleTextI18nCoverage(canonicalScene, manifest) {
     );
     if (message) assert.equal(message.value, content, `i18n message ${message.key} must match visible text ${node.sourceNodeId}.`);
   });
+}
+
+function assertRawExtractionContract(rawScene, report) {
+  assert.equal(report.source.rootNodeId, rawScene.root.id, "extraction_report source rootNodeId must match raw root.");
+  assert.equal(report.source.rootNodeName, rawScene.root.name, "extraction_report source rootNodeName must match raw root.");
+  assert.deepEqual(report.source.viewport, rawScene.source.viewport, "extraction_report viewport must match raw scene viewport.");
+  if (rawScene.source.viewport && rawScene.root.absoluteBoundingBox) {
+    assert.equal(rawScene.source.viewport.width, rawScene.root.absoluteBoundingBox.width, "raw root viewport width must match root bounds.");
+    assert.equal(rawScene.source.viewport.height, rawScene.root.absoluteBoundingBox.height, "raw root viewport height must match root bounds.");
+  }
+
+  const stats = {
+    nodes: 0,
+    textNodes: 0,
+    vectorNodes: 0,
+    imageNodes: 0,
+    componentInstances: 0,
+    invisibleNodes: 0,
+    missingBounds: 0
+  };
+  const warningKeys = new Set((report.warnings ?? []).map((warning) => `${warning.nodeId}:${warning.type}`));
+  walkRawNode(rawScene.root, (node) => {
+    stats.nodes += 1;
+    if (node.type === "TEXT") stats.textNodes += 1;
+    if (["VECTOR", "BOOLEAN_OPERATION", "LINE", "POLYGON", "STAR"].includes(node.type)) stats.vectorNodes += 1;
+    if (node.type === "IMAGE" || node.imageHash || rawImagePaints(node).length > 0) stats.imageNodes += 1;
+    if (node.type === "INSTANCE" || node.componentId || node.componentKey) stats.componentInstances += 1;
+    if (node.visible === false) stats.invisibleNodes += 1;
+    if (!node.absoluteBoundingBox && !node.absoluteRenderBounds) {
+      stats.missingBounds += 1;
+      assert.equal(warningKeys.has(`${node.id}:invalid_bounds`), true, `Missing-bounds raw node ${node.id} must be reported.`);
+    }
+    if (node.absoluteBoundingBox) assertRawBounds(node.absoluteBoundingBox, `raw.${node.id}.absoluteBoundingBox`);
+    if (node.absoluteRenderBounds) assertRawBounds(node.absoluteRenderBounds, `raw.${node.id}.absoluteRenderBounds`);
+    if (node.opacity !== undefined) assertScore(node.opacity, `raw.${node.id}.opacity`);
+    if (node.constraints !== undefined) {
+      assert.equal(typeof node.constraints, "object", `raw.${node.id}.constraints must be an object.`);
+      assert.ok(node.constraints !== null && !Array.isArray(node.constraints), `raw.${node.id}.constraints must be an object.`);
+    }
+    for (const effect of node.effects ?? []) {
+      assert.equal(typeof effect, "object", `raw.${node.id}.effects entry must be an object.`);
+      assert.ok(effect !== null && !Array.isArray(effect), `raw.${node.id}.effects entry must be an object.`);
+    }
+  });
+  assert.deepEqual(report.stats, stats, "extraction_report stats must match raw scene contents.");
 }
 
 function assertCanonicalMapping(rawSourceNodeIds, canonicalIds, mapping) {
@@ -363,6 +411,21 @@ function assertBounds(bounds, label) {
   }
   assert.ok(bounds.w >= 0, `${label}.w must not be negative.`);
   assert.ok(bounds.h >= 0, `${label}.h must not be negative.`);
+}
+
+function assertRawBounds(bounds, label) {
+  assert.equal(typeof bounds, "object", `${label} must be an object.`);
+  assert.ok(bounds !== null && !Array.isArray(bounds), `${label} must be an object.`);
+  for (const key of ["x", "y", "width", "height"]) {
+    assert.equal(typeof bounds[key], "number", `${label}.${key} must be a number.`);
+    assert.ok(Number.isFinite(bounds[key]), `${label}.${key} must be finite.`);
+  }
+  assert.ok(bounds.width >= 0, `${label}.width must not be negative.`);
+  assert.ok(bounds.height >= 0, `${label}.height must not be negative.`);
+}
+
+function rawImagePaints(node) {
+  return [...(node.fills ?? []), ...(node.strokes ?? [])].filter((paint) => paint?.visible !== false && (paint?.type === "IMAGE" || Boolean(paint?.imageHash)));
 }
 
 function assertConfidenceTree(files) {
