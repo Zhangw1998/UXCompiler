@@ -1,15 +1,24 @@
 import type {
   AssetManifest,
+  AiDecisionReportArtifact,
+  ComponentConfidenceReportArtifact,
+  ComponentInstanceMapArtifact,
   I18nManifest,
+  I18nKeySuggestionsArtifact,
   InferredComponentsArtifact,
+  NamingMapArtifact,
   NormalizedDesignIR,
   NormalizedNode,
+  NormalizationReportArtifact,
   OverrideSet,
   PipelineArtifacts,
   RawFigmaScene,
   Region,
+  RenderStrategyManifestArtifact,
   SemanticIRArtifact,
-  SemanticLabelsArtifact
+  SemanticLabelsArtifact,
+  UpliftDecisionArtifact,
+  UpliftDiffReportArtifact
 } from "@uxcompiler/ir-schemas";
 import { normalizeAssetsAndI18n } from "@uxcompiler/asset-i18n-normalizer";
 import { generateFlutterFidelity } from "@uxcompiler/flutter-fidelity-renderer";
@@ -54,13 +63,35 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     staleOverrideReport: overrideResult.staleOverrideReport
   });
   const inferredComponents = createInferredComponentsArtifact(layoutResult.normalizedDesignIR);
+  const componentInstanceMap = createComponentInstanceMapArtifact(inferredComponents, layoutResult.normalizedDesignIR);
+  const componentConfidenceReport = createComponentConfidenceReportArtifact(inferredComponents);
   const semanticLabels = createSemanticLabelsArtifact({
     normalizedDesignIR: layoutResult.normalizedDesignIR,
     regions: layoutResult.regions,
     assetManifest: assetI18nResult.assetManifest,
     i18nManifest: assetI18nResult.i18nManifest
   });
+  const aiDecisionReport = createAiDecisionReportArtifact();
+  const namingMap = createNamingMapArtifact(semanticLabels);
+  const i18nKeySuggestions = createI18nKeySuggestionsArtifact(assetI18nResult.i18nManifest);
   const semanticIR = createSemanticIRArtifact(layoutResult.normalizedDesignIR, inferredComponents, semanticLabels);
+  const upliftDecisions = createUpliftDecisionArtifact(layoutResult.regions);
+  const upliftDiffReport = createUpliftDiffReportArtifact();
+  const normalizationReport = createNormalizationReportArtifact({
+    rawFigmaScene,
+    normalizedDesignIR: layoutResult.normalizedDesignIR,
+    canonicalWarnings: canonicalResult.report.warnings,
+    tokenWarnings: tokenResult.confidenceReport.warnings,
+    assetWarnings: assetI18nResult.assetManifest.warnings,
+    i18nWarnings: assetI18nResult.i18nManifest.warnings,
+    reviewTasks: reviewTaskResult.reviewTasks
+  });
+  const renderStrategyManifest = createRenderStrategyManifestArtifact({
+    rawFigmaScene,
+    regions: layoutResult.regions,
+    normalizedDesignIR: layoutResult.normalizedDesignIR,
+    renderDecisions: fidelityResult.fidelityGenerationManifest.renderDecisions
+  });
 
   return {
     rawFigmaScene,
@@ -92,8 +123,17 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     layoutCandidates: layoutResult.layoutCandidates,
     layoutDecisions: layoutResult.layoutDecisions,
     inferredComponents,
+    componentInstanceMap,
+    componentConfidenceReport,
     semanticLabels,
+    aiDecisionReport,
+    namingMap,
+    i18nKeySuggestions,
     semanticIR,
+    upliftDecisions,
+    upliftDiffReport,
+    normalizationReport,
+    renderStrategyManifest,
     normalizedDesignIR: layoutResult.normalizedDesignIR
   };
 }
@@ -179,9 +219,258 @@ function createSemanticIRArtifact(
   };
 }
 
+function createComponentInstanceMapArtifact(
+  inferredComponents: InferredComponentsArtifact,
+  normalizedDesignIR: NormalizedDesignIR
+): ComponentInstanceMapArtifact {
+  const components = inferredComponents.candidates.map((candidate, index) => {
+    const record = recordValue(candidate);
+    const componentId = stringValue(record?.componentId) ?? stringValue(record?.id) ?? `component_${index + 1}`;
+    const instances = stringArrayValue(record?.sourceInstances) ?? stringArrayValue(record?.instances) ?? [];
+    return {
+      componentId,
+      name: stringValue(record?.name),
+      instances: instances.map((sourceNodeId) => ({ sourceNodeIds: [sourceNodeId] })),
+      status: "candidate" as const
+    };
+  });
+  return {
+    version: "2.0",
+    components,
+    unmappedSourceNodeIds: components.length > 0 ? [] : collectNormalizedSourceNodeIds(normalizedDesignIR.tree)
+  };
+}
+
+function createComponentConfidenceReportArtifact(inferredComponents: InferredComponentsArtifact): ComponentConfidenceReportArtifact {
+  const candidates = inferredComponents.candidates.map((candidate, index) => {
+    const record = recordValue(candidate);
+    const componentId = stringValue(record?.componentId) ?? stringValue(record?.id) ?? `component_${index + 1}`;
+    const confidence = numberValue(record?.confidence) ?? numberValue(record?.similarity) ?? inferredComponents.confidence;
+    const instanceCount = (stringArrayValue(record?.sourceInstances) ?? stringArrayValue(record?.instances) ?? []).length;
+    return {
+      componentId,
+      name: stringValue(record?.name),
+      confidence,
+      instanceCount,
+      gate: confidence >= 0.9 && instanceCount >= 2 ? "auto_reusable" as const : confidence >= 0.75 ? "needs_review" as const : "fallback" as const,
+      reason:
+        instanceCount >= 2
+          ? "Component candidate was carried from normalized IR for Studio review."
+          : "Reusable component promotion requires at least two stable source instances."
+    };
+  });
+  return {
+    version: "2.0",
+    status: candidates.length > 0 ? "ready" : "no_candidates",
+    candidates,
+    warnings:
+      candidates.length > 0
+        ? []
+        : [
+            {
+              type: "no_reusable_components_detected",
+              message: "No repeated component structures met the conservative reusable-component threshold."
+            }
+          ]
+  };
+}
+
+function createAiDecisionReportArtifact(): AiDecisionReportArtifact {
+  return {
+    version: "2.0",
+    status: "not_run",
+    decisions: [],
+    accepted: [],
+    rejected: [],
+    warnings: [
+      {
+        type: "ai_adapter_not_configured",
+        message: "No AI semantic labeling pass was run; deterministic naming artifacts are used instead."
+      }
+    ]
+  };
+}
+
+function createNamingMapArtifact(semanticLabels: SemanticLabelsArtifact): NamingMapArtifact {
+  const regions: Record<string, string> = {};
+  const nodes: Record<string, string> = {};
+  const assets: Record<string, string> = {};
+  const i18n: Record<string, string> = {};
+  for (const region of semanticLabels.regions) regions[region.regionId] = region.suggestedName;
+  for (const node of semanticLabels.nodes) nodes[node.nodeId] = node.suggestedName;
+  for (const asset of semanticLabels.assets) assets[asset.sourceNodeId] = asset.suggestedName;
+  for (const message of semanticLabels.i18n) i18n[message.sourceNodeId] = message.suggestedKey;
+  return {
+    version: "2.0",
+    regions,
+    nodes,
+    assets,
+    i18n
+  };
+}
+
+function createI18nKeySuggestionsArtifact(i18nManifest: I18nManifest): I18nKeySuggestionsArtifact {
+  return {
+    version: "2.0",
+    locale: i18nManifest.locale,
+    suggestions: i18nManifest.messages.map((message) => ({
+      sourceNodeId: message.sourceNodeId,
+      text: message.value,
+      suggestedKey: message.key,
+      confidence: message.confidence,
+      status: message.confidence >= 0.8 ? "accepted_fallback" : "needs_review"
+    }))
+  };
+}
+
+function createUpliftDecisionArtifact(regions: Region[]): UpliftDecisionArtifact {
+  return {
+    version: "2.0",
+    decisions: regions.map((region) => ({
+      regionId: region.id,
+      sourceNodeIds: region.sourceNodeIds,
+      from: "absolute_widget",
+      to: "semantic_layout",
+      confidence: 0,
+      accepted: false,
+      reason: "Semantic uplift has not run with before/after visual diff validation for this region."
+    }))
+  };
+}
+
+function createUpliftDiffReportArtifact(): UpliftDiffReportArtifact {
+  return {
+    version: "2.0",
+    status: "not_run",
+    comparisons: [],
+    reason: "No semantic uplift replacement was attempted, so no uplift-specific diff comparison exists."
+  };
+}
+
+function createNormalizationReportArtifact(input: {
+  rawFigmaScene: RawFigmaScene;
+  normalizedDesignIR: NormalizedDesignIR;
+  canonicalWarnings: Array<{ sourceNodeId?: string; type: string; message: string }>;
+  tokenWarnings: Array<{ sourceNodeIds?: string[]; type: string; message: string }>;
+  assetWarnings: Array<{ sourceNodeId?: string; type: string; message: string }>;
+  i18nWarnings: Array<{ sourceNodeId?: string; type: string; message: string }>;
+  reviewTasks: Array<{ type: string; target?: { sourceNodeIds?: string[] }; description?: string; title?: string; evidence?: unknown }>;
+}): NormalizationReportArtifact {
+  const issues: NormalizationReportArtifact["issues"] = [
+    ...input.canonicalWarnings.map((warning) => ({
+      type: warning.type,
+      sourceNodeIds: warning.sourceNodeId ? [warning.sourceNodeId] : [],
+      message: warning.message,
+      fallback: "canonical_fallback"
+    })),
+    ...input.tokenWarnings.map((warning) => ({
+      type: warning.type,
+      sourceNodeIds: warning.sourceNodeIds ?? [],
+      message: warning.message,
+      fallback: "token_review"
+    })),
+    ...input.assetWarnings.map((warning) => ({
+      type: warning.type,
+      sourceNodeIds: warning.sourceNodeId ? [warning.sourceNodeId] : [],
+      message: warning.message,
+      fallback: "asset_studio_review"
+    })),
+    ...input.i18nWarnings.map((warning) => ({
+      type: warning.type,
+      sourceNodeIds: warning.sourceNodeId ? [warning.sourceNodeId] : [],
+      message: warning.message,
+      fallback: "i18n_studio_review"
+    })),
+    ...input.normalizedDesignIR.fallbacks.map((fallback) => ({
+      type: "layout_fallback",
+      sourceNodeIds: [fallback.nodeId],
+      message: fallback.reason,
+      fallback: fallback.strategy
+    })),
+    ...input.reviewTasks.map((task) => ({
+      type: task.type,
+      sourceNodeIds: task.target?.sourceNodeIds ?? [],
+      message: task.description ?? task.title ?? "Review task generated during normalization.",
+      fallback: "review_task"
+    }))
+  ];
+  const assetsScore = scoreFromWarnings(input.assetWarnings.length + input.i18nWarnings.length);
+  return {
+    version: "2.0",
+    source: {
+      fileKey: input.rawFigmaScene.source.fileKey,
+      fileName: input.rawFigmaScene.source.fileName,
+      frameNodeId: input.rawFigmaScene.source.frameNodeId
+    },
+    score: {
+      overall: input.normalizedDesignIR.confidence.overall,
+      tokens: input.normalizedDesignIR.confidence.tokens,
+      layout: input.normalizedDesignIR.confidence.layout,
+      components: input.normalizedDesignIR.confidence.components,
+      assets: assetsScore
+    },
+    issues
+  };
+}
+
+function createRenderStrategyManifestArtifact(input: {
+  rawFigmaScene: RawFigmaScene;
+  regions: Region[];
+  normalizedDesignIR: NormalizedDesignIR;
+  renderDecisions: Array<{ sourceNodeId: string; strategy: string; editable: boolean; reason: string }>;
+}): RenderStrategyManifestArtifact {
+  const decisions = new Map(input.renderDecisions.map((decision) => [decision.sourceNodeId, decision]));
+  return {
+    version: "2.0",
+    page: input.rawFigmaScene.root.name || "Page",
+    viewport: input.normalizedDesignIR.source.viewport,
+    regions: input.regions.map((region) => {
+      const regionDecision = region.sourceNodeIds.map((sourceNodeId) => decisions.get(sourceNodeId)).find(Boolean);
+      return {
+        regionId: region.id,
+        sourceNodeIds: region.sourceNodeIds,
+        strategy: regionDecision?.strategy ?? "absolute_widget",
+        reason: regionDecision?.reason ?? "Region currently renders through the fidelity renderer baseline.",
+        editable: regionDecision?.editable ?? true,
+        confidence: 0.78
+      };
+    })
+  };
+}
+
 function walkNormalized(node: NormalizedNode, visit: (node: NormalizedNode) => void): void {
   visit(node);
   for (const child of node.children) walkNormalized(child, visit);
+}
+
+function collectNormalizedSourceNodeIds(root: NormalizedNode): string[] {
+  const ids: string[] = [];
+  walkNormalized(root, (node) => {
+    ids.push(...node.sourceNodeIds);
+  });
+  return Array.from(new Set(ids)).sort();
+}
+
+function scoreFromWarnings(count: number): number {
+  return Math.max(0, Math.round((1 - Math.min(0.5, count * 0.05)) * 1000) / 1000);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stringArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const values = value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+  return values.length > 0 ? values : undefined;
 }
 
 function lowerCamel(value: string): string {

@@ -168,8 +168,17 @@ try {
     "regions.json",
     "layout_decisions.json",
     "inferred_components.json",
+    "component_instance_map.json",
+    "component_confidence_report.json",
     "semantic_labels.json",
+    "ai_decision_report.json",
+    "naming_map.json",
+    "i18n_key_suggestions.json",
     "semantic_ir.json",
+    "uplift_decisions.json",
+    "uplift_diff_report.json",
+    "normalization_report.json",
+    "render_strategy_manifest.json",
     "normalized_design_ir.json"
   ];
   for (const file of required) {

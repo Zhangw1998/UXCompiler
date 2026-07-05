@@ -41,8 +41,17 @@ const requiredFiles = [
   "layout_candidates.json",
   "layout_decisions.json",
   "inferred_components.json",
+  "component_instance_map.json",
+  "component_confidence_report.json",
   "semantic_labels.json",
+  "ai_decision_report.json",
+  "naming_map.json",
+  "i18n_key_suggestions.json",
   "semantic_ir.json",
+  "uplift_decisions.json",
+  "uplift_diff_report.json",
+  "normalization_report.json",
+  "render_strategy_manifest.json",
   "normalized_design_ir.json",
   "compile_manifest.json"
 ];
@@ -71,8 +80,17 @@ const analyzeReport = readJson("flutter_preview_analyze_report.json");
 const regions = readJson("regions.json");
 const decisions = readJson("layout_decisions.json");
 const inferredComponents = readJson("inferred_components.json");
+const componentInstanceMap = readJson("component_instance_map.json");
+const componentConfidenceReport = readJson("component_confidence_report.json");
 const semanticLabels = readJson("semantic_labels.json");
+const aiDecisionReport = readJson("ai_decision_report.json");
+const namingMap = readJson("naming_map.json");
+const i18nKeySuggestions = readJson("i18n_key_suggestions.json");
 const semanticIR = readJson("semantic_ir.json");
+const upliftDecisions = readJson("uplift_decisions.json");
+const upliftDiffReport = readJson("uplift_diff_report.json");
+const normalizationReport = readJson("normalization_report.json");
+const renderStrategyManifest = readJson("render_strategy_manifest.json");
 const normalized = readJson("normalized_design_ir.json");
 const compileManifest = readJson("compile_manifest.json");
 
@@ -115,19 +133,48 @@ assert.equal(inferredComponents.version, "2.0");
 assert.equal(inferredComponents.status, "no_reusable_components_detected");
 assert.deepEqual(inferredComponents.candidates, []);
 assert.equal(inferredComponents.fallback, "generate_separate_widgets");
+assert.equal(componentInstanceMap.version, "2.0");
+assert.deepEqual(componentInstanceMap.components, []);
+assert.ok(componentInstanceMap.unmappedSourceNodeIds.includes("1:1"));
+assert.equal(componentConfidenceReport.status, "no_candidates");
+assert.ok(componentConfidenceReport.warnings.some((warning) => warning.type === "no_reusable_components_detected"));
 assert.equal(semanticLabels.version, "2.0");
 assert.equal(semanticLabels.source, "deterministic_fallback");
 assert.ok(semanticLabels.regions.some((region) => region.regionId === "region_1" && region.role === "header"));
 assert.ok(semanticLabels.nodes.some((node) => node.sourceNodeIds.includes("1:1")));
 assert.ok(semanticLabels.i18n.some((entry) => entry.suggestedKey === "title" && entry.sourceNodeId === "1:3"));
 assert.ok(semanticLabels.assets.some((entry) => entry.sourceNodeId === "1:2"));
+assert.equal(aiDecisionReport.status, "not_run");
+assert.ok(aiDecisionReport.warnings.some((warning) => warning.type === "ai_adapter_not_configured"));
+assert.equal(namingMap.regions.region_1, "HeaderRegion");
+assert.equal(namingMap.i18n["1:3"], "title");
+assert.ok(i18nKeySuggestions.suggestions.some((entry) => entry.sourceNodeId === "1:3" && entry.suggestedKey === "title"));
 assert.equal(semanticIR.version, "2.0");
 assert.equal(semanticIR.status, "fidelity_preserved");
 assert.equal(semanticIR.normalizedDesignIR.tree.id, normalized.tree.id);
 assert.equal(semanticIR.semanticLabels.source, "deterministic_fallback");
+assert.equal(upliftDecisions.version, "2.0");
+assert.ok(upliftDecisions.decisions.length >= regions.length);
+assert.ok(upliftDecisions.decisions.every((decision) => decision.accepted === false));
+assert.equal(upliftDiffReport.status, "not_run");
+assert.equal(normalizationReport.source.frameNodeId, "1:1");
+assert.equal(normalizationReport.score.overall, normalized.confidence.overall);
+assert.ok(normalizationReport.issues.some((issue) => issue.type === "token_conflict"));
+assert.equal(renderStrategyManifest.page, "Login Mobile");
+assert.deepEqual(renderStrategyManifest.viewport, { width: 390, height: 844 });
+assert.ok(renderStrategyManifest.regions.some((region) => region.regionId === "region_1"));
 assert.ok(compileManifest.artifacts.includes("inferred_components.json"));
+assert.ok(compileManifest.artifacts.includes("component_instance_map.json"));
+assert.ok(compileManifest.artifacts.includes("component_confidence_report.json"));
 assert.ok(compileManifest.artifacts.includes("semantic_labels.json"));
+assert.ok(compileManifest.artifacts.includes("ai_decision_report.json"));
+assert.ok(compileManifest.artifacts.includes("naming_map.json"));
+assert.ok(compileManifest.artifacts.includes("i18n_key_suggestions.json"));
 assert.ok(compileManifest.artifacts.includes("semantic_ir.json"));
+assert.ok(compileManifest.artifacts.includes("uplift_decisions.json"));
+assert.ok(compileManifest.artifacts.includes("uplift_diff_report.json"));
+assert.ok(compileManifest.artifacts.includes("normalization_report.json"));
+assert.ok(compileManifest.artifacts.includes("render_strategy_manifest.json"));
 assert.equal(normalized.version, "2.0");
 assert.ok(normalized.confidence.overall >= 0.8, "Expected useful normalized confidence");
 
