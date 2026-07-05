@@ -68,6 +68,8 @@ try {
   assertArtifact(result.artifactDir, "web_preview_state.json");
   assertArtifact(result.artifactDir, "flutter_preview.png");
   assertArtifact(result.artifactDir, "diff/visual_diff_report.json");
+  assertArtifact(result.artifactDir, "diff/repair_patch.json");
+  assertArtifact(result.artifactDir, "diff/repair_iteration_log.json");
   assertArtifact(result.artifactDir, "preview_artifact.json");
   assertArtifact(result.artifactDir, "review_tasks.json");
   assertArtifact(result.artifactDir, "task_status_report.json");

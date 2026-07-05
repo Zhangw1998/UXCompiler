@@ -163,6 +163,8 @@ try {
     "diff/node_diff_report.json",
     "diff/diff_issues.json",
     "diff/diff_heatmap.png",
+    "diff/repair_patch.json",
+    "diff/repair_iteration_log.json",
     "canonical_scene.json",
     "inferred_tokens.json",
     "regions.json",
@@ -205,10 +207,14 @@ try {
   assert.ok(webPreviewState.commands.length >= 10, "Expected Figma run web preview commands");
 
   const diffReport = JSON.parse(readFileSync(resolve(outDir, "diff/visual_diff_report.json"), "utf8"));
+  const repairPatch = JSON.parse(readFileSync(resolve(outDir, "diff/repair_patch.json"), "utf8"));
+  const repairIterationLog = JSON.parse(readFileSync(resolve(outDir, "diff/repair_iteration_log.json"), "utf8"));
   assert.equal(typeof diffReport.page.pass, "boolean");
   assert.equal(typeof diffReport.page.score.pixelDiffRatio, "number");
   assert.ok(diffReport.environment.fonts.length > 0, "Expected visual diff font metadata");
   assert.match(diffReport.environment.flutterVersion, /^Flutter /);
+  assert.ok(["not_needed", "proposed"].includes(repairPatch.status), "Expected repair patch status");
+  assert.equal(repairIterationLog.iterations[0].repairPatchPath, "repair_patch.json");
   const reviewTasks = JSON.parse(readFileSync(resolve(outDir, "review_tasks.json"), "utf8"));
   const taskStatusReport = JSON.parse(readFileSync(resolve(outDir, "task_status_report.json"), "utf8"));
   const overrideSet = JSON.parse(readFileSync(resolve(outDir, "override_set.json"), "utf8"));

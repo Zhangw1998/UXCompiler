@@ -115,6 +115,8 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "diff/visual_diff_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "diff/diff_issues.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "diff/diff_heatmap.png")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "diff/repair_patch.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "diff/repair_iteration_log.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "pipeline_run_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "preview_artifact.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "local_api_snapshot_report.json")), true);
@@ -127,8 +129,14 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "override_conflict_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "stale_override_report.json")), true);
   const materializedAssetReport = JSON.parse(readFileSync(resolve(result.artifactDir, "materialized_assets_report.json"), "utf8"));
+  const repairPatch = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/repair_patch.json"), "utf8"));
+  const repairIterationLog = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/repair_iteration_log.json"), "utf8"));
   const extractionReport = JSON.parse(readFileSync(resolve(result.artifactDir, "extraction_report.json"), "utf8"));
   const compileManifest = JSON.parse(readFileSync(resolve(result.artifactDir, "compile_manifest.json"), "utf8"));
+  assert.ok(["not_needed", "proposed"].includes(repairPatch.status));
+  assert.ok(Array.isArray(repairPatch.patches));
+  assert.equal(repairIterationLog.iterations[0].repairPatchPath, "repair_patch.json");
+  assert.equal(typeof repairIterationLog.iterations[0].rollbackAvailable, "boolean");
   assert.equal(extractionReport.source.rootNodeId, rawFigmaScene.root.id);
   assert.equal(extractionReport.stats.nodes > 0, true);
   assert.ok(compileManifest.artifacts.includes("extraction_report.json"));
