@@ -399,7 +399,11 @@ Outputs include:
 - `override_conflict_report.json`
 - `stale_override_report.json`
 - `regions.json`
+- `layout_candidates.json`
 - `layout_decisions.json`
+- `inferred_components.json`
+- `semantic_labels.json`
+- `semantic_ir.json`
 - `normalized_design_ir.json`
 - `visual_ir.json`
 - `fidelity_generation_manifest.json`

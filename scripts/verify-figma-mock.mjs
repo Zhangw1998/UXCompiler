@@ -167,6 +167,9 @@ try {
     "inferred_tokens.json",
     "regions.json",
     "layout_decisions.json",
+    "inferred_components.json",
+    "semantic_labels.json",
+    "semantic_ir.json",
     "normalized_design_ir.json"
   ];
   for (const file of required) {

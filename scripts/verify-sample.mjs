@@ -40,6 +40,9 @@ const requiredFiles = [
   "regions.json",
   "layout_candidates.json",
   "layout_decisions.json",
+  "inferred_components.json",
+  "semantic_labels.json",
+  "semantic_ir.json",
   "normalized_design_ir.json",
   "compile_manifest.json"
 ];
@@ -67,7 +70,11 @@ const formatReport = readJson("flutter_preview_format_report.json");
 const analyzeReport = readJson("flutter_preview_analyze_report.json");
 const regions = readJson("regions.json");
 const decisions = readJson("layout_decisions.json");
+const inferredComponents = readJson("inferred_components.json");
+const semanticLabels = readJson("semantic_labels.json");
+const semanticIR = readJson("semantic_ir.json");
 const normalized = readJson("normalized_design_ir.json");
+const compileManifest = readJson("compile_manifest.json");
 
 assert.equal(canonical.root.sourceNodeId, "1:1");
 assert.deepEqual(canonical.source.viewport, { width: 390, height: 844 });
@@ -104,6 +111,23 @@ assert.equal(regions[1].role, "content");
 assert.equal(regions[2].role, "footer");
 assertDecision(decisions, "c_1_5", "column");
 assertDecision(decisions, "c_1_15", "row");
+assert.equal(inferredComponents.version, "2.0");
+assert.equal(inferredComponents.status, "no_reusable_components_detected");
+assert.deepEqual(inferredComponents.candidates, []);
+assert.equal(inferredComponents.fallback, "generate_separate_widgets");
+assert.equal(semanticLabels.version, "2.0");
+assert.equal(semanticLabels.source, "deterministic_fallback");
+assert.ok(semanticLabels.regions.some((region) => region.regionId === "region_1" && region.role === "header"));
+assert.ok(semanticLabels.nodes.some((node) => node.sourceNodeIds.includes("1:1")));
+assert.ok(semanticLabels.i18n.some((entry) => entry.suggestedKey === "title" && entry.sourceNodeId === "1:3"));
+assert.ok(semanticLabels.assets.some((entry) => entry.sourceNodeId === "1:2"));
+assert.equal(semanticIR.version, "2.0");
+assert.equal(semanticIR.status, "fidelity_preserved");
+assert.equal(semanticIR.normalizedDesignIR.tree.id, normalized.tree.id);
+assert.equal(semanticIR.semanticLabels.source, "deterministic_fallback");
+assert.ok(compileManifest.artifacts.includes("inferred_components.json"));
+assert.ok(compileManifest.artifacts.includes("semantic_labels.json"));
+assert.ok(compileManifest.artifacts.includes("semantic_ir.json"));
 assert.equal(normalized.version, "2.0");
 assert.ok(normalized.confidence.overall >= 0.8, "Expected useful normalized confidence");
 

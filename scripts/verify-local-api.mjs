@@ -161,6 +161,17 @@ try {
   assert.equal(previewArtifact.status.visualDiff, "success");
   const webPreviewState = JSON.parse(readFileSync(resolve(result.artifactDir, "web_preview_state.json"), "utf8"));
   assert.ok(webPreviewState.commands.length >= 10, "Expected local API web preview commands");
+  const semanticLabels = JSON.parse(readFileSync(resolve(result.artifactDir, "semantic_labels.json"), "utf8"));
+  const semanticIR = JSON.parse(readFileSync(resolve(result.artifactDir, "semantic_ir.json"), "utf8"));
+  const inferredComponents = JSON.parse(readFileSync(resolve(result.artifactDir, "inferred_components.json"), "utf8"));
+  const compileManifest = JSON.parse(readFileSync(resolve(result.artifactDir, "compile_manifest.json"), "utf8"));
+  assert.equal(semanticLabels.source, "deterministic_fallback");
+  assert.ok(semanticLabels.nodes.some((node) => node.role === "page" && node.sourceNodeIds?.length > 0));
+  assert.equal(semanticIR.status, "fidelity_preserved");
+  assert.equal(inferredComponents.status, "no_reusable_components_detected");
+  assert.ok(compileManifest.artifacts.includes("semantic_labels.json"));
+  assert.ok(compileManifest.artifacts.includes("semantic_ir.json"));
+  assert.ok(compileManifest.artifacts.includes("inferred_components.json"));
   const diffReport = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/visual_diff_report.json"), "utf8"));
   assert.ok(diffReport.environment.fonts.length > 0, "Expected visual diff font metadata");
   assert.match(diffReport.environment.flutterVersion, /^Flutter /);
@@ -241,8 +252,10 @@ try {
   );
   assert.match(fallbackPreviewPage, /assets\/frames\/figma_reference\.png/);
   const fallbackManifest = JSON.parse(readFileSync(resolve(fallbackResult.artifactDir, "fidelity_generation_manifest.json"), "utf8"));
+  const fallbackSemanticIR = JSON.parse(readFileSync(resolve(fallbackResult.artifactDir, "semantic_ir.json"), "utf8"));
   assert.ok(fallbackManifest.renderDecisions.some((decision) => decision.strategy === "frame_screenshot_asset"));
   assert.ok(fallbackManifest.renderDecisions.some((decision) => decision.strategy === "covered_by_frame_screenshot"));
+  assert.equal(fallbackSemanticIR.status, "fidelity_preserved");
   const fallbackReviewTasks = JSON.parse(readFileSync(resolve(fallbackResult.artifactDir, "review_tasks.json"), "utf8"));
   const fallbackTaskStatusReport = JSON.parse(readFileSync(resolve(fallbackResult.artifactDir, "task_status_report.json"), "utf8"));
   assert.ok(fallbackReviewTasks.some((task) => task.id === "task_frame_fallback_fallback_frame"));
@@ -306,6 +319,9 @@ try {
   assert.equal(existsSync(resolve(zipResult.artifactDir, "raw_figma_scene.json")), true);
   assert.equal(existsSync(resolve(zipResult.artifactDir, "figma_reference.png")), true);
   assert.equal(existsSync(resolve(zipResult.artifactDir, "extraction_report.json")), true);
+  assert.equal(existsSync(resolve(zipResult.artifactDir, "semantic_labels.json")), true);
+  assert.equal(existsSync(resolve(zipResult.artifactDir, "semantic_ir.json")), true);
+  assert.equal(existsSync(resolve(zipResult.artifactDir, "inferred_components.json")), true);
   assert.equal(existsSync(resolve(zipResult.artifactDir, "assets/frames/figma_reference.png")), true);
   const zipMaterializedAssetReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "materialized_assets_report.json"), "utf8"));
   assert.equal(zipMaterializedAssetReport.requested, 1);

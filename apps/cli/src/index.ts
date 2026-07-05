@@ -1613,6 +1613,9 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
     ["regions.json", artifacts.regions],
     ["layout_candidates.json", artifacts.layoutCandidates],
     ["layout_decisions.json", artifacts.layoutDecisions],
+    ["inferred_components.json", artifacts.inferredComponents],
+    ["semantic_labels.json", artifacts.semanticLabels],
+    ["semantic_ir.json", artifacts.semanticIR],
     ["normalized_design_ir.json", artifacts.normalizedDesignIR],
     [
       "compile_manifest.json",
@@ -1656,6 +1659,9 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
           "regions.json",
           "layout_candidates.json",
           "layout_decisions.json",
+          "inferred_components.json",
+          "semantic_labels.json",
+          "semantic_ir.json",
           "normalized_design_ir.json"
         ]
       }
