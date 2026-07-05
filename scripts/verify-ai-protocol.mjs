@@ -85,6 +85,31 @@ assert.deepEqual(mixedOutput.accepted.map((item) => item.sourceId), ["region_1"]
 assert.deepEqual(mixedOutput.review.map((item) => item.sourceId), ["node_1"]);
 assert.deepEqual(mixedOutput.rejected.map((item) => item.sourceId), ["asset_1"]);
 
+const nestedReferenceOutput = validateAiProtocolOutput({
+  expectedTask: "semantic_region_labeling",
+  allowedSourceIds: ["region_1", "node_1", "node_2"],
+  output: {
+    task: "semantic_region_labeling",
+    version: "2.0",
+    items: [
+      {
+        sourceId: "region_1",
+        suggestion: {
+          name: "LoginCluster",
+          role: "form",
+          sourceNodeIds: ["node_1", "node_2"],
+          evidence: { sourceNodeId: "node_1" }
+        },
+        confidence: 0.95,
+        reason: "References only known source nodes."
+      }
+    ],
+    warnings: []
+  }
+});
+assert.equal(nestedReferenceOutput.status, "accepted");
+assert.equal(nestedReferenceOutput.accepted.length, 1);
+
 const invalidJson = validateAiProtocolOutput({
   allowedSourceIds: ["region_1"],
   output: "{not json"
@@ -118,6 +143,34 @@ assert.ok(unsafeOutput.issues.some((issue) => issue.code === "unknown_source"));
 assert.ok(unsafeOutput.issues.some((issue) => issue.code === "forbidden_field" && issue.path.endsWith(".flutterCode")));
 assert.ok(unsafeOutput.issues.some((issue) => issue.code === "forbidden_field" && issue.path.endsWith(".onTap")));
 assert.ok(unsafeOutput.issues.some((issue) => issue.code === "forbidden_field" && issue.message.includes("Dart")));
+
+const nestedUnknownSourceOutput = validateAiProtocolOutput({
+  expectedTask: "semantic_region_labeling",
+  allowedSourceIds: ["region_1", "node_1"],
+  output: {
+    task: "semantic_region_labeling",
+    version: "2.0",
+    items: [
+      {
+        sourceId: "region_1",
+        suggestion: {
+          name: "LoginCluster",
+          role: "form",
+          sourceNodeIds: ["node_1", "ghost_node"],
+          evidence: { sourceNodeId: "ghost_node" }
+        },
+        confidence: 0.95,
+        reason: "Tries to cite a nonexistent source node."
+      }
+    ],
+    warnings: []
+  }
+});
+assert.equal(nestedUnknownSourceOutput.status, "rejected");
+assert.equal(nestedUnknownSourceOutput.accepted.length, 0);
+assert.equal(nestedUnknownSourceOutput.rejected.length, 1);
+assert.ok(nestedUnknownSourceOutput.issues.some((issue) => issue.code === "unknown_source" && issue.path === "$.items[0].suggestion.sourceNodeIds[1]"));
+assert.ok(nestedUnknownSourceOutput.issues.some((issue) => issue.code === "unknown_source" && issue.path === "$.items[0].suggestion.evidence.sourceNodeId"));
 
 const duplicateOutput = validateAiProtocolOutput({
   allowedSourceIds: ["region_1"],

@@ -28,6 +28,16 @@ writeFileSync(
           reason: "The text labels the email field."
         },
         {
+          sourceId: "1:11",
+          suggestion: {
+            suggestedName: "InjectedGhostPassword",
+            role: "form_field",
+            sourceNodeIds: ["1:11", "ghost_nested_source"]
+          },
+          confidence: 0.96,
+          reason: "The top-level source exists, but the nested source reference must still be rejected."
+        },
+        {
           sourceId: "1:9",
           suggestion: { suggestedName: "RejectedPasswordField" },
           confidence: 0.41,
@@ -74,6 +84,7 @@ assert.ok(semanticLabels.regions.some((region) => region.regionId === "region_1"
 assert.ok(semanticLabels.nodes.some((node) => node.sourceNodeIds.includes("1:8") && node.suggestedName === "emailField" && node.role === "form_field"));
 assert.ok(semanticLabels.i18n.some((entry) => entry.sourceNodeId === "1:8" && entry.suggestedKey === "loginEmailInput"));
 assert.ok(!semanticLabels.nodes.some((node) => node.suggestedName === "rejectedPasswordField"));
+assert.ok(!semanticLabels.nodes.some((node) => node.suggestedName === "injectedGhostPassword"));
 assert.equal(namingMap.regions.region_1, "LoginHero");
 assert.equal(namingMap.i18n["1:8"], "loginEmailInput");
 assert.ok(i18nSuggestions.suggestions.some((entry) => entry.sourceNodeId === "1:8" && entry.suggestedKey === "loginEmailInput"));
@@ -82,8 +93,10 @@ assert.equal(aiDecisionReport.accepted.length, 1);
 assert.ok(aiDecisionReport.decisions.some((decision) => decision.sourceId === "1:8" && decision.gate === "review_required"));
 assert.ok(aiDecisionReport.rejected.some((decision) => decision.sourceId === "1:9"));
 assert.ok(aiDecisionReport.rejected.some((decision) => decision.sourceId === "missing_source"));
+assert.ok(aiDecisionReport.rejected.some((decision) => decision.sourceId === "1:11"));
 assert.ok(aiDecisionReport.warnings.some((warning) => warning.type === "review_required"));
 assert.ok(aiDecisionReport.warnings.some((warning) => warning.type === "unknown_source"));
+assert.ok(aiDecisionReport.warnings.some((warning) => warning.message.includes("$.items[2].suggestion.sourceNodeIds[1]")));
 
 console.log("AI semantic labeling verification passed");
 

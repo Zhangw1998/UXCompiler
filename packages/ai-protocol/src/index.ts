@@ -76,6 +76,8 @@ const forbiddenFields = new Set([
 ]);
 
 const rawInputFields = new Set(["rawFigmaScene", "raw_figma_scene", "root", "children", "document"]);
+const singularSourceReferenceFields = new Set(["sourceId", "sourceNodeId"]);
+const pluralSourceReferenceFields = new Set(["sourceIds", "sourceNodeIds"]);
 
 export function validateAiProtocolRequest(request: unknown): ValidateAiProtocolRequestResult {
   const issues: AiProtocolIssue[] = [];
@@ -144,6 +146,9 @@ export function validateAiProtocolOutput(options: ValidateAiProtocolOutputOption
     }
     for (const forbiddenPath of findDartContentPaths(item, path)) {
       addIssue(issues, "forbidden_field", "error", forbiddenPath, "AI output item contains Dart or Flutter code.");
+    }
+    for (const sourceIssue of findSourceReferenceIssues(item.suggestion, allowedSourceIds, `${path}.suggestion`)) {
+      addIssue(issues, sourceIssue.code, "error", sourceIssue.path, sourceIssue.message);
     }
     const decision: AiProtocolDecision = {
       sourceId: item.sourceId,
@@ -261,6 +266,44 @@ function findDartContentPaths(value: unknown, basePath = "$"): string[] {
   if (!record) return paths;
   for (const [key, entry] of Object.entries(record)) paths.push(...findDartContentPaths(entry, `${basePath}.${key}`));
   return paths;
+}
+
+function findSourceReferenceIssues(
+  value: unknown,
+  allowedSourceIds: Set<string>,
+  basePath = "$"
+): Array<{ code: "invalid_schema" | "unknown_source"; path: string; message: string }> {
+  const issues: Array<{ code: "invalid_schema" | "unknown_source"; path: string; message: string }> = [];
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => issues.push(...findSourceReferenceIssues(entry, allowedSourceIds, `${basePath}[${index}]`)));
+    return issues;
+  }
+  const record = recordValue(value);
+  if (!record) return issues;
+
+  for (const [key, entry] of Object.entries(record)) {
+    const path = `${basePath}.${key}`;
+    if (singularSourceReferenceFields.has(key)) {
+      const sourceId = stringValue(entry);
+      if (!sourceId) issues.push({ code: "invalid_schema", path, message: `${key} must be a non-empty string.` });
+      else if (!allowedSourceIds.has(sourceId)) issues.push({ code: "unknown_source", path, message: `Unknown ${key} ${sourceId}.` });
+      continue;
+    }
+    if (pluralSourceReferenceFields.has(key)) {
+      if (!Array.isArray(entry)) {
+        issues.push({ code: "invalid_schema", path, message: `${key} must be an array of source IDs.` });
+        continue;
+      }
+      entry.forEach((sourceId, index) => {
+        const itemPath = `${path}[${index}]`;
+        if (!stringValue(sourceId)) issues.push({ code: "invalid_schema", path: itemPath, message: `${key} entries must be non-empty strings.` });
+        else if (!allowedSourceIds.has(sourceId)) issues.push({ code: "unknown_source", path: itemPath, message: `Unknown source reference ${sourceId}.` });
+      });
+      continue;
+    }
+    issues.push(...findSourceReferenceIssues(entry, allowedSourceIds, path));
+  }
+  return issues;
 }
 
 function addIssue(issues: AiProtocolIssue[], code: AiProtocolIssue["code"], severity: AiProtocolIssue["severity"], path: string, message: string): void {
