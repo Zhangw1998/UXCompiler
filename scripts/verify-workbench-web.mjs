@@ -745,6 +745,9 @@ try {
   assert.equal(codegenReviewReport.unresolvedReviewTasks, codegenReview.unresolvedReviewTasks.length);
   assert.equal(codegenReviewReport.manualOverrides, codegenReview.manualOverrideSummary.active);
   assert.match(generatedMain, /@uxc-generated:start/);
+  for (const asset of codegenAssetsToAdd) {
+    if (asset.path) writeTextFile(resolve(root, "sample/assets", asset.path), "<svg xmlns=\"http://www.w3.org/2000/svg\" />\n");
+  }
 
   const codegenWriteResponse = await fetch(`${base}/api/workbench/codegen-write`, {
     method: "POST",

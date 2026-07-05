@@ -9,6 +9,7 @@ const baseDir = resolve(root, "base");
 const reviewDir = resolve(root, "review");
 const projectDir = resolve(root, "flutter-project");
 const dryProjectDir = resolve(root, "dry-project");
+const missingAssetProjectDir = resolve(root, "missing-asset-project");
 const conflictProjectDir = resolve(root, "conflict-project");
 const conflictReviewDir = resolve(root, "conflict-review");
 const driftReviewDir = resolve(root, "drift-review");
@@ -66,6 +67,25 @@ const second = await writeCodegenToProject({
   assetRoots: [resolve(reviewDir, "assets")]
 });
 assert.equal(second.report.files.every((file) => file.status === "unchanged"), true);
+
+writeFile(resolve(missingAssetProjectDir, "pubspec.yaml"), "name: missing_asset_app\npublish_to: none\n");
+const missingAssetWrite = await writeCodegenToProject({
+  projectPath: missingAssetProjectDir,
+  codegenReview: readJson(reviewDir, "codegen_review.json"),
+  generatedFiles: readGeneratedFiles(resolve(reviewDir, "generated")),
+  arbPatch: readJson(reviewDir, "arb_patch.json"),
+  pubspecPatch: readJson(reviewDir, "pubspec_patch.json"),
+  assetRoots: [],
+  now: () => new Date("2026-07-04T00:00:00.000Z")
+});
+assert.equal(missingAssetWrite.report.wrote, false);
+assert.equal(missingAssetWrite.report.files.every((file) => file.status === "blocked"), true);
+assert.equal(missingAssetWrite.report.arb.status, "blocked");
+assert.equal(missingAssetWrite.report.pubspec.status, "blocked");
+assert.equal(existsSync(resolve(missingAssetProjectDir, "lib/main.dart")), false);
+assert.equal(readFileSync(resolve(missingAssetProjectDir, "pubspec.yaml"), "utf8").includes("assets/icons/divider_dot.svg"), false);
+assert.ok(missingAssetWrite.report.assets.some((asset) => asset.path === "assets/icons/divider_dot.svg" && asset.status === "missing_source"));
+assert.ok(missingAssetWrite.report.blockers.some((blocker) => blocker.type === "asset_missing_source" && blocker.filePath === "assets/icons/divider_dot.svg"));
 
 execFileSync(
   "node",

@@ -58,6 +58,7 @@ export interface CodegenGateIssue {
     | "flutter_analyze_failed"
     | "stale_override_unresolved"
     | "asset_missing_path"
+    | "asset_missing_source"
     | "i18n_missing_key"
     | "manual_file_conflict";
   message: string;

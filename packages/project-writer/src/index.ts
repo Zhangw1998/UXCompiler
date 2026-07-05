@@ -39,16 +39,26 @@ export async function writeCodegenToProject(input: WriteCodegenToProjectInput): 
   const warnings: ProjectWriteReport["warnings"] = [];
   const generatedFileMap = new Map(input.generatedFiles.map((file) => [file.path, file.content]));
   const gateBlocksWrite = input.codegenReview.gates.status === "blocked" && !input.allowBlocked;
+  const assetPreflight = gateBlocksWrite
+    ? undefined
+    : await writeAssets({
+        projectPath: input.projectPath,
+        assets: input.codegenReview.assetsToAdd,
+        assetRoots: input.assetRoots ?? [],
+        dryRun: true
+      });
+  const assetSourceBlocksWrite = !!assetPreflight?.some((asset) => asset.status === "missing_source");
+  const assetBlockReason = "Asset source preflight failed; no project files were written.";
   const files: ProjectWriteFileResult[] = [];
   let wrote = false;
 
-  if (gateBlocksWrite) {
+  if (gateBlocksWrite || assetSourceBlocksWrite) {
     for (const plan of input.codegenReview.files) {
       files.push({
         path: plan.path,
         action: plan.action,
         status: "blocked",
-        reason: "Codegen review gate is blocked; no project files were written."
+        reason: gateBlocksWrite ? "Codegen review gate is blocked; no project files were written." : assetBlockReason
       });
     }
   } else {
@@ -68,6 +78,8 @@ export async function writeCodegenToProject(input: WriteCodegenToProjectInput): 
 
   const assets = gateBlocksWrite
     ? blockedAssets(input.codegenReview)
+    : assetSourceBlocksWrite && assetPreflight
+      ? blockedAssetsAfterPreflight(assetPreflight)
     : await writeAssets({
         projectPath: input.projectPath,
         assets: input.codegenReview.assetsToAdd,
@@ -79,8 +91,8 @@ export async function writeCodegenToProject(input: WriteCodegenToProjectInput): 
     if (asset.status === "missing_source") warnings.push({ type: "asset_missing_source", path: asset.path, message: asset.reason });
   }
 
-  const arb = gateBlocksWrite
-    ? blockedArb(input.arbPatch)
+  const arb = gateBlocksWrite || assetSourceBlocksWrite
+    ? blockedArb(input.arbPatch, gateBlocksWrite ? undefined : "Asset source preflight failed; ARB patch was not written.")
     : await writeArb({
         projectPath: input.projectPath,
         arbPatch: input.arbPatch,
@@ -89,8 +101,8 @@ export async function writeCodegenToProject(input: WriteCodegenToProjectInput): 
       });
   if (!input.dryRun && (arb.status === "created" || arb.status === "updated")) wrote = true;
 
-  const pubspec = gateBlocksWrite
-    ? blockedPubspec(input.pubspecPatch)
+  const pubspec = gateBlocksWrite || assetSourceBlocksWrite
+    ? blockedPubspec(input.pubspecPatch, gateBlocksWrite ? undefined : "Asset source preflight failed; pubspec was not written.")
     : await writePubspec({
         projectPath: input.projectPath,
         pubspecPatch: input.pubspecPatch,
@@ -113,7 +125,11 @@ export async function writeCodegenToProject(input: WriteCodegenToProjectInput): 
       assets,
       arb,
       pubspec,
-      blockers: gateBlocksWrite ? input.codegenReview.gates.blockers : filesToBlockers(files),
+      blockers: gateBlocksWrite
+        ? input.codegenReview.gates.blockers
+        : assetSourceBlocksWrite
+          ? assetsToBlockers(assets)
+          : filesToBlockers(files),
       warnings
     }
   };
@@ -430,21 +446,33 @@ function blockedAssets(codegenReview: CodegenReviewManifest): ProjectWriteAssetR
   }));
 }
 
-function blockedArb(arbPatch?: CodegenArbPatch): ProjectWriteArbResult {
+function blockedAssetsAfterPreflight(assets: ProjectWriteAssetResult[]): ProjectWriteAssetResult[] {
+  return assets.map((asset) => {
+    if (asset.status === "missing_source" || asset.status === "already_exists") return asset;
+    return {
+      path: asset.path,
+      sourcePath: asset.sourcePath,
+      status: "skipped",
+      reason: "Asset source preflight failed; no assets were copied."
+    };
+  });
+}
+
+function blockedArb(arbPatch?: CodegenArbPatch, reason = "Codegen review gate is blocked; ARB patch was not written."): ProjectWriteArbResult {
   return {
     path: `lib/l10n/app_${(arbPatch?.locale ?? "en").replace(/-/g, "_")}.arb`,
     status: "blocked",
     keysWritten: [],
-    reason: "Codegen review gate is blocked; ARB patch was not written."
+    reason
   };
 }
 
-function blockedPubspec(pubspecPatch?: CodegenPubspecPatch): ProjectWritePubspecResult {
+function blockedPubspec(pubspecPatch?: CodegenPubspecPatch, reason = "Codegen review gate is blocked; pubspec was not written."): ProjectWritePubspecResult {
   return {
     path: "pubspec.yaml",
     status: "blocked",
     assetsDeclared: pubspecPatch?.assets ?? [],
-    reason: "Codegen review gate is blocked; pubspec was not written."
+    reason
   };
 }
 
@@ -455,6 +483,16 @@ function filesToBlockers(files: ProjectWriteFileResult[]): ProjectWriteReport["b
       type: "manual_file_conflict",
       filePath: file.path,
       message: file.reason
+    }));
+}
+
+function assetsToBlockers(assets: ProjectWriteAssetResult[]): ProjectWriteReport["blockers"] {
+  return assets
+    .filter((asset) => asset.status === "missing_source")
+    .map((asset) => ({
+      type: "asset_missing_source",
+      filePath: asset.path,
+      message: asset.reason
     }));
 }
 
