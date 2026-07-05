@@ -870,6 +870,15 @@ try {
   assert.equal(staleGateResult.report.gateStatus, "blocked");
   const staleGateReview = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/codegen_review.json`);
   assert.equal(staleGateReview.gates.blockers.some((blocker) => blocker.type === "stale_override_unresolved"), true);
+  const overrideHistory = readNdjson(sampleDir, "override_history.ndjson");
+  assert.equal(overrideHistory.some((entry) => entry.source === "review_task_action" && entry.overrideId === actionResult.report.overrideId && entry.event === "added"), true);
+  assert.equal(overrideHistory.some((entry) => entry.source === "tree_edit" && entry.overrideId === "ovr_tree_verify_rename_title" && entry.event === "added"), true);
+  assert.equal(overrideHistory.some((entry) => entry.source === "studio_operation" && entry.overrideId === "ovr_studio_verify_rename_spacing" && entry.event === "added"), true);
+  assert.equal(overrideHistory.some((entry) => entry.source === "studio_rollback" && entry.overrideId === "ovr_studio_verify_component_mapping" && entry.event === "disabled"), true);
+  assert.equal(overrideHistory.some((entry) => entry.source === "diff_repair" && entry.overrideId === "ovr_diff_diff_text_baseline_text_calibration" && entry.event === "added"), true);
+  assert.equal(overrideHistory.some((entry) => entry.source === "diff_repair_rollback" && entry.overrideId === "ovr_diff_diff_verify_region_asset_slice" && entry.event === "disabled"), true);
+  assert.equal(overrideHistory.some((entry) => entry.source === "sync_remap" && entry.overrideId === "ovr_tree_verify_rename_title" && entry.event === "updated"), true);
+  assert.equal(overrideHistory.every((entry) => entry.timestamp && entry.actor && entry.previousHash !== undefined && entry.nextHash), true);
 
   console.log("workbench-web verification passed");
 } finally {
@@ -878,6 +887,16 @@ try {
 
 function readJson(base, file) {
   return JSON.parse(readFileSync(resolve(base, file), "utf8"));
+}
+
+function readNdjson(base, file) {
+  const path = resolve(base, file);
+  assert.equal(existsSync(path), true, `Missing ${file}`);
+  return readFileSync(path, "utf8")
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
 }
 
 function writeJson(base, file, value) {

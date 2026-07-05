@@ -348,8 +348,18 @@ async function applyReviewTaskAction(body) {
     upliftDecisions,
     flutterCapture: flutterCapture ? { status: flutterCapture.status, reason: flutterCapture.reason } : undefined
   });
+  const closureReason =
+    stringValue(action.override.reason) ??
+    stringValue(action.override.payload?.reason) ??
+    `Applied suggested action: ${action.label}`;
 
   await writeJson(resolve(artifactDir, "override_set.json"), overrideResult.overrideSet);
+  await appendOverrideHistory(artifactDir, existingOverrideSet, overrideResult.overrideSet, {
+    now,
+    actor,
+    source: "review_task_action",
+    reason: closureReason
+  });
   await writeJson(resolve(artifactDir, "reviewed_normalized_design_ir.json"), overrideResult.reviewedNormalizedDesignIR);
   await writeJson(resolve(artifactDir, "reviewed_asset_manifest.json"), overrideResult.reviewedAssetManifest);
   await writeJson(resolve(artifactDir, "reviewed_i18n_manifest.json"), overrideResult.reviewedI18nManifest);
@@ -360,10 +370,6 @@ async function applyReviewTaskAction(body) {
   await writeJson(resolve(artifactDir, "review_tasks.json"), reviewResult.reviewTasks);
   await writeJson(resolve(artifactDir, "task_status_report.json"), reviewResult.taskStatusReport);
 
-  const closureReason =
-    stringValue(action.override.reason) ??
-    stringValue(action.override.payload?.reason) ??
-    `Applied suggested action: ${action.label}`;
   const existingClosureLog = await readOptionalJson(resolve(artifactDir, "review_task_closure_log.json"), []);
   const closureLog = Array.isArray(existingClosureLog) ? existingClosureLog : [];
   closureLog.push({
@@ -518,7 +524,11 @@ async function applyWorkbenchTreeEdit(body) {
     throw new Error(message);
   }
 
-  const rebuilt = await rebuildReviewedArtifacts(artifactDir, result.overrideSet, nowValue.toISOString());
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, result.overrideSet, nowValue.toISOString(), {}, {
+    actor,
+    source: "tree_edit",
+    reason: stringValue(operation.reason) ?? "Workbench tree edit."
+  });
   const report = {
     version: "0.1.0",
     generatedAt: nowValue.toISOString(),
@@ -573,7 +583,11 @@ async function applyWorkbenchStudioRollback(body) {
   }
   if (disabled.length === 0) throw new Error("Selected Studio overrides are already disabled.");
 
-  const refreshed = await refreshStudioArtifacts(artifactDir, nextOverrideSet, now, nowValue);
+  const refreshed = await refreshStudioArtifacts(artifactDir, nextOverrideSet, now, nowValue, {
+    actor,
+    source: "studio_rollback",
+    reason: "Workbench Studio rollback."
+  });
   const report = {
     version: "0.1.0",
     generatedAt: now,
@@ -627,6 +641,10 @@ async function applyWorkbenchStudioOperation(body) {
     reviewedAssetManifest: result.finalAssetManifest,
     reviewedI18nManifest: result.finalI18nManifest,
     reviewedArbFile: result.finalArbFile
+  }, {
+    actor,
+    source: "studio_operation",
+    reason: stringValue(operation.reason) ?? "Workbench Studio operation."
   });
   const report = {
     version: "0.1.0",
@@ -743,10 +761,11 @@ async function applyWorkbenchSyncRemap(body) {
     (await readOptionalJson(resolve(artifactDir, "visual_diff_report.json"), undefined)) ??
     (await readOptionalJson(resolve(artifactDir, "diff/visual_diff_report.json"), undefined));
   const now = new Date().toISOString();
+  const previousOverrideSet = await readJson(resolve(artifactDir, "override_set.json"));
   const result = runIncrementalSync({
     oldRawScene,
     newRawScene,
-    overrideSet: await readJson(resolve(artifactDir, "override_set.json")),
+    overrideSet: previousOverrideSet,
     oldSnapshotId: stringValue(body.oldSnapshotId) ?? stringValue(oldRawScene.source?.version) ?? stringValue(oldRawScene.source?.frameNodeId),
     newSnapshotId: stringValue(body.newSnapshotId) ?? stringValue(newRawScene.source?.version) ?? stringValue(newRawScene.source?.frameNodeId),
     oldVisualDiffReport,
@@ -775,6 +794,12 @@ async function applyWorkbenchSyncRemap(body) {
     overrideHash: result.overrideSet.hash
   };
   await writeJson(resolve(artifactDir, "override_set.json"), result.overrideSet);
+  await appendOverrideHistory(artifactDir, previousOverrideSet, result.overrideSet, {
+    now,
+    actor: "agent",
+    source: "sync_remap",
+    reason: "Workbench incremental sync remapped overrides."
+  });
   await writeJson(resolve(artifactDir, "node_remap_report.json"), result.nodeRemapReport);
   await writeJson(resolve(artifactDir, "token_migration_report.json"), result.tokenMigrationReport);
   await writeJson(resolve(artifactDir, "reapplied_overrides.json"), result.reappliedOverrides);
@@ -855,7 +880,11 @@ async function applyWorkbenchDiffRepair(body) {
     nextOverrideSet.overrides.push(override);
   }
 
-  const rebuilt = await rebuildReviewedArtifacts(artifactDir, nextOverrideSet, now);
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, nextOverrideSet, now, {}, {
+    actor,
+    source: "diff_repair",
+    reason: `Workbench diff repair: ${repairKind}.`
+  });
   const repairPatch = {
     version: "0.1.0",
     generatedAt: now,
@@ -909,6 +938,7 @@ async function applyWorkbenchDiffRepairRollback(body) {
   const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
   const overrideSet = await readJson(resolve(artifactDir, "override_set.json"));
   const repairPatch = await readJson(resolve(artifactDir, "repair_patch.json"));
+  const actor = stringValue(body.actor) ?? "user";
   const requestedOverrideId = stringValue(body.overrideId);
   const overrideId = requestedOverrideId ?? stringValue(repairPatch.overrideId);
   if (!overrideId) throw new Error("Missing repair override id.");
@@ -944,7 +974,11 @@ async function applyWorkbenchDiffRepairRollback(body) {
     throw new Error(`Unsupported rollback type: ${rollbackType}`);
   }
 
-  const rebuilt = await rebuildReviewedArtifacts(artifactDir, nextOverrideSet, now);
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, nextOverrideSet, now, {}, {
+    actor,
+    source: "diff_repair_rollback",
+    reason: `Workbench diff repair rollback: ${rollbackType}.`
+  });
   const report = {
     version: "0.1.0",
     generatedAt: now,
@@ -982,7 +1016,8 @@ async function applyWorkbenchDiffRepairRollback(body) {
   };
 }
 
-async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedPatch = {}) {
+async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedPatch = {}, historyContext = {}) {
+  const previousOverrideSet = await readOptionalJson(resolve(artifactDir, "override_set.json"), undefined);
   const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
   const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
   const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
@@ -1031,6 +1066,12 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedP
     flutterCapture: flutterCapture ? { status: flutterCapture.status, reason: flutterCapture.reason } : undefined
   });
   await writeJson(resolve(artifactDir, "override_set.json"), overrideResult.overrideSet);
+  await appendOverrideHistory(artifactDir, previousOverrideSet, overrideResult.overrideSet, {
+    now,
+    actor: historyContext.actor ?? "system",
+    source: historyContext.source ?? "rebuild_reviewed_artifacts",
+    reason: historyContext.reason
+  });
   await writeJson(resolve(artifactDir, "reviewed_normalized_design_ir.json"), reviewedNormalizedDesignIR);
   await writeJson(resolve(artifactDir, "reviewed_asset_manifest.json"), reviewedAssetManifest);
   await writeJson(resolve(artifactDir, "reviewed_i18n_manifest.json"), reviewedI18nManifest);
@@ -1060,7 +1101,7 @@ async function writeCodegenReviewArtifacts(artifactDir, result) {
   ]);
 }
 
-async function refreshStudioArtifacts(artifactDir, overrideSet, now, nowValue = new Date(now)) {
+async function refreshStudioArtifacts(artifactDir, overrideSet, now, nowValue = new Date(now), historyContext = {}) {
   const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
   const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
   const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
@@ -1079,7 +1120,7 @@ async function refreshStudioArtifacts(artifactDir, overrideSet, now, nowValue = 
     reviewedAssetManifest: studioResult.finalAssetManifest,
     reviewedI18nManifest: studioResult.finalI18nManifest,
     reviewedArbFile: studioResult.finalArbFile
-  });
+  }, historyContext);
   await writeJson(resolve(artifactDir, "studio_report.json"), {
     version: studioResult.version,
     generatedAt: now,
@@ -1094,6 +1135,60 @@ async function refreshStudioArtifacts(artifactDir, overrideSet, now, nowValue = 
   await writeJson(resolve(artifactDir, "final_i18n_manifest.json"), studioResult.finalI18nManifest);
   await writeJson(resolve(artifactDir, "arb/app_en.arb"), studioResult.finalArbFile);
   return { studioResult, rebuilt };
+}
+
+async function appendOverrideHistory(artifactDir, previousOverrideSet, nextOverrideSet, context = {}) {
+  const previousOverrides = new Map(asArray(previousOverrideSet?.overrides).map((override) => [override.id, override]));
+  const nextOverrides = new Map(asArray(nextOverrideSet?.overrides).map((override) => [override.id, override]));
+  const timestamp = context.now ?? new Date().toISOString();
+  const entries = [];
+
+  for (const [overrideId, override] of nextOverrides) {
+    const previous = previousOverrides.get(overrideId);
+    if (!previous) {
+      entries.push(historyEntry("added", override, previous, previousOverrideSet, nextOverrideSet, timestamp, context));
+      continue;
+    }
+    if (JSON.stringify(previous) !== JSON.stringify(override)) {
+      entries.push(historyEntry(override.status === "disabled" && previous.status !== "disabled" ? "disabled" : "updated", override, previous, previousOverrideSet, nextOverrideSet, timestamp, context));
+    }
+  }
+
+  for (const [overrideId, previous] of previousOverrides) {
+    if (!nextOverrides.has(overrideId)) {
+      entries.push(historyEntry("removed", undefined, previous, previousOverrideSet, nextOverrideSet, timestamp, context));
+    }
+  }
+
+  if (entries.length === 0) return;
+  const historyPath = resolve(artifactDir, "override_history.ndjson");
+  await mkdir(dirname(historyPath), { recursive: true });
+  await writeFile(historyPath, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""), { flag: "a" });
+}
+
+function historyEntry(event, override, previousOverride, previousOverrideSet, nextOverrideSet, timestamp, context) {
+  const overrideSnapshot = override ?? previousOverride;
+  return {
+    version: "0.1.0",
+    event,
+    timestamp,
+    actor: normalizeActor(context.actor),
+    source: stringValue(context.source) ?? "workbench",
+    reason: stringValue(context.reason),
+    overrideId: overrideSnapshot?.id,
+    overrideType: overrideSnapshot?.type,
+    overrideSetId: nextOverrideSet?.id ?? previousOverrideSet?.id,
+    previousHash: stringValue(previousOverrideSet?.hash),
+    nextHash: stringValue(nextOverrideSet?.hash),
+    previousStatus: previousOverride?.status,
+    nextStatus: override?.status,
+    previousOverride: previousOverride ? clone(previousOverride) : undefined,
+    override: override ? clone(override) : undefined
+  };
+}
+
+function normalizeActor(actor) {
+  return actor === "agent" || actor === "system" ? actor : "user";
 }
 
 async function appendRepairIterationLog(artifactDir, entry) {
