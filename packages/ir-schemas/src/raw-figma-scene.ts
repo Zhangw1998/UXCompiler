@@ -137,6 +137,14 @@ export interface RawExtractionReport {
     invisibleNodes: number;
     missingBounds: number;
   };
+  screenshot?: {
+    requested: boolean;
+    status: "success" | "failed" | "skipped";
+    format?: "png" | "jpg" | "svg" | "pdf";
+    scale?: number;
+    bytes?: number;
+    message?: string;
+  };
   warnings: Array<{ nodeId: string; type: string; message: string }>;
 }
 
@@ -210,6 +218,13 @@ export function createRawExtractionReport(scene: RawFigmaScene, options: { gener
       rootNodeName: scene.root.name
     },
     stats,
+    screenshot: {
+      requested: false,
+      status: "skipped",
+      format: "png",
+      scale: scene.source.viewport?.scale ?? 1,
+      message: "Reference screenshot was not requested for an existing raw fixture."
+    },
     warnings
   };
 }

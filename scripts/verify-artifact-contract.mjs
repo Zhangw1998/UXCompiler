@@ -316,6 +316,32 @@ function assertRawExtractionContract(rawScene, report) {
     }
   });
   assert.deepEqual(report.stats, stats, "extraction_report stats must match raw scene contents.");
+  assertScreenshotContract(report);
+}
+
+function assertScreenshotContract(report) {
+  assert.equal(typeof report.screenshot, "object", "extraction_report.screenshot must be present.");
+  assert.ok(report.screenshot !== null && !Array.isArray(report.screenshot), "extraction_report.screenshot must be an object.");
+  assert.equal(typeof report.screenshot.requested, "boolean", "extraction_report.screenshot.requested must be a boolean.");
+  assert.ok(["success", "failed", "skipped"].includes(report.screenshot.status), "extraction_report.screenshot.status must be known.");
+  if (report.screenshot.status === "success") {
+    const format = report.screenshot.format ?? "png";
+    const screenshotPath = resolve(root, `figma_reference.${format}`);
+    assert.equal(existsSync(screenshotPath), true, `Reference screenshot must exist: figma_reference.${format}`);
+    assert.ok(statSync(screenshotPath).size > 0, `Reference screenshot must be non-empty: figma_reference.${format}`);
+    assert.ok(Number(report.screenshot.bytes) > 0, "Successful screenshot report must record byte size.");
+  }
+  if (report.screenshot.status === "failed") {
+    assert.ok(report.screenshot.message, "Failed screenshot report must include a message.");
+    assert.equal(
+      (report.warnings ?? []).some((warning) => warning.type === "reference_screenshot_failed"),
+      true,
+      "Failed screenshot report must include a reference_screenshot_failed warning."
+    );
+  }
+  if (report.screenshot.status === "skipped") {
+    assert.ok(report.screenshot.message || report.screenshot.requested === false, "Skipped screenshot report must explain why no reference was exported.");
+  }
 }
 
 function assertCanonicalMapping(rawSourceNodeIds, canonicalIds, mapping) {
