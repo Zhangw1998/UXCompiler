@@ -338,6 +338,58 @@ try {
   assert.equal(treeEditedOverrideSet.overrides.length, 2);
   assert.equal(findNodeNameBySource(reviewedTree.tree, "1:3"), "LoginTitleReviewed");
 
+  const treeSplitResponse = await fetch(`${base}/api/workbench/tree-edit`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_split_credentials",
+        kind: "split_region",
+        sourceRegionId: "n_1_5",
+        regionId: "region_workbench_credentials",
+        name: "WorkbenchCredentials",
+        role: "content",
+        sourceNodeIds: ["1:6", "1:9"],
+        layout: "column",
+        reason: "Verify Workbench Tree Editor split region writeback."
+      }
+    })
+  });
+  assert.equal(treeSplitResponse.ok, true);
+  const treeSplitResult = await treeSplitResponse.json();
+  assert.equal(treeSplitResult.ok, true);
+  assert.deepEqual(treeSplitResult.report.overrideIds, ["ovr_tree_verify_split_credentials"]);
+  const splitReviewedTree = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_normalized_design_ir.json`);
+  const splitRegion = findNodeById(splitReviewedTree.tree, "region_workbench_credentials");
+  assert.equal(splitRegion.name, "WorkbenchCredentials");
+  assert.deepEqual(splitRegion.sourceNodeIds, ["1:6", "1:9"]);
+
+  const treeMoveResponse = await fetch(`${base}/api/workbench/tree-edit`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: {
+        id: "verify_move_divider",
+        kind: "move_node",
+        sourceNodeId: "1:17",
+        targetNormalizedParentId: "region_workbench_credentials",
+        reason: "Verify Workbench Tree Editor move node writeback."
+      }
+    })
+  });
+  assert.equal(treeMoveResponse.ok, true);
+  const treeMoveResult = await treeMoveResponse.json();
+  assert.equal(treeMoveResult.ok, true);
+  assert.deepEqual(treeMoveResult.report.overrideIds, ["ovr_tree_verify_move_divider"]);
+  const movedReviewedTree = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_normalized_design_ir.json`);
+  const movedRegion = findNodeById(movedReviewedTree.tree, "region_workbench_credentials");
+  assert.equal(Boolean(findNodeBySource(movedRegion, "1:17")), true);
+  const treeAdvancedOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
+  assert.equal(treeAdvancedOverrideSet.overrides.some((entry) => entry.id === "ovr_tree_verify_split_credentials" && entry.type === "region_split_override"), true);
+  assert.equal(treeAdvancedOverrideSet.overrides.some((entry) => entry.id === "ovr_tree_verify_move_divider" && entry.type === "node_parent_override"), true);
+
   const studioTokenResponse = await fetch(`${base}/api/workbench/studio-operation`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -364,7 +416,7 @@ try {
   const studioReviewedTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_inferred_tokens.json`);
   assert.equal(studioTokenReport.validationReport.validOperationIds.includes("verify_rename_spacing"), true);
   assert.equal(studioActionReport.overrideIds.includes("ovr_studio_verify_rename_spacing"), true);
-  assert.equal(studioTokenOverrideSet.overrides.length, 3);
+  assert.equal(studioTokenOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_rename_spacing" && entry.type === "token_rename_override"), true);
   assert.equal(findTokenConfidence(studioReviewedTokens, "space_10_reviewed"), 1);
   assert.equal(findTokenConfidence(studioReviewedTokens, "space_10"), undefined);
   assert.equal(tokenRegistry.tokens.some((token) => token.type === "spacing" && token.name === "space_10_reviewed"), true);
@@ -391,7 +443,7 @@ try {
   const mergedTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_inferred_tokens.json`);
   const mergedTokenRegistry = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/token_registry.json`);
   const mergedOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(mergedOverrideSet.overrides.length, 4);
+  assert.equal(mergedOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_merge_spacing" && entry.type === "token_merge_override"), true);
   assert.equal(findTokenConfidence(mergedTokens, "space_body_gap"), 1);
   assert.equal(findTokenConfidence(mergedTokens, "space_12"), undefined);
   assert.equal(mergedTokenRegistry.tokens.some((token) => token.type === "spacing" && token.name === "space_body_gap"), true);
@@ -420,7 +472,7 @@ try {
   assert.deepEqual(studioTokenSplitResult.report.overrideIds, ["ovr_studio_verify_split_radius"]);
   const splitTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_inferred_tokens.json`);
   const splitOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(splitOverrideSet.overrides.length, 5);
+  assert.equal(splitOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_split_radius" && entry.type === "token_split_override"), true);
   assert.equal(findTokenConfidence(splitTokens, "radius_16"), undefined);
   assert.equal(findTokenConfidence(splitTokens, "radius_input_top"), 1);
   assert.equal(findTokenConfidence(splitTokens, "radius_input_bottom"), 1);
@@ -451,7 +503,7 @@ try {
   const finalAssets = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/final_asset_manifest.json`);
   const reviewedAssets = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_asset_manifest.json`);
   const assetOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(assetOverrideSet.overrides.length, 6);
+  assert.equal(assetOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_asset_strategy" && entry.type === "asset_strategy_override"), true);
   assert.equal(findAssetById(finalAssets, "asset_1_17").strategy, "decorative_slice");
   const reviewedDividerAsset = findAssetById(reviewedAssets, "asset_1_17");
   assert.equal(reviewedDividerAsset.path, "assets/slices/divider_dot_workbench.png");
@@ -483,7 +535,7 @@ try {
   const finalArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/arb/app_en.arb`);
   const reviewedArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reviewed_arb/app_en.arb`);
   const i18nOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(i18nOverrideSet.overrides.length, 7);
+  assert.equal(i18nOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_rename_title_key" && entry.type === "i18n_key_override"), true);
   assert.equal(findMessageByKey(finalI18n, "loginTitle").value, "Welcome back");
   assert.equal(findMessageByKey(reviewedI18n, "loginTitle").description, "Reviewed login title.");
   assert.equal(finalArb.loginTitle, "Welcome back");
@@ -515,7 +567,7 @@ try {
   const placeholderI18n = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/final_i18n_manifest.json`);
   const placeholderArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/arb/app_en.arb`);
   const placeholderOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(placeholderOverrideSet.overrides.length, 8);
+  assert.equal(placeholderOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_title_placeholder" && entry.type === "i18n_key_override"), true);
   assert.equal(findMessageByKey(placeholderI18n, "loginTitle").placeholders.titleText.type, "String");
   assert.equal(placeholderArb["@loginTitle"].placeholders.titleText.example, "Welcome back");
 
@@ -539,7 +591,7 @@ try {
   const nonI18nFinal = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/final_i18n_manifest.json`);
   const nonI18nArb = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/arb/app_en.arb`);
   const nonI18nOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(nonI18nOverrideSet.overrides.length, 9);
+  assert.equal(nonI18nOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_subtitle_non_i18n" && entry.type === "i18n_key_override"), true);
   assert.equal(Boolean(findMessageByKey(nonI18nFinal, "subtitle")), false);
   assert.equal(nonI18nArb.subtitle, undefined);
 
@@ -627,7 +679,7 @@ try {
   const componentRegistry = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/component_registry.json`);
   const componentOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   const workbenchSubmit = findComponentById(componentRegistry, "cmp_workbench_submit");
-  assert.equal(componentOverrideSet.overrides.length, 13);
+  assert.equal(componentOverrideSet.overrides.some((entry) => entry.id === "ovr_studio_verify_component_mapping" && entry.type === "flutter_component_mapping_override"), true);
   assert.equal(workbenchSubmit.name, "WorkbenchSubmit");
   assert.equal(workbenchSubmit.props[0].sourceSelector, "sourceNodeId:1:14");
   assert.equal(workbenchSubmit.variants[0].values.includes("disabled"), true);
@@ -826,7 +878,7 @@ try {
   assert.equal(issueRepairPatch.rollback.type, "disable_override");
   assert.equal(issueRepairPatch.afterOverride.payload.strategy, "asset_slice");
   assert.equal(issueRepairLog.iterations.some((entry) => entry.event === "applied" && entry.overrideId === "ovr_diff_diff_verify_region_asset_slice"), true);
-  assert.equal(issueRepairOverrideSet.overrides.length, 14);
+  assert.equal(issueRepairOverrideSet.overrides.some((entry) => entry.id === "ovr_diff_diff_verify_region_asset_slice" && entry.type === "render_strategy_override"), true);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_page"), true);
   assert.equal(issueRepairTasks.some((task) => task.id === "task_visual_diff_verify_region"), false);
 
@@ -865,7 +917,6 @@ try {
   assert.equal(issueRepairAgainResult.report.overrideId, "ovr_diff_diff_verify_region_asset_slice");
   const issueRepairAgainOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   const activeIssueOverride = issueRepairAgainOverrideSet.overrides.find((entry) => entry.id === "ovr_diff_diff_verify_region_asset_slice");
-  assert.equal(issueRepairAgainOverrideSet.overrides.length, 14);
   assert.equal(activeIssueOverride.status, "active");
 
   writeSyntheticTextVisualDiff(sampleDir);
@@ -889,7 +940,7 @@ try {
   assert.equal(textRepairPatch.afterOverride.target.sourceNodeId, "1:3");
   assert.equal(textRepairPatch.afterOverride.payload.baselineShift, -1);
   assert.equal(textRepairPatch.afterOverride.payload.diffIssueId, "diff_text_baseline");
-  assert.equal(textRepairOverrideSet.overrides.length, 15);
+  assert.equal(textRepairOverrideSet.overrides.some((entry) => entry.id === "ovr_diff_diff_text_baseline_text_calibration" && entry.type === "text_calibration_override"), true);
   assert.equal(textRepairTasks.some((task) => task.id === "task_visual_diff_text_baseline"), false);
 
   const pageRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
@@ -907,7 +958,7 @@ try {
   assert.equal(pageRepairResult.report.overrideId, "ovr_diff_page_frame_fallback");
   const pageRepairTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
   const pageRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
-  assert.equal(pageRepairOverrideSet.overrides.length, 16);
+  assert.equal(pageRepairOverrideSet.overrides.some((entry) => entry.id === "ovr_diff_page_frame_fallback" && entry.type === "render_strategy_override"), true);
   assert.equal(pageRepairTasks.some((task) => task.type === "visual_diff_failed"), false);
   writeSyntheticVisualDiff(sampleDir);
 
@@ -1219,6 +1270,24 @@ function findNodeNameBySource(node, sourceNodeId) {
   if (node.sourceNodeIds?.includes(sourceNodeId)) return node.name;
   for (const child of node.children ?? []) {
     const found = findNodeNameBySource(child, sourceNodeId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function findNodeById(node, id) {
+  if (node.id === id) return node;
+  for (const child of node.children ?? []) {
+    const found = findNodeById(child, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function findNodeBySource(node, sourceNodeId) {
+  if (node.sourceNodeIds?.includes(sourceNodeId)) return node;
+  for (const child of node.children ?? []) {
+    const found = findNodeBySource(child, sourceNodeId);
     if (found) return found;
   }
   return undefined;

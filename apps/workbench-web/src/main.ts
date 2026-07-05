@@ -441,6 +441,11 @@ function renderTasks(_model: WorkbenchModel): string {
 function renderTree(model: WorkbenchModel): string {
   const selected = selectedTreeRow(model);
   const canApplyTreeEdit = state.artifactRoot !== "selected directory" && !!selected && selected.depth > 0;
+  const defaultRegionId = selected ? `region_${safeId(selected.name || selected.id)}` : "region_reviewed";
+  const defaultRegionName = selected ? `${pascalCase(selected.name)}Region` : "ReviewedRegion";
+  const defaultSourceNodeIds = selected?.sourceNodeIds.join(", ") ?? "";
+  const siblingRegionIds = selected ? model.treeRows.filter((row) => row.depth === selected.depth && row.id !== selected.id && row.type === "region").map((row) => row.id) : [];
+  const defaultMergeRegionIds = selected ? [selected.id, siblingRegionIds[0]].filter(Boolean).join(", ") : "";
   return `
     <section class="view-header">
       <div>
@@ -528,6 +533,38 @@ function renderTree(model: WorkbenchModel): string {
                   ${renderTreeActionButton("layout", "Save Layout", canApplyTreeEdit)}
                   ${renderTreeActionButton("render", "Save Render", canApplyTreeEdit)}
                   ${renderTreeActionButton("ignore", "Ignore Node", canApplyTreeEdit)}
+                </div>
+                <div class="tree-editor-form tree-editor-form--advanced">
+                  <label>
+                    <span>Region ID</span>
+                    <input class="tree-input" data-tree-field="region-id" value="${escapeAttr(defaultRegionId)}" ${canApplyTreeEdit ? "" : "disabled"} />
+                  </label>
+                  <label>
+                    <span>Region Name</span>
+                    <input class="tree-input" data-tree-field="region-name" value="${escapeAttr(defaultRegionName)}" ${canApplyTreeEdit ? "" : "disabled"} />
+                  </label>
+                  <label>
+                    <span>Role</span>
+                    <input class="tree-input" data-tree-field="region-role" value="content" ${canApplyTreeEdit ? "" : "disabled"} />
+                  </label>
+                  <label>
+                    <span>Source IDs</span>
+                    <input class="tree-input" data-tree-field="source-node-ids" value="${escapeAttr(defaultSourceNodeIds)}" placeholder="1:3, 1:4" ${canApplyTreeEdit ? "" : "disabled"} />
+                  </label>
+                  <label>
+                    <span>Parent ID</span>
+                    <input class="tree-input" data-tree-field="target-parent-id" value="${escapeAttr(selected?.id ?? "")}" ${canApplyTreeEdit ? "" : "disabled"} />
+                  </label>
+                  <label>
+                    <span>Merge IDs</span>
+                    <input class="tree-input" data-tree-field="merge-region-ids" value="${escapeAttr(defaultMergeRegionIds)}" placeholder="region_a, region_b" ${canApplyTreeEdit ? "" : "disabled"} />
+                  </label>
+                  <div class="tree-editor-actions">
+                    ${renderTreeActionButton("create-region", "Create Region", canApplyTreeEdit)}
+                    ${renderTreeActionButton("split-region", "Split Region", canApplyTreeEdit)}
+                    ${renderTreeActionButton("move-node", "Move Node", canApplyTreeEdit)}
+                    ${renderTreeActionButton("merge-regions", "Merge Regions", canApplyTreeEdit)}
+                  </div>
                 </div>
               </div>
             `
@@ -1958,6 +1995,52 @@ function buildTreeOperation(kind: string, selected: WorkbenchModel["treeRows"][n
       id: operationId,
       kind: "ignore_node",
       ...target,
+      reason: safeReason
+    };
+  }
+  if (kind === "create-region") {
+    return {
+      id: operationId,
+      kind: "create_region",
+      regionId: inputValue("[data-tree-field='region-id']").trim(),
+      name: inputValue("[data-tree-field='region-name']").trim(),
+      role: inputValue("[data-tree-field='region-role']").trim() || "content",
+      sourceNodeIds: splitList(inputValue("[data-tree-field='source-node-ids']")),
+      layout: inputValue("[data-tree-field='layout']"),
+      reason: safeReason
+    };
+  }
+  if (kind === "split-region") {
+    return {
+      id: operationId,
+      kind: "split_region",
+      sourceRegionId: selected.id,
+      regionId: inputValue("[data-tree-field='region-id']").trim(),
+      name: inputValue("[data-tree-field='region-name']").trim(),
+      role: inputValue("[data-tree-field='region-role']").trim() || "content",
+      sourceNodeIds: splitList(inputValue("[data-tree-field='source-node-ids']")),
+      layout: inputValue("[data-tree-field='layout']"),
+      reason: safeReason
+    };
+  }
+  if (kind === "move-node") {
+    return {
+      id: operationId,
+      kind: "move_node",
+      ...target,
+      targetNormalizedParentId: inputValue("[data-tree-field='target-parent-id']").trim(),
+      reason: safeReason
+    };
+  }
+  if (kind === "merge-regions") {
+    return {
+      id: operationId,
+      kind: "merge_regions",
+      sourceRegionIds: splitList(inputValue("[data-tree-field='merge-region-ids']")),
+      targetRegionId: inputValue("[data-tree-field='region-id']").trim(),
+      name: inputValue("[data-tree-field='region-name']").trim(),
+      role: inputValue("[data-tree-field='region-role']").trim() || "content",
+      layout: inputValue("[data-tree-field='layout']"),
       reason: safeReason
     };
   }

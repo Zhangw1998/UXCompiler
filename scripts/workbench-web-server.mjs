@@ -505,7 +505,10 @@ async function applyWorkbenchTreeEdit(body) {
     throw new Error("Missing tree edit operation.");
   }
   const nowValue = new Date();
-  const normalizedDesignIR = await readJson(resolve(artifactDir, "normalized_design_ir.json"));
+  const normalizedDesignIR = await readFirstJson([
+    resolve(artifactDir, "reviewed_normalized_design_ir.json"),
+    resolve(artifactDir, "normalized_design_ir.json")
+  ]);
   const assetManifest = await readJson(resolve(artifactDir, "asset_manifest.json"));
   const i18nManifest = await readJson(resolve(artifactDir, "i18n_manifest.json"));
   const inferredTokens = await readJson(resolve(artifactDir, "inferred_tokens.json"));
@@ -524,8 +527,12 @@ async function applyWorkbenchTreeEdit(body) {
     const message = result.validationReport.issues.map((issue) => issue.message).join("; ") || "Tree edit operation was rejected.";
     throw new Error(message);
   }
+  const nextOverrideSet = clone(overrideSet);
+  nextOverrideSet.version = Number.isFinite(nextOverrideSet.version) ? nextOverrideSet.version + 1 : 1;
+  nextOverrideSet.overrides = [...(Array.isArray(nextOverrideSet.overrides) ? nextOverrideSet.overrides : []), ...result.overrideMutations];
+  nextOverrideSet.hash = "";
 
-  const rebuilt = await rebuildReviewedArtifacts(artifactDir, result.overrideSet, nowValue.toISOString(), {}, {
+  const rebuilt = await rebuildReviewedArtifacts(artifactDir, nextOverrideSet, nowValue.toISOString(), {}, {
     actor,
     source: "tree_edit",
     reason: stringValue(operation.reason) ?? "Workbench tree edit."
@@ -542,6 +549,8 @@ async function applyWorkbenchTreeEdit(body) {
   };
   await writeJson(resolve(artifactDir, "tree_edit_report.json"), {
     ...result,
+    overrideSet: rebuilt.overrideResult.overrideSet,
+    draftNormalizedDesignIR: rebuilt.overrideResult.reviewedNormalizedDesignIR,
     savedAt: nowValue.toISOString()
   });
   await writeJson(resolve(artifactDir, "workbench_tree_edit_action_report.json"), report);
