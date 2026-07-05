@@ -43,8 +43,27 @@ export interface VisualDiffReport {
   warnings: Array<{ type: string; message: string }>;
 }
 
+export interface VisualDiffManualReviewReport {
+  version: string;
+  generatedAt: string;
+  required: boolean;
+  reason: string;
+  severity: "P0" | "P1";
+  inputs: VisualDiffReport["inputs"];
+  page: VisualDiffReport["page"];
+  issues: Array<{
+    issueId: string;
+    type: NodeDiffIssue["type"];
+    sourceNodeId?: string;
+    bounds?: Bounds;
+    score: VisualDiffScore;
+  }>;
+  suggestedActions: Array<{ label: string; reason: string; payload: Record<string, unknown> }>;
+}
+
 export interface VisualDiffResult {
   visualDiffReport: VisualDiffReport;
   nodeDiffReport: NodeDiffIssue[];
   heatmapPng: Uint8Array;
+  manualReviewReport?: VisualDiffManualReviewReport;
 }

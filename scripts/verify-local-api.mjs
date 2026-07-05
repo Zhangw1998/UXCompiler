@@ -188,6 +188,12 @@ try {
   const diffReport = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/visual_diff_report.json"), "utf8"));
   assert.ok(diffReport.environment.fonts.length > 0, "Expected visual diff font metadata");
   assert.match(diffReport.environment.flutterVersion, /^Flutter /);
+  if (!diffReport.page.pass) {
+    assert.equal(existsSync(resolve(result.artifactDir, "diff/manual_review_report.json")), true);
+    const manualReviewReport = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/manual_review_report.json"), "utf8"));
+    assert.equal(manualReviewReport.required, true);
+    assert.equal(manualReviewReport.page.pass, false);
+  }
   const assetManifest = JSON.parse(readFileSync(resolve(result.artifactDir, "asset_manifest.json"), "utf8"));
   const generatedAssetPaths = assetManifest.assets.map((asset) => asset.path).filter(Boolean);
   assert.equal(new Set(generatedAssetPaths).size, generatedAssetPaths.length, "Expected generated asset paths to be unique");

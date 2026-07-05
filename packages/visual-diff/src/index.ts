@@ -1,6 +1,12 @@
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import type { NodePixelMapEntry, VisualDiffReport, VisualDiffResult, VisualDiffScore } from "@uxcompiler/ir-schemas";
+import type {
+  NodePixelMapEntry,
+  VisualDiffManualReviewReport,
+  VisualDiffReport,
+  VisualDiffResult,
+  VisualDiffScore
+} from "@uxcompiler/ir-schemas";
 
 export interface RunVisualDiffOptions {
   referencePng: Uint8Array;
@@ -81,7 +87,8 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
     return {
       visualDiffReport: report,
       nodeDiffReport: report.issues,
-      heatmapPng: PNG.sync.write(heatmap)
+      heatmapPng: PNG.sync.write(heatmap),
+      manualReviewReport: buildManualReviewReport(report)
     };
   }
 
@@ -128,7 +135,41 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
   return {
     visualDiffReport: report,
     nodeDiffReport: issues,
-    heatmapPng: PNG.sync.write(heatmap)
+    heatmapPng: PNG.sync.write(heatmap),
+    manualReviewReport: report.page.pass ? undefined : buildManualReviewReport(report)
+  };
+}
+
+function buildManualReviewReport(report: VisualDiffReport): VisualDiffManualReviewReport {
+  const severeIssue = report.issues.some((issue) => issue.score.pixelDiffRatio > 0.1 || issue.type === "size_mismatch");
+  return {
+    version: "2.0",
+    generatedAt: report.generatedAt,
+    required: true,
+    reason: report.issues.length > 0
+      ? "Visual diff failed and localized issues require human review or an accepted repair."
+      : "Visual diff failed at page level and requires human review before codegen write.",
+    severity: severeIssue || report.page.score.pixelDiffRatio > 0.1 ? "P0" : "P1",
+    inputs: report.inputs,
+    page: report.page,
+    issues: report.issues.map((issue) => ({
+      issueId: issue.issueId,
+      type: issue.type,
+      sourceNodeId: issue.sourceNodeId,
+      bounds: issue.bounds,
+      score: issue.score
+    })),
+    suggestedActions: [
+      {
+        label: "Review visual mismatch",
+        reason: "Confirm whether to repair the mapped region, accept an asset slice, or use a frame screenshot fallback.",
+        payload: {
+          issueIds: report.issues.map((issue) => issue.issueId),
+          visualScore: report.page.score.visualScore,
+          pixelDiffRatio: report.page.score.pixelDiffRatio
+        }
+      }
+    ]
   };
 }
 

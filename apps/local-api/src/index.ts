@@ -816,6 +816,9 @@ async function writeVisualDiffArtifacts(options: {
   await writeJson(resolve(options.outDir, "visual_diff_report.json"), result.visualDiffReport);
   await writeJson(resolve(options.outDir, "node_diff_report.json"), result.nodeDiffReport);
   await writeJson(resolve(options.outDir, "diff_issues.json"), result.nodeDiffReport);
+  if (result.manualReviewReport) {
+    await writeJson(resolve(options.outDir, "manual_review_report.json"), result.manualReviewReport);
+  }
   await writeFile(heatmapPath, result.heatmapPng);
   return result.visualDiffReport;
 }
