@@ -83,6 +83,8 @@ importers:
 
   apps/workbench-web: {}
 
+  packages/ai-protocol: {}
+
   packages/asset-i18n-normalizer:
     dependencies:
       '@uxcompiler/ir-schemas':
