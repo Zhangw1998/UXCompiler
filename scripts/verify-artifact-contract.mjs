@@ -48,6 +48,7 @@ const renderStrategyManifest = json("render_strategy_manifest.json");
 const fidelityManifest = json("fidelity_generation_manifest.json");
 const visualDiffReport = json("visual_diff_report.json");
 const compileManifest = json("compile_manifest.json");
+const materializedAssetReport = parsedJsonFiles.get("materialized_assets_report.json");
 
 const rawSourceNodeIds = new Set();
 walkRawNode(raw.root, (node) => rawSourceNodeIds.add(node.id));
@@ -68,6 +69,8 @@ assertSourceRefs(rawSourceNodeIds, "semantic_labels.nodes", semanticLabels.nodes
 assertSourceRefs(rawSourceNodeIds, "semantic_labels.assets", semanticLabels.assets, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "semantic_labels.i18n", semanticLabels.i18n, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "render_strategy_manifest.regions", renderStrategyManifest.regions, (entry) => entry.sourceNodeIds ?? []);
+assertVisibleTextI18nCoverage(canonical, i18nManifest);
+assertAssetManifestPaths(assetManifest, materializedAssetReport);
 
 walkNormalizedNode(normalized.tree, (node) => {
   assert.ok(node.sourceNodeIds.length > 0, `Normalized node ${node.id} must include sourceNodeIds.`);
@@ -143,6 +146,58 @@ function walkRawNode(node, visit) {
 function walkCanonicalNode(node, visit) {
   visit(node);
   for (const child of node.children ?? []) walkCanonicalNode(child, visit);
+}
+
+function assertVisibleTextI18nCoverage(canonicalScene, manifest) {
+  const messagesBySourceNodeId = new Map();
+  for (const message of manifest.messages ?? []) {
+    assert.ok(message.key, `i18n message for ${message.sourceNodeId} must include a key.`);
+    assert.ok(message.description, `i18n message ${message.key} must include a description.`);
+    messagesBySourceNodeId.set(message.sourceNodeId, message);
+  }
+  const nonI18nSourceIds = new Set(
+    (manifest.warnings ?? [])
+      .filter((warning) => warning.type === "non_i18n" && warning.message)
+      .map((warning) => warning.sourceNodeId)
+      .filter(Boolean)
+  );
+  walkCanonicalNode(canonicalScene.root, (node) => {
+    if (node.flags?.isInvisible || node.flags?.isZeroSize || node.canonicalType !== "text") return;
+    const content = node.text?.content?.trim() ?? "";
+    if (!content) return;
+    const message = messagesBySourceNodeId.get(node.sourceNodeId);
+    assert.ok(
+      message || nonI18nSourceIds.has(node.sourceNodeId),
+      `Visible text ${node.sourceNodeId} must have an i18n message or explicit non_i18n reason.`
+    );
+    if (message) assert.equal(message.value, content, `i18n message ${message.key} must match visible text ${node.sourceNodeId}.`);
+  });
+}
+
+function assertAssetManifestPaths(manifest, materializedReport) {
+  const usedPaths = new Set();
+  for (const asset of manifest.assets ?? []) {
+    assert.ok(asset.id, `Asset for ${asset.sourceNodeId} must include id.`);
+    assert.ok(asset.reason, `Asset ${asset.id} must include reason.`);
+    assertScore(asset.confidence, `asset_manifest.assets.${asset.id}.confidence`);
+    if (!asset.path) continue;
+    assert.equal(asset.path.startsWith("assets/"), true, `Asset ${asset.id} path must stay under assets/: ${asset.path}`);
+    assert.equal(asset.path.includes(".."), false, `Asset ${asset.id} path must not contain parent traversal.`);
+    assert.equal(usedPaths.has(asset.path), false, `Asset path ${asset.path} must be unique.`);
+    usedPaths.add(asset.path);
+  }
+
+  if (!materializedReport) return;
+  for (const asset of materializedReport.materialized ?? []) {
+    assert.equal(typeof asset.path, "string", "materialized asset must include path.");
+    assert.equal(existsSync(resolve(root, asset.path)), true, `materialized asset is missing from artifact root: ${asset.path}`);
+    assert.equal(
+      existsSync(resolve(root, "flutter_preview", asset.path)),
+      true,
+      `materialized asset is missing from Flutter preview root: ${asset.path}`
+    );
+    assert.ok(asset.bytes > 0, `materialized asset ${asset.path} must record non-zero bytes.`);
+  }
 }
 
 function walkNormalizedNode(node, visit) {
