@@ -147,6 +147,16 @@ assert.deepEqual(renderStrategyManifest.viewport, normalized.source.viewport, "r
 assert.deepEqual(visualDiffReport.environment.viewport, normalized.source.viewport, "visual diff viewport must match normalized viewport.");
 assert.equal(typeof visualDiffReport.environment.dpr, "number", "visual diff report must record DPR.");
 assert.ok(Array.isArray(visualDiffReport.environment.fonts), "visual diff report must record font profile.");
+assert.ok(["light", "dark"].includes(visualDiffReport.environment.themeBrightness), "visual diff report must record theme brightness.");
+assert.equal(typeof visualDiffReport.environment.locale, "string", "visual diff report must record locale.");
+assert.ok(visualDiffReport.environment.locale.length > 0, "visual diff locale must not be empty.");
+assert.equal(typeof visualDiffReport.environment.textScaleFactor, "number", "visual diff report must record text scale factor.");
+assert.ok(visualDiffReport.environment.textScaleFactor > 0, "visual diff text scale factor must be positive.");
+assert.deepEqual(
+  Object.keys(visualDiffReport.environment.safeArea ?? {}).sort(),
+  ["bottom", "left", "right", "top"],
+  "visual diff report must record safe area insets."
+);
 assert.equal(typeof visualDiffReport.environment.renderer, "string", "visual diff report must record renderer.");
 assertScore(visualDiffReport.page.score.visualScore, "visual_diff_report.page.score.visualScore");
 assertScore(visualDiffReport.page.score.pixelDiffRatio, "visual_diff_report.page.score.pixelDiffRatio");

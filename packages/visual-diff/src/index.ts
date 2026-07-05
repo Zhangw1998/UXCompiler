@@ -21,6 +21,10 @@ export interface RunVisualDiffOptions {
   dpr?: number;
   fonts?: string[];
   flutterVersion?: string;
+  themeBrightness?: "light" | "dark";
+  locale?: string;
+  textScaleFactor?: number;
+  safeArea?: { top: number; right: number; bottom: number; left: number };
   threshold?: {
     visualScore?: number;
     pixelDiffRatio?: number;
@@ -36,6 +40,7 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
     visualScore: options.threshold?.visualScore ?? 0.99,
     pixelDiffRatio: options.threshold?.pixelDiffRatio ?? 0.01
   };
+  const environment = visualDiffEnvironment(options);
 
   if (reference.width !== candidate.width || reference.height !== candidate.height) {
     const width = Math.max(reference.width, candidate.width);
@@ -52,13 +57,7 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
         candidate: options.candidatePath,
         heatmap: options.heatmapPath
       },
-      environment: {
-        viewport: options.viewport,
-        dpr: options.dpr ?? 1,
-        fonts: normalizedFonts(options.fonts),
-        flutterVersion: options.flutterVersion,
-        renderer: "png_pixelmatch"
-      },
+      environment,
       page: {
         pass: false,
         score,
@@ -121,13 +120,7 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
       candidate: options.candidatePath,
       heatmap: options.heatmapPath
     },
-    environment: {
-      viewport: options.viewport,
-      dpr: options.dpr ?? 1,
-      fonts: normalizedFonts(options.fonts),
-      flutterVersion: options.flutterVersion,
-      renderer: "png_pixelmatch"
-    },
+    environment,
     page: {
       pass: pageScore.visualScore >= threshold.visualScore && pageScore.pixelDiffRatio <= threshold.pixelDiffRatio,
       score: pageScore,
@@ -144,6 +137,22 @@ export function runVisualDiff(options: RunVisualDiffOptions): VisualDiffResult {
     repairPatch: buildRepairPatch(report),
     repairIterationLog: buildRepairIterationLog(report),
     manualReviewReport: report.page.pass ? undefined : buildManualReviewReport(report)
+  };
+}
+
+function visualDiffEnvironment(options: RunVisualDiffOptions): VisualDiffReport["environment"] {
+  return {
+    viewport: options.viewport,
+    dpr: options.dpr ?? 1,
+    fonts: normalizedFonts(options.fonts),
+    flutterVersion: options.flutterVersion,
+    themeBrightness: options.themeBrightness ?? "light",
+    locale: options.locale?.trim() || "en",
+    textScaleFactor: Number.isFinite(options.textScaleFactor) && options.textScaleFactor && options.textScaleFactor > 0
+      ? options.textScaleFactor
+      : 1,
+    safeArea: options.safeArea ?? { top: 0, right: 0, bottom: 0, left: 0 },
+    renderer: "png_pixelmatch"
   };
 }
 

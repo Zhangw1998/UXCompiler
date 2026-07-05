@@ -30,6 +30,10 @@ export interface VisualDiffReport {
     dpr: number;
     fonts: string[];
     flutterVersion?: string;
+    themeBrightness: "light" | "dark";
+    locale: string;
+    textScaleFactor: number;
+    safeArea: { top: number; right: number; bottom: number; left: number };
     renderer: "png_pixelmatch";
   };
   page: {

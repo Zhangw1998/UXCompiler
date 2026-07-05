@@ -33,11 +33,19 @@ const passing = runVisualDiff({
   viewport: { width: 4, height: 4 },
   dpr: 2,
   fonts: ["Inter", "Inter", "Roboto"],
-  flutterVersion: "Flutter 3.35.0"
+  flutterVersion: "Flutter 3.35.0",
+  themeBrightness: "dark",
+  locale: "zh-Hans",
+  textScaleFactor: 1,
+  safeArea: { top: 10, right: 0, bottom: 20, left: 0 }
 });
 assert.equal(passing.visualDiffReport.page.pass, true);
 assert.equal(passing.visualDiffReport.page.score.visualScore, 1);
 assert.deepEqual(passing.visualDiffReport.environment.fonts, ["Inter", "Roboto"]);
+assert.equal(passing.visualDiffReport.environment.themeBrightness, "dark");
+assert.equal(passing.visualDiffReport.environment.locale, "zh-Hans");
+assert.equal(passing.visualDiffReport.environment.textScaleFactor, 1);
+assert.deepEqual(passing.visualDiffReport.environment.safeArea, { top: 10, right: 0, bottom: 20, left: 0 });
 assert.equal(passing.nodeDiffReport.length, 0);
 assert.equal(passing.manualReviewReport, undefined);
 assert.equal(passing.repairPatch.status, "not_needed");
@@ -60,6 +68,10 @@ const failing = runVisualDiff({
 });
 assert.equal(failing.visualDiffReport.page.pass, false);
 assert.ok(failing.visualDiffReport.page.score.visualScore < 0.99);
+assert.equal(failing.visualDiffReport.environment.themeBrightness, "light");
+assert.equal(failing.visualDiffReport.environment.locale, "en");
+assert.equal(failing.visualDiffReport.environment.textScaleFactor, 1);
+assert.deepEqual(failing.visualDiffReport.environment.safeArea, { top: 0, right: 0, bottom: 0, left: 0 });
 assert.equal(failing.nodeDiffReport.length, 2);
 assert.deepEqual(
   failing.nodeDiffReport.map((issue) => issue.sourceNodeId),
@@ -126,6 +138,11 @@ const cliRepairPatch = JSON.parse(readFileSync(resolve(root, "cli/repair_patch.j
 const cliRepairLog = JSON.parse(readFileSync(resolve(root, "cli/repair_iteration_log.json"), "utf8"));
 assert.equal(cliManualReview.required, true);
 assert.equal(cliManualReview.issues[0].sourceNodeId, "node:black");
+const cliDiffReport = JSON.parse(readFileSync(resolve(root, "cli/visual_diff_report.json"), "utf8"));
+assert.equal(cliDiffReport.environment.themeBrightness, "light");
+assert.equal(cliDiffReport.environment.locale, "en");
+assert.equal(cliDiffReport.environment.textScaleFactor, 1);
+assert.deepEqual(cliDiffReport.environment.safeArea, { top: 0, right: 0, bottom: 0, left: 0 });
 assert.equal(cliRepairPatch.status, "proposed");
 assert.ok(cliRepairPatch.patches.every((patch) => patch.rollback?.type === "disable_override"));
 assert.equal(cliRepairLog.iterations[0].repairPatchPath, "repair_patch.json");

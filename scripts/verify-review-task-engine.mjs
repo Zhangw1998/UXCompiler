@@ -194,7 +194,15 @@ const visualDiff = generateReviewTasks({
     version: "2.0",
     generatedAt: "2026-07-04T00:00:00.000Z",
     inputs: { reference: "figma_reference.png", candidate: "flutter_preview.png", heatmap: "diff_heatmap.png" },
-    environment: { dpr: 1, fonts: ["Inter"], renderer: "png_pixelmatch" },
+    environment: {
+      dpr: 1,
+      fonts: ["Inter"],
+      themeBrightness: "light",
+      locale: "en",
+      textScaleFactor: 1,
+      safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
+      renderer: "png_pixelmatch"
+    },
     page: {
       pass: false,
       score: { visualScore: 0.82, pixelDiffRatio: 0.18, diffPixels: 18, totalPixels: 100 },

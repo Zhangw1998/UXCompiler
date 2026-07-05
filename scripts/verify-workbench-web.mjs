@@ -873,6 +873,10 @@ function writeSyntheticVisualDiff(base) {
       dpr: 1,
       fonts: ["Inter"],
       flutterVersion: "Flutter smoke",
+      themeBrightness: "light",
+      locale: "en",
+      textScaleFactor: 1,
+      safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
       renderer: "png_pixelmatch"
     },
     page: {

@@ -316,6 +316,10 @@ function failedVisualDiffReport() {
       viewport: { width: 390, height: 844 },
       dpr: 1,
       fonts: ["Inter"],
+      themeBrightness: "light",
+      locale: "en",
+      textScaleFactor: 1,
+      safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
       renderer: "png_pixelmatch"
     },
     page: {
