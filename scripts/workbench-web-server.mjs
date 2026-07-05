@@ -33,6 +33,7 @@ const overrideTypes = new Set([
   "asset_strategy_override",
   "i18n_key_override",
   "flutter_component_mapping_override",
+  "font_mapping_override",
   "text_calibration_override",
   "ignore_node_override"
 ]);
@@ -1414,6 +1415,9 @@ function deriveTarget(type, task, payload) {
   if (type.startsWith("token_")) {
     return { kind: "token", tokenName: stringValue(payload.tokenName) ?? stringValue(target.tokenName) };
   }
+  if (type === "font_mapping_override") {
+    return { kind: "token", tokenName: stringValue(payload.tokenName) ?? stringValue(target.tokenName) };
+  }
   if (type === "asset_strategy_override") {
     return {
       kind: "asset",
@@ -1443,6 +1447,13 @@ function normalizeSuggestedPayload(type, task, payload) {
       next.from = tokenName;
       next.to = tokenName;
     }
+  }
+  if (type === "font_mapping_override") {
+    const tokenName = stringValue(next.tokenName) ?? stringValue(target.tokenName);
+    if (tokenName) next.tokenName = tokenName;
+    const sourceNodeIds = stringArray(next.sourceNodeIds);
+    const targetSourceNodeIds = stringArray(target.sourceNodeIds);
+    if (sourceNodeIds.length === 0 && targetSourceNodeIds.length > 0) next.sourceNodeIds = targetSourceNodeIds;
   }
   if (type === "i18n_key_override" && !stringValue(next.key)) {
     const key = stringValue(target.messageKey);

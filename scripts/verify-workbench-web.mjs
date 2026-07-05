@@ -8,6 +8,7 @@ const root = "artifacts/workbench-web-smoke";
 const sampleDir = resolve(root, "sample");
 const bulkDir = resolve(root, "bulk-sample");
 const p0BulkDir = resolve(root, "p0-bulk-sample");
+const fontDir = resolve(root, "font-sample");
 rmSync(root, { recursive: true, force: true });
 
 execFileSync(
@@ -24,6 +25,7 @@ execFileSync(
 );
 cpSync(sampleDir, bulkDir, { recursive: true });
 cpSync(sampleDir, p0BulkDir, { recursive: true });
+cpSync(sampleDir, fontDir, { recursive: true });
 const p0BulkTasks = readJson(p0BulkDir, "review_tasks.json");
 p0BulkTasks.unshift({
   id: "task_verify_p0_bulk_guard",
@@ -47,6 +49,29 @@ p0BulkTasks.unshift({
   status: "open"
 });
 writeJson(p0BulkDir, "review_tasks.json", p0BulkTasks);
+const fontTasks = readJson(fontDir, "review_tasks.json");
+fontTasks.unshift({
+  id: "task_verify_font_mapping",
+  type: "font_missing",
+  priority: "P1",
+  target: { tokenName: "text_display", sourceNodeIds: ["1:3"] },
+  title: "Verify font mapping action",
+  description: "Workbench task actions must support font_mapping_override suggestions.",
+  confidence: 0.4,
+  evidence: { tokenName: "text_display", fontFamily: "Inter" },
+  suggestedActions: [
+    {
+      label: "Map font family",
+      override: {
+        type: "font_mapping_override",
+        payload: { tokenName: "text_display", fromFamily: "Inter", fallbackFamily: "SF Pro Display" },
+        reason: "Verify Workbench font mapping task action writeback."
+      }
+    }
+  ],
+  status: "open"
+});
+writeJson(fontDir, "review_tasks.json", fontTasks);
 
 const flutterPreviewPath = resolve(sampleDir, "flutter_preview.png");
 const hasFlutterPreview = existsSync(flutterPreviewPath);
@@ -153,6 +178,27 @@ try {
   assert.match(p0BulkCloseResult.error, /P0 review task cannot be bulk closed/);
   const p0BulkTasksAfter = await fetchJson(`${base}/artifacts/workbench-web-smoke/p0-bulk-sample/review_tasks.json`);
   assert.equal(p0BulkTasksAfter.some((task) => task.id === "task_verify_p0_bulk_guard" && task.status === "open"), true);
+
+  const fontActionResponse = await fetch(`${base}/api/workbench/task-action`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/font-sample",
+      taskId: "task_verify_font_mapping",
+      actionIndex: 0
+    })
+  });
+  assert.equal(fontActionResponse.ok, true);
+  const fontActionResult = await fontActionResponse.json();
+  assert.equal(fontActionResult.ok, true);
+  assert.equal(fontActionResult.report.overrideId, "ovr_task_verify_font_mapping_action_0");
+  const fontOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/font-sample/override_set.json`);
+  const fontTokens = await fetchJson(`${base}/artifacts/workbench-web-smoke/font-sample/reviewed_inferred_tokens.json`);
+  const fontReviewTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/font-sample/review_tasks.json`);
+  assert.equal(fontOverrideSet.overrides.some((entry) => entry.id === "ovr_task_verify_font_mapping_action_0" && entry.type === "font_mapping_override"), true);
+  assert.equal(findTypographyToken(fontTokens, "text_display").fontFamily, "SF Pro Display");
+  assert.equal(findTypographyToken(fontTokens, "text_display").confidence, 1);
+  assert.equal(fontReviewTasks.some((task) => task.id === "task_verify_font_mapping"), false);
 
   assert.equal(artifacts.reviewTasks.some((task) => task.type === "semantic_uplift_pending"), true);
   const tokenTask = artifacts.reviewTasks.find((task) => task.type === "token_conflict" && task.target?.tokenName === "radius_18");
@@ -1092,6 +1138,12 @@ function findTokenConfidence(tokens, name) {
     if (token) return token.confidence;
   }
   return undefined;
+}
+
+function findTypographyToken(tokens, name) {
+  const token = tokens.typography?.find((entry) => entry.name === name);
+  assert.ok(token, `Missing typography token ${name}`);
+  return token;
 }
 
 function findNodeNameBySource(node, sourceNodeId) {
