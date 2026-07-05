@@ -9,6 +9,7 @@ const sampleDir = resolve(root, "sample");
 const bulkDir = resolve(root, "bulk-sample");
 const p0BulkDir = resolve(root, "p0-bulk-sample");
 const fontDir = resolve(root, "font-sample");
+const componentMappingDir = resolve(root, "component-mapping-sample");
 rmSync(root, { recursive: true, force: true });
 
 execFileSync(
@@ -26,6 +27,7 @@ execFileSync(
 cpSync(sampleDir, bulkDir, { recursive: true });
 cpSync(sampleDir, p0BulkDir, { recursive: true });
 cpSync(sampleDir, fontDir, { recursive: true });
+cpSync(sampleDir, componentMappingDir, { recursive: true });
 const p0BulkTasks = readJson(p0BulkDir, "review_tasks.json");
 p0BulkTasks.unshift({
   id: "task_verify_p0_bulk_guard",
@@ -72,6 +74,48 @@ fontTasks.unshift({
   status: "open"
 });
 writeJson(fontDir, "review_tasks.json", fontTasks);
+const componentMappingIr = readJson(componentMappingDir, "normalized_design_ir.json");
+componentMappingIr.components = [
+  ...(componentMappingIr.components ?? []),
+  {
+    componentId: "cmp_task_mapping",
+    name: "TaskMappingCard",
+    source: "inferred_and_user_approved",
+    sourceInstances: ["1:12", "1:14"],
+    instances: ["1:12", "1:14"],
+    confidence: 1,
+    status: "approved",
+    verified: false
+  }
+];
+writeJson(componentMappingDir, "normalized_design_ir.json", componentMappingIr);
+writeJson(componentMappingDir, "reviewed_normalized_design_ir.json", componentMappingIr);
+const componentMappingTasks = readJson(componentMappingDir, "review_tasks.json");
+componentMappingTasks.unshift({
+  id: "task_verify_component_mapping",
+  type: "component_mapping_required",
+  priority: "P1",
+  target: { candidateId: "cmp_task_mapping", sourceNodeIds: ["1:12", "1:14"] },
+  title: "Verify component mapping action",
+  description: "Workbench task actions must support flutter_component_mapping_override suggestions.",
+  confidence: 1,
+  evidence: { componentId: "cmp_task_mapping", name: "TaskMappingCard" },
+  suggestedActions: [
+    {
+      label: "Map Flutter component",
+      override: {
+        type: "flutter_component_mapping_override",
+        payload: {
+          kind: "map_flutter_component",
+          flutter: { import: "package:app/ui/task_mapping_card.dart", constructor: "TaskMappingCard" }
+        },
+        reason: "Verify Workbench component mapping task action writeback."
+      }
+    }
+  ],
+  status: "open"
+});
+writeJson(componentMappingDir, "review_tasks.json", componentMappingTasks);
 
 const flutterPreviewPath = resolve(sampleDir, "flutter_preview.png");
 const hasFlutterPreview = existsSync(flutterPreviewPath);
@@ -199,6 +243,31 @@ try {
   assert.equal(findTypographyToken(fontTokens, "text_display").fontFamily, "SF Pro Display");
   assert.equal(findTypographyToken(fontTokens, "text_display").confidence, 1);
   assert.equal(fontReviewTasks.some((task) => task.id === "task_verify_font_mapping"), false);
+
+  const componentMappingActionResponse = await fetch(`${base}/api/workbench/task-action`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/component-mapping-sample",
+      taskId: "task_verify_component_mapping",
+      actionIndex: 0
+    })
+  });
+  assert.equal(componentMappingActionResponse.ok, true);
+  const componentMappingActionResult = await componentMappingActionResponse.json();
+  assert.equal(componentMappingActionResult.ok, true);
+  assert.equal(componentMappingActionResult.report.overrideId, "ovr_task_verify_component_mapping_action_0");
+  const componentMappingOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/component-mapping-sample/override_set.json`);
+  const componentMappingIrAfter = await fetchJson(`${base}/artifacts/workbench-web-smoke/component-mapping-sample/reviewed_normalized_design_ir.json`);
+  const componentMappingTasksAfter = await fetchJson(`${base}/artifacts/workbench-web-smoke/component-mapping-sample/review_tasks.json`);
+  const componentMappingOverride = componentMappingOverrideSet.overrides.find((entry) => entry.id === "ovr_task_verify_component_mapping_action_0");
+  assert.equal(componentMappingOverride.type, "flutter_component_mapping_override");
+  assert.equal(componentMappingOverride.payload.componentId, "cmp_task_mapping");
+  const mappedComponent = findComponentById(componentMappingIrAfter, "cmp_task_mapping");
+  assert.equal(mappedComponent.flutter.import, "package:app/ui/task_mapping_card.dart");
+  assert.equal(mappedComponent.flutter.constructor, "TaskMappingCard");
+  assert.equal(mappedComponent.verified, true);
+  assert.equal(componentMappingTasksAfter.some((task) => task.id === "task_verify_component_mapping"), false);
 
   assert.equal(artifacts.reviewTasks.some((task) => task.type === "semantic_uplift_pending"), true);
   const tokenTask = artifacts.reviewTasks.find((task) => task.type === "token_conflict" && task.target?.tokenName === "radius_18");
@@ -1164,5 +1233,5 @@ function findMessageByKey(manifest, key) {
 }
 
 function findComponentById(registry, id) {
-  return registry.components.find((component) => component.id === id);
+  return registry.components.find((component) => component.id === id || component.componentId === id);
 }

@@ -1455,6 +1455,10 @@ function normalizeSuggestedPayload(type, task, payload) {
     const targetSourceNodeIds = stringArray(target.sourceNodeIds);
     if (sourceNodeIds.length === 0 && targetSourceNodeIds.length > 0) next.sourceNodeIds = targetSourceNodeIds;
   }
+  if (type === "flutter_component_mapping_override" && !stringValue(next.componentId)) {
+    const componentId = stringValue(target.candidateId);
+    if (componentId) next.componentId = componentId;
+  }
   if (type === "i18n_key_override" && !stringValue(next.key)) {
     const key = stringValue(target.messageKey);
     if (key) next.key = key;
