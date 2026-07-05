@@ -177,6 +177,8 @@ try {
   const previewArtifact = JSON.parse(readFileSync(resolve(result.artifactDir, "preview_artifact.json"), "utf8"));
   assert.equal(previewArtifact.files.webPreviewState, resolve(result.artifactDir, "web_preview_state.json"));
   assert.equal(previewArtifact.files.diffIssues, resolve(result.artifactDir, "diff/diff_issues.json"));
+  assert.equal(previewArtifact.files.repairPatch, resolve(result.artifactDir, "diff/repair_patch.json"));
+  assert.equal(previewArtifact.files.repairIterationLog, resolve(result.artifactDir, "diff/repair_iteration_log.json"));
   assert.equal(previewArtifact.status.visualDiff, "success");
   const webPreviewState = JSON.parse(readFileSync(resolve(result.artifactDir, "web_preview_state.json"), "utf8"));
   assert.ok(webPreviewState.commands.length >= 10, "Expected local API web preview commands");

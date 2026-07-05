@@ -203,6 +203,8 @@ try {
   const previewArtifact = JSON.parse(readFileSync(resolve(outDir, "preview_artifact.json"), "utf8"));
   assert.equal(previewArtifact.files.webPreviewState, resolve(outDir, "web_preview_state.json"));
   assert.equal(previewArtifact.files.diffIssues, resolve(outDir, "diff/diff_issues.json"));
+  assert.equal(previewArtifact.files.repairPatch, resolve(outDir, "diff/repair_patch.json"));
+  assert.equal(previewArtifact.files.repairIterationLog, resolve(outDir, "diff/repair_iteration_log.json"));
   const webPreviewState = JSON.parse(readFileSync(resolve(outDir, "web_preview_state.json"), "utf8"));
   assert.ok(webPreviewState.commands.length >= 10, "Expected Figma run web preview commands");
 

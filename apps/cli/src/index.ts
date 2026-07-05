@@ -1030,6 +1030,8 @@ async function writePreviewArtifact(outDir: string, runReport: FigmaRunReport): 
       visualDiffReport: runReport.steps.visualDiff.report,
       diffIssues: diffDir ? resolve(diffDir, "diff_issues.json") : undefined,
       nodeDiffReport: diffDir ? resolve(diffDir, "node_diff_report.json") : undefined,
+      repairPatch: diffDir ? resolve(diffDir, "repair_patch.json") : undefined,
+      repairIterationLog: diffDir ? resolve(diffDir, "repair_iteration_log.json") : undefined,
       heatmap: runReport.steps.visualDiff.heatmap
     }
   };
