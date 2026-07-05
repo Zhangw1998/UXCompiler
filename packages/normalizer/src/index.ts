@@ -62,7 +62,7 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     fidelityGenerationManifest: fidelityResult.fidelityGenerationManifest,
     staleOverrideReport: overrideResult.staleOverrideReport
   });
-  const inferredComponents = createInferredComponentsArtifact(layoutResult.normalizedDesignIR);
+  const inferredComponents = createInferredComponentsArtifact(layoutResult.normalizedDesignIR, assetI18nResult.i18nManifest);
   const componentInstanceMap = createComponentInstanceMapArtifact(inferredComponents, layoutResult.normalizedDesignIR);
   const componentConfidenceReport = createComponentConfidenceReportArtifact(inferredComponents);
   const semanticLabels = createSemanticLabelsArtifact({
@@ -138,15 +138,164 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
   };
 }
 
-function createInferredComponentsArtifact(normalizedDesignIR: NormalizedDesignIR): InferredComponentsArtifact {
-  const candidates = Array.isArray(normalizedDesignIR.components) ? normalizedDesignIR.components : [];
+function createInferredComponentsArtifact(normalizedDesignIR: NormalizedDesignIR, i18nManifest: I18nManifest): InferredComponentsArtifact {
+  const carriedCandidates = Array.isArray(normalizedDesignIR.components) ? normalizedDesignIR.components : [];
+  const minedCandidates = mineComponentCandidates(normalizedDesignIR.tree, i18nManifest);
+  const candidates = [...carriedCandidates, ...minedCandidates];
+  const confidence = candidates.length > 0 ? averageComponentConfidence(candidates) : normalizedDesignIR.confidence.components;
   return {
     version: "2.0",
     status: candidates.length > 0 ? "candidates_detected" : "no_reusable_components_detected",
     candidates,
-    confidence: normalizedDesignIR.confidence.components,
+    confidence,
     fallback: candidates.length > 0 ? undefined : "generate_separate_widgets"
   };
+}
+
+function mineComponentCandidates(normalizedRoot: NormalizedNode, i18nManifest: I18nManifest): Array<Record<string, unknown>> {
+  const textBySourceNodeId = new Map(i18nManifest.messages.map((message) => [message.sourceNodeId, message.value]));
+  const groups = new Map<string, Array<{ node: NormalizedNode; kind: ComponentKind; signature: string }>>();
+
+  walkNormalized(normalizedRoot, (node) => {
+    if (node.type === "page" || node.children.length === 0) return;
+    const kind = classifyComponentKind(node);
+    if (!kind) return;
+    const signature = componentSignature(node, kind);
+    const key = `${kind}:${signature}`;
+    const group = groups.get(key) ?? [];
+    group.push({ node, kind, signature });
+    groups.set(key, group);
+  });
+
+  return [...groups.values()]
+    .filter((group) => group.length >= 2)
+    .map((group) => {
+      const kind = group[0].kind;
+      const instances = group.map((entry) => entry.node);
+      const confidence = round(Math.min(0.94, 0.82 + Math.min(0.08, (instances.length - 2) * 0.03) + componentNameBoost(instances)));
+      return {
+        componentId: componentIdFor(kind, group[0].signature),
+        name: componentNameFor(kind),
+        kind,
+        sourceInstances: instances.flatMap((node) => node.sourceNodeIds).filter(Boolean),
+        props: componentPropsFor(kind, instances, textBySourceNodeId),
+        layout: {
+          type: instances[0].layout.type,
+          gap: instances[0].layout.gap
+        },
+        confidence,
+        similarity: confidence,
+        evidence: [
+          `${instances.length} matching ${kind} structures share signature ${group[0].signature}.`,
+          "Reusable candidates require at least two instances."
+        ],
+        fallback: confidence < 0.9 ? "generate_separate_widgets_until_reviewed" : undefined
+      };
+    })
+    .sort((left, right) => String(left.componentId).localeCompare(String(right.componentId)));
+}
+
+type ComponentKind = "Button" | "Card" | "ListItem";
+
+function classifyComponentKind(node: NormalizedNode): ComponentKind | undefined {
+  const name = node.name.toLowerCase();
+  const textCount = descendantCount(node, "text");
+  const hasSurface = node.children.some((child) => child.type === "rect" || child.type === "image");
+  if (name.includes("button") && textCount >= 1 && hasSurface) return "Button";
+  if (name.includes("card") && textCount >= 1 && hasSurface) return "Card";
+  if ((name.includes("listitem") || name.includes("list item") || name.includes("item")) && node.layout.type === "row" && textCount >= 1) {
+    return "ListItem";
+  }
+  return undefined;
+}
+
+function componentSignature(node: NormalizedNode, kind: ComponentKind): string {
+  const childTypes = node.children.map((child) => componentChildType(child)).join("_");
+  const textCount = descendantCount(node, "text");
+  const assetCount = descendantCount(node, "image") + descendantCount(node, "vector");
+  const surfaceCount = descendantCount(node, "rect");
+  const widthBucket = Math.max(1, Math.round(node.bounds.w / 24));
+  const heightBucket = Math.max(1, Math.round(node.bounds.h / 16));
+  return lowerSnake(`${kind}_${node.layout.type}_${childTypes}_${textCount}t_${assetCount}a_${surfaceCount}s_${widthBucket}w_${heightBucket}h`);
+}
+
+function componentChildType(node: NormalizedNode): string {
+  if (node.type === "text") return "text";
+  if (node.type === "image" || node.type === "vector") return "asset";
+  if (node.type === "rect") return "surface";
+  if (descendantCount(node, "text") > 0) return "content";
+  return node.type;
+}
+
+function componentPropsFor(
+  kind: ComponentKind,
+  instances: NormalizedNode[],
+  textBySourceNodeId: Map<string, string>
+): Array<Record<string, unknown>> {
+  const textSlots = instances.map((node) => textDescendants(node));
+  const maxSlots = Math.max(...textSlots.map((slots) => slots.length), 0);
+  const props: Array<Record<string, unknown>> = [];
+  for (let index = 0; index < maxSlots; index += 1) {
+    const slotNodes = textSlots.map((slots) => slots[index]).filter((node): node is NormalizedNode => Boolean(node));
+    const values = new Set(
+      slotNodes
+        .flatMap((node) => node.sourceNodeIds)
+        .map((sourceNodeId) => textBySourceNodeId.get(sourceNodeId))
+        .filter((value): value is string => Boolean(value))
+    );
+    if (kind === "Button" || values.size > 1) {
+      props.push({
+        name: textPropName(kind, index),
+        type: "text",
+        source: `text[${index}]`,
+        sourceNodeIds: Array.from(new Set(slotNodes.flatMap((node) => node.sourceNodeIds))).sort()
+      });
+    }
+  }
+  return props;
+}
+
+function textPropName(kind: ComponentKind, index: number): string {
+  if (kind === "Button") return index === 0 ? "label" : `label${index + 1}`;
+  if (kind === "Card") return index === 0 ? "title" : index === 1 ? "subtitle" : `text${index + 1}`;
+  return index === 0 ? "title" : `detail${index + 1}`;
+}
+
+function textDescendants(node: NormalizedNode): NormalizedNode[] {
+  const nodes: NormalizedNode[] = [];
+  walkNormalized(node, (candidate) => {
+    if (candidate.type === "text") nodes.push(candidate);
+  });
+  return nodes;
+}
+
+function descendantCount(node: NormalizedNode, type: NormalizedNode["type"]): number {
+  let count = 0;
+  walkNormalized(node, (candidate) => {
+    if (candidate !== node && candidate.type === type) count += 1;
+  });
+  return count;
+}
+
+function componentNameFor(kind: ComponentKind): string {
+  if (kind === "Button") return "PrimaryButton";
+  if (kind === "Card") return "ProductCard";
+  return "ListItem";
+}
+
+function componentIdFor(kind: ComponentKind, signature: string): string {
+  return lowerSnake(`${kind}_${signature}`).slice(0, 96);
+}
+
+function componentNameBoost(instances: NormalizedNode[]): number {
+  return instances.every((node) => /button|card|item/i.test(node.name)) ? 0.04 : 0;
+}
+
+function averageComponentConfidence(candidates: unknown[]): number {
+  const scores = candidates
+    .map((candidate) => numberValue(recordValue(candidate)?.confidence))
+    .filter((score): score is number => score !== undefined);
+  return scores.length > 0 ? round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : 0;
 }
 
 function createSemanticLabelsArtifact(input: {
@@ -234,10 +383,11 @@ function createComponentInstanceMapArtifact(
       status: "candidate" as const
     };
   });
+  const mappedSourceNodeIds = new Set(components.flatMap((component) => component.instances.flatMap((instance) => instance.sourceNodeIds)));
   return {
     version: "2.0",
     components,
-    unmappedSourceNodeIds: components.length > 0 ? [] : collectNormalizedSourceNodeIds(normalizedDesignIR.tree)
+    unmappedSourceNodeIds: collectNormalizedSourceNodeIds(normalizedDesignIR.tree).filter((sourceNodeId) => !mappedSourceNodeIds.has(sourceNodeId))
   };
 }
 
@@ -452,7 +602,11 @@ function collectNormalizedSourceNodeIds(root: NormalizedNode): string[] {
 }
 
 function scoreFromWarnings(count: number): number {
-  return Math.max(0, Math.round((1 - Math.min(0.5, count * 0.05)) * 1000) / 1000);
+  return Math.max(0, round(1 - Math.min(0.5, count * 0.05)));
+}
+
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
