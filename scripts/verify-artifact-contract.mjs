@@ -7,12 +7,18 @@ const root = resolve(process.argv[2] ?? "artifacts/sample");
 const requiredJsonFiles = [
   "raw_figma_scene.json",
   "canonical_scene.json",
+  "canonicalization_report.json",
   "node_mapping.json",
   "inferred_tokens.json",
+  "token_usage_map.json",
+  "regions.json",
+  "layout_candidates.json",
+  "layout_decisions.json",
   "asset_manifest.json",
   "i18n_manifest.json",
   "normalized_design_ir.json",
   "visual_ir.json",
+  "node_pixel_map.json",
   "semantic_ir.json",
   "uplift_decisions.json",
   "uplift_diff_report.json",
@@ -38,11 +44,17 @@ for (const file of requiredJsonFiles) {
 
 const raw = json("raw_figma_scene.json");
 const canonical = json("canonical_scene.json");
+const canonicalizationReport = json("canonicalization_report.json");
 const mapping = json("node_mapping.json");
 const tokens = json("inferred_tokens.json");
+const regions = json("regions.json");
+const layoutCandidates = json("layout_candidates.json");
+const layoutDecisions = json("layout_decisions.json");
 const assetManifest = json("asset_manifest.json");
 const i18nManifest = json("i18n_manifest.json");
 const normalized = json("normalized_design_ir.json");
+const visualIR = json("visual_ir.json");
+const nodePixelMap = json("node_pixel_map.json");
 const semanticLabels = json("semantic_labels.json");
 const semanticIR = json("semantic_ir.json");
 const upliftDecisions = json("uplift_decisions.json");
@@ -66,6 +78,15 @@ assert.equal(rawSourceNodeIds.has(canonical.root.sourceNodeId), true, "canonical
 assert.equal(mapping.rawToCanonical[raw.root.id]?.includes(canonical.root.id), true, "node mapping must trace raw root to canonical root.");
 assert.equal(semanticIR.normalizedDesignIR.tree.id, normalized.tree.id, "semantic_ir must embed the normalized IR baseline.");
 
+assertCanonicalMapping(rawSourceNodeIds, canonicalIds, mapping);
+assertCanonicalizationReport(rawSourceNodeIds, canonicalIds, canonicalizationReport);
+assertSourceRefs(rawSourceNodeIds, "inferred_tokens.colors", tokens.colors, (entry) => entry.sourceNodeIds ?? []);
+assertSourceRefs(rawSourceNodeIds, "inferred_tokens.spacing", tokens.spacing, (entry) => entry.sourceNodeIds ?? []);
+assertSourceRefs(rawSourceNodeIds, "inferred_tokens.typography", tokens.typography, (entry) => entry.sourceNodeIds ?? []);
+assertSourceRefs(rawSourceNodeIds, "inferred_tokens.radii", tokens.radii, (entry) => entry.sourceNodeIds ?? []);
+assertSourceRefs(rawSourceNodeIds, "inferred_tokens.shadows", tokens.shadows, (entry) => entry.sourceNodeIds ?? []);
+assertSourceRefs(rawSourceNodeIds, "regions", regions, (entry) => entry.sourceNodeIds ?? []);
+assertLayoutArtifacts(rawSourceNodeIds, traceableIds, layoutCandidates, layoutDecisions);
 assertSourceRefs(rawSourceNodeIds, "asset_manifest.assets", assetManifest.assets, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "i18n_manifest.messages", i18nManifest.messages, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "semantic_labels.regions", semanticLabels.regions, (entry) => entry.sourceNodeIds ?? []);
@@ -76,6 +97,7 @@ assertSourceRefs(rawSourceNodeIds, "render_strategy_manifest.regions", renderStr
 assertVisibleTextI18nCoverage(canonical, i18nManifest);
 assertAssetManifestPaths(assetManifest, materializedAssetReport);
 assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR);
+assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap);
 
 walkNormalizedNode(normalized.tree, (node) => {
   assert.ok(node.sourceNodeIds.length > 0, `Normalized node ${node.id} must include sourceNodeIds.`);
@@ -179,6 +201,79 @@ function assertVisibleTextI18nCoverage(canonicalScene, manifest) {
   });
 }
 
+function assertCanonicalMapping(rawSourceNodeIds, canonicalIds, mapping) {
+  for (const [rawSourceNodeId, mappedCanonicalIds] of Object.entries(mapping.rawToCanonical ?? {})) {
+    assert.equal(rawSourceNodeIds.has(rawSourceNodeId), true, `node_mapping.rawToCanonical references unknown raw id ${rawSourceNodeId}.`);
+    assert.ok(Array.isArray(mappedCanonicalIds), `node_mapping.rawToCanonical.${rawSourceNodeId} must be an array.`);
+    for (const canonicalId of mappedCanonicalIds) {
+      assert.equal(canonicalIds.has(canonicalId), true, `node_mapping.rawToCanonical.${rawSourceNodeId} references unknown canonical id ${canonicalId}.`);
+    }
+  }
+  for (const canonicalId of canonicalIds) {
+    const rawIds = mapping.canonicalToRaw?.[canonicalId];
+    assert.ok(Array.isArray(rawIds) && rawIds.length > 0, `node_mapping.canonicalToRaw must include canonical id ${canonicalId}.`);
+    for (const rawSourceNodeId of rawIds) {
+      assert.equal(rawSourceNodeIds.has(rawSourceNodeId), true, `node_mapping.canonicalToRaw.${canonicalId} references unknown raw id ${rawSourceNodeId}.`);
+    }
+  }
+}
+
+function assertCanonicalizationReport(rawSourceNodeIds, canonicalIds, report) {
+  assert.equal(typeof report.stats?.rawNodes, "number", "canonicalization_report.stats.rawNodes must be a number.");
+  assert.equal(typeof report.stats?.canonicalNodes, "number", "canonicalization_report.stats.canonicalNodes must be a number.");
+  assert.ok(report.stats.rawNodes > 0, "canonicalization_report.stats.rawNodes must be positive.");
+  assert.ok(report.stats.canonicalNodes > 0, "canonicalization_report.stats.canonicalNodes must be positive.");
+  for (const flattened of report.flattenedNodes ?? []) {
+    assert.equal(rawSourceNodeIds.has(flattened.sourceNodeId), true, `flattened node references unknown sourceNodeId ${flattened.sourceNodeId}.`);
+    assert.ok(flattened.reason, `flattened node ${flattened.sourceNodeId} must include a reason.`);
+    assert.ok(Array.isArray(flattened.replacementCanonicalIds), `flattened node ${flattened.sourceNodeId} must list replacement canonical ids.`);
+    for (const canonicalId of flattened.replacementCanonicalIds) {
+      assert.equal(canonicalIds.has(canonicalId), true, `flattened node ${flattened.sourceNodeId} references unknown canonical id ${canonicalId}.`);
+    }
+  }
+  for (const warning of report.warnings ?? []) {
+    assert.equal(rawSourceNodeIds.has(warning.sourceNodeId), true, `canonicalization warning references unknown sourceNodeId ${warning.sourceNodeId}.`);
+    assert.ok(warning.type, `canonicalization warning for ${warning.sourceNodeId} must include type.`);
+    assert.ok(warning.message, `canonicalization warning for ${warning.sourceNodeId} must include message.`);
+  }
+}
+
+function assertLayoutArtifacts(rawSourceNodeIds, traceableIds, candidates, decisions) {
+  assert.ok(Array.isArray(candidates), "layout_candidates must be an array.");
+  assert.ok(Array.isArray(decisions), "layout_decisions must be an array.");
+  const decisionNodeIds = new Set(decisions.map((decision) => decision.nodeId));
+  for (const candidate of candidates) {
+    assert.equal(traceableIds.has(candidate.nodeId), true, `layout candidate references unknown nodeId ${candidate.nodeId}.`);
+    assert.ok(Array.isArray(candidate.candidates) && candidate.candidates.length > 0, `layout candidate ${candidate.nodeId} must include options.`);
+    for (const option of candidate.candidates) {
+      assertScore(option.score, `layout_candidates.${candidate.nodeId}.${option.layout}.score`);
+      assert.ok(Array.isArray(option.evidence) && option.evidence.length > 0, `layout candidate ${candidate.nodeId}.${option.layout} must include evidence.`);
+    }
+  }
+  for (const decision of decisions) {
+    assert.equal(traceableIds.has(decision.nodeId), true, `layout decision references unknown nodeId ${decision.nodeId}.`);
+    assert.equal(decisionNodeIds.has(decision.nodeId), true, `layout decision ${decision.nodeId} must be addressable.`);
+    assertSourceRefs(rawSourceNodeIds, `layout_decisions.${decision.nodeId}`, [decision], (entry) => entry.sourceNodeIds ?? []);
+    assertScore(decision.score, `layout_decisions.${decision.nodeId}.score`);
+    assertScore(decision.confidence, `layout_decisions.${decision.nodeId}.confidence`);
+    assert.ok(Array.isArray(decision.evidence) && decision.evidence.length > 0, `layout decision ${decision.nodeId} must include evidence.`);
+  }
+}
+
+function assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap) {
+  assert.deepEqual(visualIR.source.viewport, json("normalized_design_ir.json").source.viewport, "visual_ir viewport must match normalized viewport.");
+  walkVisualNode(visualIR.root, (node) => {
+    if (!node.sourceNodeId) return;
+    assert.equal(rawSourceNodeIds.has(node.sourceNodeId), true, `visual_ir ${node.type} references unknown sourceNodeId ${node.sourceNodeId}.`);
+  });
+  assert.ok(Array.isArray(nodePixelMap), "node_pixel_map must be an array.");
+  for (const entry of nodePixelMap) {
+    assert.equal(rawSourceNodeIds.has(entry.sourceNodeId), true, `node_pixel_map references unknown sourceNodeId ${entry.sourceNodeId}.`);
+    assert.ok(entry.widgetPath, `node_pixel_map ${entry.sourceNodeId} must include widgetPath.`);
+    assertBounds(entry.bounds, `node_pixel_map.${entry.sourceNodeId}.bounds`);
+  }
+}
+
 function assertAssetManifestPaths(manifest, materializedReport) {
   const usedPaths = new Set();
   for (const asset of manifest.assets ?? []) {
@@ -244,6 +339,12 @@ function walkNormalizedNode(node, visit) {
   for (const child of node.children ?? []) walkNormalizedNode(child, visit);
 }
 
+function walkVisualNode(node, visit) {
+  visit(node);
+  for (const child of node.children ?? []) walkVisualNode(child, visit);
+  if (node.child) walkVisualNode(node.child, visit);
+}
+
 function assertSourceRefs(sourceIds, label, entries, selectIds) {
   assert.ok(Array.isArray(entries), `${label} must be an array.`);
   for (const entry of entries) {
@@ -251,6 +352,17 @@ function assertSourceRefs(sourceIds, label, entries, selectIds) {
       assert.equal(sourceIds.has(sourceNodeId), true, `${label} references unknown sourceNodeId ${sourceNodeId}.`);
     }
   }
+}
+
+function assertBounds(bounds, label) {
+  assert.equal(typeof bounds, "object", `${label} must be an object.`);
+  assert.ok(bounds !== null && !Array.isArray(bounds), `${label} must be an object.`);
+  for (const key of ["x", "y", "w", "h"]) {
+    assert.equal(typeof bounds[key], "number", `${label}.${key} must be a number.`);
+    assert.ok(Number.isFinite(bounds[key]), `${label}.${key} must be finite.`);
+  }
+  assert.ok(bounds.w >= 0, `${label}.w must not be negative.`);
+  assert.ok(bounds.h >= 0, `${label}.h must not be negative.`);
 }
 
 function assertConfidenceTree(files) {
