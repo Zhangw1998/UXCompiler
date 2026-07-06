@@ -34,6 +34,8 @@ assertIncludes(main, "message.type === \"export-snapshot-zip\"", "main offline e
 assertIncludes(main, "message.type !== \"sync-selection\"", "main sync handler");
 assertIncludes(main, "/health", "main health URL derivation");
 assertIncludes(main, "exportNodeAssets(root)", "main exports node assets");
+assertIncludes(main, "status: \"failed\"", "main records failed asset exports");
+assertIncludes(main, "asset_export_failed", "main reports failed asset exports");
 assertIncludes(main, "writeStoredZip(entries)", "main writes offline snapshot zip");
 assertIncludes(main, "source_snapshot.json", "main exports source snapshot");
 assertIncludes(main, "raw_figma_scene.json", "main exports raw scene");
@@ -51,6 +53,8 @@ assertIncludes(builtMain, "message.type === \"check-health\"", "built main healt
 assertIncludes(builtMain, "message.type === \"export-snapshot-zip\"", "built main offline export handler");
 assertIncludes(builtMain, "message.type !== \"sync-selection\"", "built main sync handler");
 assertIncludes(builtMain, "exportNodeAssets(root)", "built main exports node assets");
+assertIncludes(builtMain, "status: \"failed\"", "built main records failed asset exports");
+assertIncludes(builtMain, "asset_export_failed", "built main reports failed asset exports");
 assertIncludes(builtMain, "writeStoredZip(entries)", "built main writes offline snapshot zip");
 assertIncludes(builtMain, "source_snapshot.json", "built main exports source snapshot");
 assertIncludes(builtMain, "raw_figma_scene.json", "built main exports raw scene");

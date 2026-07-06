@@ -306,6 +306,7 @@ try {
   assert.equal(fallbackPipelineRunReport.steps.visualDiff.status, "skipped");
 
   const zipAssetSourceNodeId = "zip:asset:1";
+  const zipFailedAssetSourceNodeId = "zip:asset:failed";
   const zipScene = JSON.parse(JSON.stringify(fallbackScene));
   zipScene.source.fileName = "plugin_zip_smoke";
   zipScene.source.frameNodeId = "zip:frame";
@@ -318,6 +319,14 @@ try {
     absoluteBoundingBox: { x: 0, y: 0, width: 1, height: 1 },
     fills: [{ type: "IMAGE", visible: true, imageHash: "zip-image" }]
   });
+  zipScene.root.children.push({
+    id: zipFailedAssetSourceNodeId,
+    name: "Zip Failed Bitmap",
+    type: "RECTANGLE",
+    visible: true,
+    absoluteBoundingBox: { x: 0, y: 1, width: 1, height: 1 },
+    fills: [{ type: "IMAGE", visible: true, imageHash: "zip-failed-image" }]
+  });
   const zipBuffer = writeStoredZip([
     jsonZipEntry("source_snapshot.json", {
       id: "snap_zip_smoke",
@@ -328,14 +337,33 @@ try {
       assetDir: "raw_assets"
     }),
     jsonZipEntry("raw_figma_scene.json", zipScene),
-    jsonZipEntry("extraction_report.json", { source: { frameNodeId: zipScene.source.frameNodeId }, warnings: [] }),
+    jsonZipEntry("extraction_report.json", {
+      source: { frameNodeId: zipScene.source.frameNodeId },
+      warnings: [
+        {
+          type: "asset_export_failed",
+          sourceNodeId: zipFailedAssetSourceNodeId,
+          message: "Simulated plugin asset export failure."
+        }
+      ]
+    }),
     jsonZipEntry("raw_assets_manifest.json", [
       {
         sourceNodeId: zipAssetSourceNodeId,
         name: "Zip Bitmap",
+        status: "success",
         format: "png",
         contentType: "image/png",
         path: "raw_assets/zip_asset_1.png"
+      },
+      {
+        sourceNodeId: zipFailedAssetSourceNodeId,
+        name: "Zip Failed Bitmap",
+        status: "failed",
+        format: "png",
+        contentType: "image/png",
+        path: "raw_assets/zip_failed_asset.png",
+        reason: "Simulated plugin asset export failure."
       }
     ]),
     { name: "figma_reference.png", data: Buffer.from(referencePngBase64, "base64") },
@@ -364,14 +392,22 @@ try {
   assert.equal(existsSync(resolve(zipResult.artifactDir, "component_instance_map.json")), true);
   assert.equal(existsSync(resolve(zipResult.artifactDir, "normalization_report.json")), true);
   assert.equal(existsSync(resolve(zipResult.artifactDir, "render_strategy_manifest.json")), true);
-  assert.equal(existsSync(resolve(zipResult.artifactDir, "assets/frames/figma_reference.png")), true);
-  const zipMaterializedAssetReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "materialized_assets_report.json"), "utf8"));
-  assert.equal(zipMaterializedAssetReport.requested, 1);
-  assert.equal(zipMaterializedAssetReport.materialized.some((asset) => asset.sourceNodeId === zipAssetSourceNodeId), true);
-  const zipPipelineRunReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "pipeline_run_report.json"), "utf8"));
-  assert.equal(zipPipelineRunReport.source.sourceKind, "figma_plugin");
-  assert.equal(zipPipelineRunReport.steps.snapshot.frameScreenshotFallback, true);
-  assert.equal(zipPipelineRunReport.steps.flutterCapture.status, "skipped");
+	  assert.equal(existsSync(resolve(zipResult.artifactDir, "assets/frames/figma_reference.png")), true);
+	  const zipMaterializedAssetReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "materialized_assets_report.json"), "utf8"));
+	  assert.equal(zipMaterializedAssetReport.requested, 2);
+	  assert.equal(zipMaterializedAssetReport.materialized.some((asset) => asset.sourceNodeId === zipAssetSourceNodeId), true);
+	  assert.equal(zipMaterializedAssetReport.failed.length, 1);
+	  assert.equal(zipMaterializedAssetReport.failed[0].sourceNodeId, zipFailedAssetSourceNodeId);
+	  assert.match(zipMaterializedAssetReport.failed[0].reason, /Simulated plugin asset export failure/);
+	  const zipLocalApiSnapshotReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "local_api_snapshot_report.json"), "utf8"));
+	  assert.equal(zipLocalApiSnapshotReport.failedAssets, 1);
+	  const zipExtractionReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "extraction_report.json"), "utf8"));
+	  assert.equal(zipExtractionReport.warnings.some((warning) => warning.type === "asset_export_failed"), true);
+	  const zipPipelineRunReport = JSON.parse(readFileSync(resolve(zipResult.artifactDir, "pipeline_run_report.json"), "utf8"));
+	  assert.equal(zipPipelineRunReport.source.sourceKind, "figma_plugin");
+	  assert.equal(zipPipelineRunReport.steps.snapshot.frameScreenshotFallback, true);
+	  assert.equal(zipPipelineRunReport.steps.snapshot.failedAssets, 1);
+	  assert.equal(zipPipelineRunReport.steps.flutterCapture.status, "skipped");
 
   console.log("local api verification passed");
 } finally {

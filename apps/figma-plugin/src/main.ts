@@ -10,12 +10,14 @@ type SerializableNode = Record<string, unknown> & {
 type ExportedAsset = {
   sourceNodeId: string;
   name: string;
+  status: "success" | "failed";
   format: "png";
-  contentType: "image/png";
-  pngBase64: string;
-  bytes: number;
+  contentType?: "image/png";
+  pngBase64?: string;
+  bytes?: number;
   width?: number;
   height?: number;
+  reason?: string;
 };
 
 type SnapshotPayload = {
@@ -92,9 +94,18 @@ async function collectSnapshotPayload(): Promise<SnapshotPayload> {
     assets: {
       requested: assets.length,
       format: "png",
-      bytes: assets.reduce((sum, asset) => sum + asset.bytes, 0)
+      exported: assets.filter((asset) => asset.status === "success").length,
+      failed: assets.filter((asset) => asset.status === "failed").length,
+      bytes: assets.reduce((sum, asset) => sum + (asset.bytes ?? 0), 0)
     },
-    warnings: []
+    warnings: assets
+      .filter((asset) => asset.status === "failed")
+      .map((asset) => ({
+        type: "asset_export_failed",
+        sourceNodeId: asset.sourceNodeId,
+        name: asset.name,
+        message: asset.reason ?? "Figma node asset export failed."
+      }))
   };
   return { root, rawFigmaScene, png, assets, extractionReport };
 }
@@ -128,19 +139,23 @@ async function exportSnapshotZip(): Promise<void> {
         assets.map((asset) => ({
           sourceNodeId: asset.sourceNodeId,
           name: asset.name,
+          status: asset.status,
           format: asset.format,
           contentType: asset.contentType,
           path: `raw_assets/${safeId(asset.sourceNodeId || asset.name)}.png`,
           bytes: asset.bytes,
           width: asset.width,
-          height: asset.height
+          height: asset.height,
+          reason: asset.reason
         }))
       ),
       { name: "figma_reference.png", data: png },
-      ...assets.map((asset) => ({
-        name: `raw_assets/${safeId(asset.sourceNodeId || asset.name)}.png`,
-        data: base64ToUint8(asset.pngBase64)
-      }))
+      ...assets
+        .filter((asset) => asset.status === "success" && asset.pngBase64)
+        .map((asset) => ({
+          name: `raw_assets/${safeId(asset.sourceNodeId || asset.name)}.png`,
+          data: base64ToUint8(asset.pngBase64 || "")
+        }))
     ];
     const zip = writeStoredZip(entries);
     figma.ui.postMessage({
@@ -268,18 +283,31 @@ async function exportNodeAssets(root: SceneNode): Promise<ExportedAsset[]> {
 
   const assets: ExportedAsset[] = [];
   for (const node of nodes) {
-    const png = await node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } });
     const bounds = readBounds(node);
-    assets.push({
-      sourceNodeId: node.id,
-      name: node.name,
-      format: "png",
-      contentType: "image/png",
-      pngBase64: uint8ToBase64(png),
-      bytes: png.byteLength,
-      width: bounds?.width,
-      height: bounds?.height
-    });
+    try {
+      const png = await node.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } });
+      assets.push({
+        sourceNodeId: node.id,
+        name: node.name,
+        status: "success",
+        format: "png",
+        contentType: "image/png",
+        pngBase64: uint8ToBase64(png),
+        bytes: png.byteLength,
+        width: bounds?.width,
+        height: bounds?.height
+      });
+    } catch (error) {
+      assets.push({
+        sourceNodeId: node.id,
+        name: node.name,
+        status: "failed",
+        format: "png",
+        width: bounds?.width,
+        height: bounds?.height,
+        reason: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
   return assets;
 }

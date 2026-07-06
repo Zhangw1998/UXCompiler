@@ -25,9 +25,12 @@ import { runVisualDiff } from "@uxcompiler/visual-diff";
 interface SnapshotAsset {
   sourceNodeId: string;
   name?: string;
+  status?: "success" | "failed";
+  reason?: string;
+  path?: string;
   format?: "png";
   contentType?: string;
-  pngBase64: string;
+  pngBase64?: string;
   bytes?: number;
 }
 
@@ -62,6 +65,12 @@ interface MaterializedAssetReport {
     bytes: number;
     format: "png";
   }>;
+  failed: Array<{
+    sourceNodeId?: string;
+    name?: string;
+    path?: string;
+    reason: string;
+  }>;
   unmatched: Array<{
     sourceNodeId?: string;
     name?: string;
@@ -91,6 +100,7 @@ interface LocalPipelineRunReport {
       hasReferenceScreenshot: boolean;
       requestedAssets: number;
       materializedAssets: number;
+      failedAssets: number;
       frameScreenshotFallback: boolean;
     };
     compile: { status: string; normalizedConfidence: number };
@@ -193,7 +203,14 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
   }
 
   const snapshotAssets = body.assets ?? [];
-  const materializedAssetSourceNodeIds = Array.from(new Set(snapshotAssets.map((asset) => asset.sourceNodeId).filter(Boolean)));
+  const materializedAssetSourceNodeIds = Array.from(
+    new Set(
+      snapshotAssets
+        .filter((asset) => asset.status !== "failed" && !!asset.pngBase64)
+        .map((asset) => asset.sourceNodeId)
+        .filter(Boolean)
+    )
+  );
   const frameScreenshotAssetPath = shouldUseFrameScreenshotFallback(body) ? "assets/frames/figma_reference.png" : undefined;
   const artifacts = compileRawScene(body.rawFigmaScene, {
     materializedAssetSourceNodeIds,
@@ -221,6 +238,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
     frameScreenshotFallback: !!frameScreenshotAssetPath,
     requestedAssets: materializedAssetReport.requested,
     materializedAssets: materializedAssetReport.materialized.length,
+    failedAssets: materializedAssetReport.failed.length,
     pipelineRunReport: resolve(artifactDir, "pipeline_run_report.json")
   });
   await writeJson(resolve(artifactDir, "pipeline_run_report.json"), pipelineRunReport);
@@ -261,18 +279,49 @@ function readSnapshotZipAssets(entryMap: Map<string, Buffer>): SnapshotAsset[] {
   if (manifestEntry) {
     const manifest = JSON.parse(manifestEntry.toString("utf8"));
     if (!Array.isArray(manifest)) throw new Error("Invalid UXCompiler snapshot zip: raw_assets_manifest.json must be an array.");
-    return manifest.flatMap((entry) => {
+    return manifest.flatMap((entry): SnapshotAsset[] => {
       const asset = objectValue(entry);
       const sourceNodeId = stringValue(asset?.sourceNodeId);
       const path = stringValue(asset?.path);
-      if (!sourceNodeId || !path) return [];
-      assertSafeArchivePath(path);
+      if (!sourceNodeId) return [];
+      if (path) assertSafeArchivePath(path);
+      const status = stringValue(asset?.status);
+      if (status === "failed" || status === "asset_export_failed") {
+        return [
+          {
+            sourceNodeId,
+            name: stringValue(asset?.name),
+            status: "failed" as const,
+            reason: stringValue(asset?.reason) ?? "Asset export failed in the Figma plugin.",
+            path,
+            format: "png" as const,
+            contentType: stringValue(asset?.contentType) ?? "image/png",
+            bytes: numberValue(asset?.bytes)
+          }
+        ];
+      }
+      if (!path) return [];
       const data = entryMap.get(path);
-      if (!data) return [];
+      if (!data) {
+        return [
+          {
+            sourceNodeId,
+            name: stringValue(asset?.name),
+            status: "failed" as const,
+            reason: `Referenced asset entry is missing from the snapshot zip: ${path}`,
+            path,
+            format: "png" as const,
+            contentType: stringValue(asset?.contentType) ?? "image/png",
+            bytes: undefined
+          }
+        ];
+      }
       return [
         {
           sourceNodeId,
           name: stringValue(asset?.name),
+          status: "success" as const,
+          path,
           format: "png" as const,
           contentType: stringValue(asset?.contentType) ?? "image/png",
           pngBase64: data.toString("base64"),
@@ -286,6 +335,8 @@ function readSnapshotZipAssets(entryMap: Map<string, Buffer>): SnapshotAsset[] {
     .map(([name, data]) => ({
       sourceNodeId: name.slice("raw_assets/".length, -".png".length),
       name,
+      status: "success" as const,
+      path: name,
       format: "png" as const,
       contentType: "image/png",
       pngBase64: data.toString("base64"),
@@ -514,6 +565,7 @@ async function materializeSnapshotAssets(
     generatedAt: new Date().toISOString(),
     requested: snapshotAssets.length,
     materialized: [],
+    failed: [],
     unmatched: []
   };
   if (snapshotAssets.length === 0) return report;
@@ -526,6 +578,16 @@ async function materializeSnapshotAssets(
   }
 
   for (const asset of snapshotAssets) {
+    if (asset.status === "failed") {
+      report.failed.push({
+        sourceNodeId: asset.sourceNodeId,
+        name: asset.name,
+        path: asset.path,
+        reason: asset.reason ?? "Asset export failed before materialization."
+      });
+      continue;
+    }
+
     if (!asset.sourceNodeId || !asset.pngBase64) {
       report.unmatched.push({
         sourceNodeId: asset.sourceNodeId,
@@ -696,6 +758,7 @@ async function runLocalPipeline(
         hasReferenceScreenshot: !!body.figmaReferencePngBase64,
         requestedAssets: materializedAssetReport.requested,
         materializedAssets: materializedAssetReport.materialized.length,
+        failedAssets: materializedAssetReport.failed.length,
         frameScreenshotFallback: shouldUseFrameScreenshotFallback(body)
       },
       compile: {
