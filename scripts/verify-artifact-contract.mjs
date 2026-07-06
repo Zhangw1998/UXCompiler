@@ -55,6 +55,60 @@ const requiredJsonFiles = [
   "compile_manifest.json"
 ];
 
+const requiredCompileManifestArtifacts = [
+  "raw_figma_scene.json",
+  "extraction_report.json",
+  "canonical_scene.json",
+  "canonicalization_report.json",
+  "node_mapping.json",
+  "inferred_tokens.json",
+  "token_usage_map.json",
+  "token_confidence_report.json",
+  "asset_manifest.json",
+  "i18n_manifest.json",
+  "arb/app_en.arb",
+  "override_set.json",
+  "reviewed_normalized_design_ir.json",
+  "reviewed_asset_manifest.json",
+  "reviewed_i18n_manifest.json",
+  "final_asset_manifest.json",
+  "final_i18n_manifest.json",
+  "reviewed_inferred_tokens.json",
+  "reviewed_arb/app_en.arb",
+  "visual_ir.json",
+  "fidelity_generation_manifest.json",
+  "flutter_generation_manifest.json",
+  "node_pixel_map.json",
+  "review_tasks.json",
+  "task_status_report.json",
+  "flutter_preview/pubspec.yaml",
+  "flutter_preview/lib/main.dart",
+  "flutter_preview/lib/generated/fidelity/preview_page.dart",
+  "regions.json",
+  "layout_candidates.json",
+  "layout_decisions.json",
+  "inferred_components.json",
+  "component_instance_map.json",
+  "component_confidence_report.json",
+  "semantic_labels.json",
+  "semantic_ir.json",
+  "uplift_decisions.json",
+  "uplift_diff_report.json",
+  "normalization_report.json",
+  "render_strategy_manifest.json",
+  "normalized_design_ir.json",
+  "codegen_review.json",
+  "files_to_create.json",
+  "files_to_modify.json",
+  "assets_to_add.json",
+  "arb_patch.json",
+  "pubspec.yaml.patch",
+  "pubspec_patch.json",
+  "merge_report.json",
+  "incremental_sync_report.json",
+  "compile_manifest.json"
+];
+
 assert.equal(existsSync(root), true, `${root} must exist before artifact contract verification.`);
 
 const parsedJsonFiles = new Map();
@@ -197,10 +251,7 @@ assertScore(normalized.confidence.components, "normalized.confidence.components"
 assertScore(normalizationReport.score.overall, "normalization_report.score.overall");
 assertScore(normalizationReport.score.assets, "normalization_report.score.assets");
 
-for (const artifactPath of compileManifest.artifacts ?? []) {
-  const fullPath = resolve(root, artifactPath);
-  assert.equal(existsSync(fullPath), true, `compile_manifest references missing artifact ${artifactPath}.`);
-}
+assertCompileManifest(compileManifest);
 
 assert.deepEqual(renderStrategyManifest.viewport, normalized.source.viewport, "render strategy viewport must match normalized viewport.");
 assertVisualDiffArtifacts(rawSourceNodeIds, normalized, visualDiffReport, nodeDiffReport, manualReviewReport);
@@ -214,6 +265,25 @@ function json(path) {
 
 function readJson(path) {
   return JSON.parse(readFileSync(resolve(root, path), "utf8"));
+}
+
+function assertCompileManifest(manifest) {
+  assert.equal(typeof manifest.version, "string", "compile_manifest.version must be present.");
+  assert.equal(typeof manifest.input, "string", "compile_manifest.input must be present.");
+  assert.ok(manifest.input.length > 0, "compile_manifest.input must not be empty.");
+  assert.equal(typeof manifest.generatedAt, "string", "compile_manifest.generatedAt must be present.");
+  assert.ok(Array.isArray(manifest.artifacts), "compile_manifest.artifacts must be an array.");
+  const artifacts = new Set();
+  for (const artifactPath of manifest.artifacts) {
+    assertSafeRelativePath(artifactPath, `compile_manifest.artifacts.${artifactPath}`);
+    assert.equal(artifacts.has(artifactPath), false, `compile_manifest artifact ${artifactPath} must be unique.`);
+    artifacts.add(artifactPath);
+    const fullPath = resolve(root, artifactPath);
+    assert.equal(existsSync(fullPath), true, `compile_manifest references missing artifact ${artifactPath}.`);
+  }
+  for (const artifactPath of requiredCompileManifestArtifacts) {
+    assert.equal(artifacts.has(artifactPath), true, `compile_manifest must include required artifact ${artifactPath}.`);
+  }
 }
 
 function findJsonFiles(dir) {

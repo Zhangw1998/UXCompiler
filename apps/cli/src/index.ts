@@ -1741,7 +1741,17 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
           "uplift_diff_report.json",
           "normalization_report.json",
           "render_strategy_manifest.json",
-          "normalized_design_ir.json"
+          "normalized_design_ir.json",
+          "codegen_review.json",
+          "files_to_create.json",
+          "files_to_modify.json",
+          "assets_to_add.json",
+          "arb_patch.json",
+          "pubspec.yaml.patch",
+          "pubspec_patch.json",
+          "merge_report.json",
+          "incremental_sync_report.json",
+          "compile_manifest.json"
         ]
       }
     ]
