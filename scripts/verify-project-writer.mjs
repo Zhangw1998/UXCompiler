@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { writeCodegenToProject } from "../packages/project-writer/dist/index.js";
 
@@ -13,6 +13,8 @@ const missingAssetProjectDir = resolve(root, "missing-asset-project");
 const conflictProjectDir = resolve(root, "conflict-project");
 const conflictReviewDir = resolve(root, "conflict-review");
 const driftReviewDir = resolve(root, "drift-review");
+const arbUpdateBaseDir = resolve(root, "arb-update-base");
+const arbUpdateReviewDir = resolve(root, "arb-update-review");
 rmSync(root, { recursive: true, force: true });
 mkdirSync(root, { recursive: true });
 
@@ -57,6 +59,9 @@ assert.match(readFileSync(resolve(projectDir, "lib/features/login_mobile/present
 assert.match(readFileSync(resolve(projectDir, "pubspec.yaml"), "utf8"), /assets\/icons\/divider_dot\.svg/);
 const arb = readJson(projectDir, "lib/l10n/app_en.arb");
 assert.equal(arb.button_label, "Sign in");
+const generatedArb = readJson(projectDir, "lib/l10n/intl_en.arb");
+assert.equal(generatedArb.button_label, "Sign in");
+assert.equal(generatedArb["@@uxcGenerated"].strategy, "i18n_arb");
 
 const second = await writeCodegenToProject({
   projectPath: projectDir,
@@ -67,6 +72,41 @@ const second = await writeCodegenToProject({
   assetRoots: [resolve(reviewDir, "assets")]
 });
 assert.equal(second.report.files.every((file) => file.status === "unchanged"), true);
+
+cpSync(baseDir, arbUpdateBaseDir, { recursive: true });
+const updatedI18nManifest = withMessageValue(readJson(arbUpdateBaseDir, "final_i18n_manifest.json"), "button_label", "Continue");
+writeJson(resolve(arbUpdateBaseDir, "final_i18n_manifest.json"), updatedI18nManifest);
+writeJson(resolve(arbUpdateBaseDir, "reviewed_i18n_manifest.json"), updatedI18nManifest);
+execFileSync(
+  "node",
+  [
+    "apps/cli/dist/index.js",
+    "codegen",
+    "review",
+    "--artifacts",
+    arbUpdateBaseDir,
+    "--out",
+    arbUpdateReviewDir,
+    "--project-path",
+    projectDir
+  ],
+  { stdio: "pipe" }
+);
+const arbUpdateReview = readJson(arbUpdateReviewDir, "codegen_review.json");
+const generatedArbPlan = arbUpdateReview.files.find((file) => file.path === "lib/l10n/intl_en.arb");
+assert.equal(generatedArbPlan.action, "modify");
+const arbUpdate = await writeCodegenToProject({
+  projectPath: projectDir,
+  codegenReview: arbUpdateReview,
+  generatedFiles: readGeneratedFiles(resolve(arbUpdateReviewDir, "generated")),
+  arbPatch: readJson(arbUpdateReviewDir, "arb_patch.json"),
+  pubspecPatch: readJson(arbUpdateReviewDir, "pubspec_patch.json"),
+  assetRoots: [resolve(arbUpdateReviewDir, "assets")]
+});
+const arbUpdateFile = arbUpdate.report.files.find((file) => file.path === "lib/l10n/intl_en.arb");
+assert.equal(arbUpdateFile.status, "updated");
+assert.equal(readJson(projectDir, "lib/l10n/intl_en.arb").button_label, "Continue");
+assert.equal(readJson(projectDir, "lib/l10n/app_en.arb").button_label, "Continue");
 
 writeFile(resolve(missingAssetProjectDir, "pubspec.yaml"), "name: missing_asset_app\npublish_to: none\n");
 const missingAssetWrite = await writeCodegenToProject({
@@ -206,4 +246,16 @@ function readTextFiles(rootDir, prefix = "") {
 function writeFile(path, content) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
+}
+
+function writeJson(path, value) {
+  writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function withMessageValue(manifest, key, value) {
+  const copy = JSON.parse(JSON.stringify(manifest));
+  const message = copy.messages.find((entry) => entry.key === key);
+  assert.ok(message, `Missing i18n message ${key}`);
+  message.value = value;
+  return copy;
 }

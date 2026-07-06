@@ -511,7 +511,18 @@ function parseJsonObject(value: string): Record<string, unknown> {
 }
 
 function hasGeneratedMarker(content: string): boolean {
-  return content.includes(generatedStartMarker) && content.includes(generatedEndMarker);
+  if (content.includes(generatedStartMarker) && content.includes(generatedEndMarker)) return true;
+  const parsed = parseOptionalJsonObject(content);
+  const marker = parsed?.["@@uxcGenerated"];
+  return typeof marker === "object" && marker !== null;
+}
+
+function parseOptionalJsonObject(value: string): Record<string, unknown> | undefined {
+  try {
+    return parseJsonObject(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveSafe(root: string, path: string): string {
