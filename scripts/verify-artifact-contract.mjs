@@ -102,6 +102,7 @@ const manualReviewReport = json("manual_review_report.json");
 const repairPatch = json("repair_patch.json");
 const repairIterationLog = json("repair_iteration_log.json");
 const compileManifest = json("compile_manifest.json");
+const overrideSet = parsedJsonFiles.get("override_set.json");
 const materializedAssetReport = parsedJsonFiles.get("materialized_assets_report.json");
 const effectiveAssetManifest =
   parsedJsonFiles.get("final_asset_manifest.json") ?? parsedJsonFiles.get("reviewed_asset_manifest.json") ?? assetManifest;
@@ -158,7 +159,7 @@ assertAssetManifestContract(
   materializedAssetReport
 );
 assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR);
-assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, flutterGenerationManifest);
+assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, flutterGenerationManifest, visualDiffReport, normalized, overrideSet);
 assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap);
 if (parsedJsonFiles.has("review_tasks.json")) {
   assertReviewTaskArtifacts(reviewTaskSourceNodeIds(rawSourceNodeIds, parsedJsonFiles.get("node_remap_report.json")), normalizedIds, parsedJsonFiles.get("review_tasks.json"));
@@ -1045,7 +1046,7 @@ function assertVisualDiffPixelCounts(score, label) {
   assert.ok(score.diffPixels <= score.totalPixels, `${label}.diffPixels must not exceed totalPixels.`);
 }
 
-function assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, manifest) {
+function assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, manifest, visualDiffReport, normalizedDesignIR, overrideSet) {
   assert.equal(typeof manifest.version, "string", "flutter_generation_manifest.version must be present.");
   assert.ok(manifest.buildId, "flutter_generation_manifest.buildId must be present.");
   assert.ok(manifest.generatedAt, "flutter_generation_manifest.generatedAt must be present.");
@@ -1135,7 +1136,47 @@ function assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, manifes
       assert.ok(warning.type, "flutter_generation_manifest gate warning must include type.");
       assert.ok(warning.message, `flutter_generation_manifest gate warning ${warning.type} must include message.`);
     }
+    assertCodegenGateDiagnostics(manifest, visualDiffReport, normalizedDesignIR, overrideSet);
   }
+}
+
+function assertCodegenGateDiagnostics(manifest, visualDiffReport, normalizedDesignIR, overrideSet) {
+  const blockerTypes = new Set((manifest.gates?.blockers ?? []).map((blocker) => blocker.type));
+  if (manifest.format?.status === "failed") {
+    assert.equal(blockerTypes.has("dart_format_failed"), true, "flutter_generation_manifest must block writes when dart format fails.");
+  }
+  if ((manifest.analyze?.errors ?? 0) > 0) {
+    assert.equal(blockerTypes.has("flutter_analyze_failed"), true, "flutter_generation_manifest must block writes when flutter analyze reports errors.");
+  }
+  if (visualDiffReport?.page?.pass === false && !hasExplicitLowVisualScoreOverride(normalizedDesignIR, overrideSet)) {
+    assert.equal(blockerTypes.has("visual_diff_failed"), true, "flutter_generation_manifest must block writes when visual diff fails without an explicit override.");
+  }
+  const hasRequiredBlocker =
+    manifest.format?.status === "failed" ||
+    (manifest.analyze?.errors ?? 0) > 0 ||
+    (visualDiffReport?.page?.pass === false && !hasExplicitLowVisualScoreOverride(normalizedDesignIR, overrideSet));
+  if (manifest.gates?.canWrite === true) {
+    assert.equal(hasRequiredBlocker, false, "flutter_generation_manifest.gates.canWrite cannot be true while a required codegen gate is failing.");
+  }
+}
+
+function hasExplicitLowVisualScoreOverride(normalizedDesignIR, overrideSet) {
+  if (!normalizedDesignIR?.tree) return false;
+  const rootId = normalizedDesignIR.tree.id;
+  const rootSourceNodeIds = new Set(normalizedDesignIR.tree.sourceNodeIds ?? []);
+  for (const override of overrideSet?.overrides ?? []) {
+    if (override.status !== "active" || override.type !== "render_strategy_override") continue;
+    const payload = override.payload ?? {};
+    const strategy = stringValue(payload.strategy);
+    const action = stringValue(payload.action);
+    const targetNodeId = stringValue(payload.targetNodeId) ?? override.target?.normalizedNodeId;
+    const payloadSourceNodeId = stringValue(payload.sourceNodeId) ?? override.target?.sourceNodeId;
+    const targetsRoot = override.target?.kind === "page" || targetNodeId === rootId || (payloadSourceNodeId ? rootSourceNodeIds.has(payloadSourceNodeId) : false);
+    if (!targetsRoot) continue;
+    if (strategy === "frame_screenshot_asset") return true;
+    if (action === "accept_low_visual_score" || action === "allow_low_visual_score" || payload.acceptLowVisualScore === true) return true;
+  }
+  return false;
 }
 
 function assertRepairArtifacts(repairPatch, repairIterationLog) {
@@ -1264,4 +1305,8 @@ function assertScore(value, label) {
 
 function scoreValue(value) {
   return typeof value === "number" ? value : Number.NaN;
+}
+
+function stringValue(value) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
