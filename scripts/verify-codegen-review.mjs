@@ -51,7 +51,13 @@ assert.ok(result.filesToCreate.some((file) => file.path === "lib/features/login_
 assert.ok(result.filesToCreate.some((file) => file.path === "lib/features/login_mobile/presentation/widgets/login_mobile_content.dart"));
 assert.ok(result.filesToCreate.some((file) => file.path === "lib/theme/app_colors.dart"));
 assert.ok(result.filesToCreate.some((file) => file.path === "lib/generated/assets.gen.dart"));
-assert.ok(result.generatedFiles.every((file) => file.content.includes("@uxc-generated:start")));
+assert.ok(result.filesToCreate.some((file) => file.path === "lib/l10n/intl_en.arb"));
+assert.ok(result.generatedFiles.every(hasGeneratedMarker));
+const generatedArb = JSON.parse(result.generatedFiles.find((file) => file.path === "lib/l10n/intl_en.arb").content);
+assert.equal(generatedArb["@@locale"], "en");
+assert.equal(generatedArb.button_label, "Sign in");
+assert.equal(generatedArb["@button_label"].placeholders.ctaLabel.type, "String");
+assert.equal(generatedArb["@@uxcGenerated"].strategy, "i18n_arb");
 assert.ok(
   result.codegenReview.files.some((file) =>
     file.path === "lib/features/login_mobile/presentation/pages/login_mobile_page.dart" &&
@@ -285,6 +291,7 @@ for (const file of [
   "generated/lib/theme/app_text_styles.dart",
   "generated/lib/theme/app_shadows.dart",
   "generated/lib/generated/assets.gen.dart",
+  "generated/lib/l10n/intl_en.arb",
   "generated/lib/generated/fidelity/preview_page.dart"
 ]) {
   assert.equal(existsSync(resolve(reviewDir, file)), true, `Missing ${file}`);
@@ -299,6 +306,10 @@ assert.match(readFileSync(resolve(reviewDir, "generated/lib/features/login_mobil
 assert.match(readFileSync(resolve(reviewDir, "generated/lib/features/login_mobile/presentation/widgets/login_mobile_content.dart"), "utf8"), /return const UxcPreviewPage\(\);/);
 assert.match(readFileSync(resolve(reviewDir, "generated/lib/features/login_mobile/presentation/widgets/login_mobile_content.dart"), "utf8"), /generated\/fidelity\/preview_page\.dart/);
 assert.match(readFileSync(resolve(reviewDir, "generated/lib/generated/assets.gen.dart"), "utf8"), /static const dividerDot/);
+const cliArb = readJson(reviewDir, "generated/lib/l10n/intl_en.arb");
+assert.equal(cliArb["@@locale"], "en");
+assert.equal(cliArb.button_label, "Sign in");
+assert.equal(cliArb["@@uxcGenerated"].strategy, "i18n_arb");
 const textStyles = readFileSync(resolve(reviewDir, "generated/lib/theme/app_text_styles.dart"), "utf8");
 assert.equal(new Set([...textStyles.matchAll(/static const (\w+) = TextStyle/g)].map((match) => match[1])).size, 4);
 assert.match(textStyles, /static const textBodyMedium2 = TextStyle/);
@@ -424,6 +435,12 @@ function readTextFiles(rootDir, prefix = "") {
 function writeFile(path, content) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
+}
+
+function hasGeneratedMarker(file) {
+  if (file.content.includes("@uxc-generated:start")) return true;
+  if (!file.path.endsWith(".arb")) return false;
+  return Boolean(JSON.parse(file.content)["@@uxcGenerated"]);
 }
 
 function commandExists(command) {

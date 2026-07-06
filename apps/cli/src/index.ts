@@ -20,6 +20,7 @@ import {
   type CodegenPubspecPatch,
   type CodegenReviewResult,
   type CodegenReviewManifest,
+  type I18nManifest,
   type NormalizedDesignIR,
   type OverrideSet,
   type PipelineArtifacts,
@@ -369,8 +370,13 @@ async function runCodegenCommand(args: string[]): Promise<void> {
     resolve(artifactDir, "reviewed_normalized_design_ir.json"),
     resolve(artifactDir, "normalized_design_ir.json")
   ]);
+  const i18nManifest = await readFirstJsonFile<I18nManifest>([
+    resolve(artifactDir, "final_i18n_manifest.json"),
+    resolve(artifactDir, "reviewed_i18n_manifest.json"),
+    resolve(artifactDir, "i18n_manifest.json")
+  ]);
   const existingProjectFiles = options.projectPath
-    ? await readExistingProjectFiles(resolve(process.cwd(), options.projectPath), codegenProjectFileProbePaths({ normalizedDesignIR, flutterPreviewFiles }))
+    ? await readExistingProjectFiles(resolve(process.cwd(), options.projectPath), codegenProjectFileProbePaths({ normalizedDesignIR, flutterPreviewFiles, locale: i18nManifest.locale }))
     : undefined;
   const result = createCodegenReview({
     normalizedDesignIR,
@@ -379,11 +385,7 @@ async function runCodegenCommand(args: string[]): Promise<void> {
       resolve(artifactDir, "reviewed_asset_manifest.json"),
       resolve(artifactDir, "asset_manifest.json")
     ]),
-    i18nManifest: await readFirstJsonFile([
-      resolve(artifactDir, "final_i18n_manifest.json"),
-      resolve(artifactDir, "reviewed_i18n_manifest.json"),
-      resolve(artifactDir, "i18n_manifest.json")
-    ]),
+    i18nManifest,
     existingArbFile: await readOptionalJsonFile(resolve(artifactDir, "existing_arb/app_en.arb")),
     flutterPreviewFiles,
     existingProjectFiles,

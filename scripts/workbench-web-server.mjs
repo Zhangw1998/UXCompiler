@@ -700,8 +700,13 @@ async function applyWorkbenchCodegenReview(body) {
     resolve(artifactDir, "reviewed_normalized_design_ir.json"),
     resolve(artifactDir, "normalized_design_ir.json")
   ]);
+  const i18nManifest = await readFirstJson([
+    resolve(artifactDir, "final_i18n_manifest.json"),
+    resolve(artifactDir, "reviewed_i18n_manifest.json"),
+    resolve(artifactDir, "i18n_manifest.json")
+  ]);
   const existingProjectFiles = projectPath
-    ? await readExistingProjectFiles(projectPath, codegenProjectFileProbePaths({ normalizedDesignIR, flutterPreviewFiles }))
+    ? await readExistingProjectFiles(projectPath, codegenProjectFileProbePaths({ normalizedDesignIR, flutterPreviewFiles, locale: i18nManifest.locale }))
     : undefined;
   const result = createCodegenReview({
     normalizedDesignIR,
@@ -710,11 +715,7 @@ async function applyWorkbenchCodegenReview(body) {
       resolve(artifactDir, "reviewed_asset_manifest.json"),
       resolve(artifactDir, "asset_manifest.json")
     ]),
-    i18nManifest: await readFirstJson([
-      resolve(artifactDir, "final_i18n_manifest.json"),
-      resolve(artifactDir, "reviewed_i18n_manifest.json"),
-      resolve(artifactDir, "i18n_manifest.json")
-    ]),
+    i18nManifest,
     existingArbFile: projectPath ? await readOptionalJson(resolve(projectPath, "lib/l10n/app_en.arb"), undefined) : undefined,
     flutterPreviewFiles,
     existingProjectFiles,

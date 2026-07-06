@@ -275,6 +275,7 @@ assertCodegenReviewArtifacts(
   mergeReport,
   incrementalSyncReport,
   flutterGenerationManifest,
+  effectiveI18nManifest,
   overrideSet,
   reviewTasks
 );
@@ -323,6 +324,7 @@ function assertCodegenReviewArtifacts(
   mergeReport,
   incrementalSyncReport,
   flutterGenerationManifest,
+  i18nManifest,
   overrideSet,
   reviewTasks
 ) {
@@ -377,11 +379,28 @@ function assertCodegenReviewArtifacts(
 
   assert.equal(typeof arbPatch.locale, "string", "arb_patch.locale must be present.");
   assert.deepEqual(codegenReview.arbKeysToAdd, arbPatch.keysToAdd.map((message) => message.key), "codegen_review.arbKeysToAdd must mirror arb_patch keysToAdd.");
+  const l10nArbPlan = codegenReview.files.find((file) => /^lib\/l10n\/intl_[A-Za-z0-9_]+\.arb$/.test(file.path));
+  assert.ok(l10nArbPlan, "codegen_review.files must include a generated lib/l10n/intl_*.arb file.");
+  assert.equal(
+    l10nArbPlan.generatedRegions.some((region) => region.strategy === "i18n_arb"),
+    true,
+    "generated l10n ARB file must be traceable with the i18n_arb strategy."
+  );
+  const generatedArbPath = resolve(root, "generated", l10nArbPlan.path);
+  assert.equal(existsSync(generatedArbPath), true, `generated l10n ARB file must exist at generated/${l10nArbPlan.path}.`);
+  const generatedArb = JSON.parse(readFileSync(generatedArbPath, "utf8"));
+  assert.equal(generatedArb["@@locale"], i18nManifest.locale.replace(/-/g, "_"), "generated l10n ARB locale must mirror i18n_manifest.locale.");
+  assert.equal(typeof generatedArb["@@uxcGenerated"], "object", "generated l10n ARB file must include UXCompiler metadata.");
+  assert.equal(generatedArb["@@uxcGenerated"].strategy, "i18n_arb", "generated l10n ARB metadata must identify the i18n_arb strategy.");
   for (const message of [...arbPatch.keysToAdd, ...arbPatch.keysToModify]) {
     assert.ok(message.key, "arb_patch message must include key.");
     assert.ok(message.description, `arb_patch message ${message.key} must include description.`);
     assert.equal(rawSourceNodeIds.has(message.sourceNodeId), true, `arb_patch message ${message.key} references unknown sourceNodeId ${message.sourceNodeId}.`);
     assertScore(message.confidence, `arb_patch.${message.key}.confidence`);
+  }
+  for (const message of i18nManifest.messages.filter((entry) => entry.key)) {
+    assert.equal(generatedArb[message.key], message.value, `generated l10n ARB message ${message.key} must mirror i18n_manifest.`);
+    assert.equal(generatedArb[`@${message.key}`]?.description, message.description, `generated l10n ARB metadata ${message.key} must include description.`);
   }
   assert.ok(Array.isArray(arbPatch.warnings), "arb_patch.warnings must be an array.");
 

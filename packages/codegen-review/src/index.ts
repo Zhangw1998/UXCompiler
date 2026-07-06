@@ -71,10 +71,10 @@ interface PlannedFile {
 
 const assetFileStrategies = new Set(["svg_icon", "image_asset", "frame_screenshot", "decorative_slice"]);
 
-export function codegenProjectFileProbePaths(input: { normalizedDesignIR: NormalizedDesignIR; flutterPreviewFiles: Record<string, string> }): string[] {
+export function codegenProjectFileProbePaths(input: { normalizedDesignIR: NormalizedDesignIR; flutterPreviewFiles: Record<string, string>; locale?: string }): string[] {
   return unique([
     ...Object.keys(input.flutterPreviewFiles).filter((path) => path.startsWith("lib/") && path.endsWith(".dart")),
-    ...productionScaffoldProjectPaths(input.normalizedDesignIR)
+    ...productionScaffoldProjectPaths(input.normalizedDesignIR, input.locale)
   ]).sort((left, right) => left.localeCompare(right));
 }
 
@@ -216,7 +216,7 @@ function productionScaffoldFiles(input: CreateCodegenReviewInput, rootSourceNode
   const feature = featureName(input.normalizedDesignIR.tree.name);
   const classPrefix = pascalCase(feature);
   const sourceNodeIds = allSourceNodeIds.length > 0 ? allSourceNodeIds : [rootSourceNodeId];
-  const paths = productionScaffoldProjectPaths(input.normalizedDesignIR);
+  const paths = productionScaffoldProjectPaths(input.normalizedDesignIR, input.i18nManifest.locale);
   const files: Array<{ path: string; content: string; sourceNodeIds: string[]; strategy: string }> = [
     {
       path: paths[0],
@@ -265,6 +265,12 @@ function productionScaffoldFiles(input: CreateCodegenReviewInput, rootSourceNode
       content: buildAssetsFile(input.assetManifest),
       sourceNodeIds: input.assetManifest.assets.map((asset) => asset.sourceNodeId),
       strategy: "asset_references"
+    },
+    {
+      path: paths[8],
+      content: buildL10nArbFile(input.i18nManifest),
+      sourceNodeIds: input.i18nManifest.messages.map((message) => message.sourceNodeId),
+      strategy: "i18n_arb"
     }
   ];
   return files.map((file) => {
@@ -272,7 +278,7 @@ function productionScaffoldFiles(input: CreateCodegenReviewInput, rootSourceNode
     const regionHash = hashText(`${file.path}\n${sourceIds.join("\n")}\n${file.content}`);
     return {
       path: file.path,
-      content: wrapDartGeneratedFile(file.content, sourceIds[0] ?? rootSourceNodeId, regionHash, file.strategy),
+      content: wrapGeneratedFile(file.path, file.content, sourceIds[0] ?? rootSourceNodeId, regionHash, file.strategy),
       regionHash,
       sourceNodeIds: sourceIds,
       strategy: file.strategy
@@ -280,7 +286,7 @@ function productionScaffoldFiles(input: CreateCodegenReviewInput, rootSourceNode
   });
 }
 
-function productionScaffoldProjectPaths(normalizedDesignIR: NormalizedDesignIR): string[] {
+function productionScaffoldProjectPaths(normalizedDesignIR: NormalizedDesignIR, locale = "en"): string[] {
   const feature = featureName(normalizedDesignIR.tree.name);
   return [
     `lib/features/${feature}/presentation/pages/${feature}_page.dart`,
@@ -290,7 +296,8 @@ function productionScaffoldProjectPaths(normalizedDesignIR: NormalizedDesignIR):
     "lib/theme/app_radii.dart",
     "lib/theme/app_text_styles.dart",
     "lib/theme/app_shadows.dart",
-    "lib/generated/assets.gen.dart"
+    "lib/generated/assets.gen.dart",
+    `lib/l10n/intl_${localeFileSuffix(locale)}.arb`
   ];
 }
 
@@ -450,6 +457,20 @@ function buildAssetsFile(assetManifest: AssetManifest): string {
     .map(({ item: asset, identifier }) => `  static const ${identifier} = '${escapeDartString(asset.path ?? "")}';`);
   const lines = assetLines.length > 0 ? assetLines : ["  static const none = '';"];
   return ["class AppAssets {", "  const AppAssets._();", ...lines, "}"].join("\n");
+}
+
+function buildL10nArbFile(i18nManifest: I18nManifest): string {
+  const arb: Record<string, unknown> = {
+    "@@locale": arbLocale(i18nManifest.locale)
+  };
+  for (const message of i18nManifest.messages) {
+    if (!message.key.trim()) continue;
+    const metadata: Record<string, unknown> = { description: message.description };
+    if (message.placeholders && Object.keys(message.placeholders).length > 0) metadata.placeholders = message.placeholders;
+    arb[message.key] = message.value;
+    arb[`@${message.key}`] = metadata;
+  }
+  return `${JSON.stringify(arb, null, 2)}\n`;
 }
 
 function tokenSourceNodeIds(tokens: Array<{ sourceNodeIds: string[] }>, fallback: string): string[] {
@@ -870,6 +891,12 @@ function collectSourceNodeIds(root: NormalizedNode): string[] {
   return unique(ids);
 }
 
+function wrapGeneratedFile(path: string, content: string, sourceNodeId: string, hash: string, strategy: string): string {
+  if (path.endsWith(".dart")) return wrapDartGeneratedFile(content, sourceNodeId, hash, strategy);
+  if (path.endsWith(".arb")) return wrapArbGeneratedFile(content, sourceNodeId, hash, strategy);
+  return ensureTrailingNewline(content);
+}
+
 function wrapDartGeneratedFile(content: string, sourceNodeId: string, hash: string, strategy: string): string {
   if (hasGeneratedMarker(content)) return ensureTrailingNewline(content);
   return [
@@ -881,8 +908,22 @@ function wrapDartGeneratedFile(content: string, sourceNodeId: string, hash: stri
   ].join("\n");
 }
 
+function wrapArbGeneratedFile(content: string, sourceNodeId: string, hash: string, strategy: string): string {
+  if (hasGeneratedMarker(content)) return ensureTrailingNewline(content);
+  const parsed = parseJsonObject(content) ?? {};
+  parsed["@@uxcGenerated"] = {
+    sourceNodeId,
+    hash,
+    strategy
+  };
+  return `${JSON.stringify(parsed, null, 2)}\n`;
+}
+
 function hasGeneratedMarker(content: string): boolean {
-  return /@uxc-generated:start/.test(content) && /@uxc-generated:end/.test(content);
+  if (/@uxc-generated:start/.test(content) && /@uxc-generated:end/.test(content)) return true;
+  const parsed = parseJsonObject(content);
+  const marker = parsed?.["@@uxcGenerated"];
+  return typeof marker === "object" && marker !== null;
 }
 
 function buildUnifiedDiff(
@@ -935,6 +976,15 @@ function makeBuildId(normalizedDesignIR: NormalizedDesignIR, generatedAt: string
 
 function safeId(value: string): string {
   return value.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "generated";
+}
+
+function localeFileSuffix(locale: string): string {
+  return arbLocale(locale).toLowerCase();
+}
+
+function arbLocale(locale: string): string {
+  const normalized = locale.trim().replace(/-/g, "_").replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+  return /^[A-Za-z]/.test(normalized) ? normalized : "en";
 }
 
 function featureName(value: string): string {
@@ -1013,4 +1063,13 @@ function booleanValue(value: unknown): boolean | undefined {
 
 function ensureTrailingNewline(value: string): string {
   return value.endsWith("\n") ? value : `${value}\n`;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
 }
