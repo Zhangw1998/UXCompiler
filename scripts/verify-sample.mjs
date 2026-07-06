@@ -74,7 +74,34 @@ for (const staleFile of [
   "diff_heatmap.png",
   "preview_artifact.json",
   "pipeline_run_report.json",
-  "flutter_preview_capture_report.json"
+  "flutter_preview_capture_report.json",
+  "project_write_report.json",
+  "local_api_snapshot_report.json",
+  "materialized_assets_report.json",
+  "review_task_action_report.json",
+  "review_task_closure_log.json",
+  "review_task_bulk_close_report.json",
+  "tree_edit_report.json",
+  "workbench_tree_edit_action_report.json",
+  "studio_report.json",
+  "component_registry.json",
+  "token_registry.json",
+  "workbench_studio_action_report.json",
+  "workbench_studio_rollback_report.json",
+  "promote_report.json",
+  "codegen_promotion_rules.json",
+  "node_remap_report.json",
+  "token_migration_report.json",
+  "reapplied_overrides.json",
+  "stale_overrides.json",
+  "incremental_review_tasks.json",
+  "workbench_sync_remap_report.json",
+  "workbench_codegen_review_report.json",
+  "workbench_codegen_write_report.json",
+  "diff_repair_report.json",
+  "diff_repair_rollback_report.json",
+  "workbench_diff_repair_report.json",
+  "workbench_diff_repair_rollback_report.json"
 ]) {
   assert.equal(existsSync(resolve(root, staleFile)), false, `Compile output must not retain stale runtime artifact: ${staleFile}`);
 }
@@ -282,6 +309,22 @@ writeFileSync(resolve(staleRoot, "node_diff_report.json"), "[]\n");
 writeFileSync(resolve(staleRoot, "diff_heatmap.png"), "stale");
 writeFileSync(resolve(staleRoot, "preview_artifact.json"), "{}\n");
 writeFileSync(resolve(staleRoot, "diff/visual_diff_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "review_task_action_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "review_task_closure_log.json"), "[]\n");
+writeFileSync(resolve(staleRoot, "tree_edit_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "workbench_tree_edit_action_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "studio_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "component_registry.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "token_registry.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "workbench_studio_action_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "workbench_codegen_review_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "workbench_codegen_write_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "node_remap_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "workbench_sync_remap_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "diff_repair_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "workbench_diff_repair_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "promote_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "codegen_promotion_rules.json"), "[]\n");
 execFileSync(
   "node",
   [
@@ -299,7 +342,23 @@ for (const stalePath of [
   "node_diff_report.json",
   "diff_heatmap.png",
   "preview_artifact.json",
-  "diff/visual_diff_report.json"
+  "diff/visual_diff_report.json",
+  "review_task_action_report.json",
+  "review_task_closure_log.json",
+  "tree_edit_report.json",
+  "workbench_tree_edit_action_report.json",
+  "studio_report.json",
+  "component_registry.json",
+  "token_registry.json",
+  "workbench_studio_action_report.json",
+  "workbench_codegen_review_report.json",
+  "workbench_codegen_write_report.json",
+  "node_remap_report.json",
+  "workbench_sync_remap_report.json",
+  "diff_repair_report.json",
+  "workbench_diff_repair_report.json",
+  "promote_report.json",
+  "codegen_promotion_rules.json"
 ]) {
   assert.equal(existsSync(resolve(staleRoot, stalePath)), false, `Recompile must remove stale artifact: ${stalePath}`);
 }
