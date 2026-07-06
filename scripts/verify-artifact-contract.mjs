@@ -255,7 +255,7 @@ assertCompileManifest(compileManifest);
 
 assert.deepEqual(renderStrategyManifest.viewport, normalized.source.viewport, "render strategy viewport must match normalized viewport.");
 assertVisualDiffArtifacts(rawSourceNodeIds, normalized, visualDiffReport, nodeDiffReport, manualReviewReport);
-assertRepairArtifacts(repairPatch, repairIterationLog);
+assertRepairArtifacts(repairPatch, repairIterationLog, visualDiffReport, nodeDiffReport);
 
 console.log("artifact contract verification passed");
 
@@ -1279,28 +1279,110 @@ function hasExplicitLowVisualScoreOverride(normalizedDesignIR, overrideSet) {
   return false;
 }
 
-function assertRepairArtifacts(repairPatch, repairIterationLog) {
+function assertRepairArtifacts(repairPatch, repairIterationLog, visualDiffReport, nodeDiffReport) {
   assert.equal(typeof repairPatch.version, "string", "repair_patch.version must be present.");
   assert.equal(typeof repairPatch.generatedAt, "string", "repair_patch.generatedAt must be present.");
   assert.ok(["applied", "rolled_back", "proposed", "not_needed"].includes(repairPatch.status), "repair_patch.status must be known.");
+  const issueIds = new Set((nodeDiffReport ?? []).map((issue) => issue.issueId));
+  issueIds.add("page");
+  if (repairPatch.inputs) {
+    assert.deepEqual(repairPatch.inputs, visualDiffReport.inputs, "repair_patch inputs must match visual_diff_report inputs.");
+  }
+  if (repairPatch.page) {
+    assert.deepEqual(repairPatch.page, visualDiffReport.page, "repair_patch page must match visual_diff_report page.");
+  }
+  if (visualDiffReport.page.pass) {
+    assert.equal(repairPatch.status, "not_needed", "passing visual diff must not require a repair patch.");
+  }
   if (Array.isArray(repairPatch.patches)) {
+    assert.deepEqual(repairPatch.inputs, visualDiffReport.inputs, "visual diff repair_patch inputs must match visual_diff_report inputs.");
+    assert.deepEqual(repairPatch.page, visualDiffReport.page, "visual diff repair_patch page must match visual_diff_report page.");
+    if (!visualDiffReport.page.pass) assert.ok(repairPatch.patches.length > 0, "failing visual diff must propose at least one rollbackable repair patch.");
     for (const patch of repairPatch.patches) {
+      assert.ok(patch.patchId, `repair patch ${patch.issueId ?? "unknown"} must include patchId.`);
+      assert.equal(issueIds.has(patch.issueId), true, `repair patch ${patch.patchId} references unknown visual diff issue ${patch.issueId}.`);
       assert.equal(patch.target, "override_set", `repair patch ${patch.patchId ?? patch.issueId} must target override_set.`);
       assert.equal(patch.operation, "add_override", `repair patch ${patch.patchId ?? patch.issueId} must add an override.`);
       assert.ok(patch.override?.id, `repair patch ${patch.patchId ?? patch.issueId} must include override metadata.`);
       assert.equal(patch.rollback?.type, "disable_override", `repair patch ${patch.patchId ?? patch.issueId} must include rollback metadata.`);
       assert.equal(patch.rollback.overrideId, patch.override.id, `repair patch ${patch.patchId ?? patch.issueId} rollback must target its override.`);
+      assert.ok(patch.reason, `repair patch ${patch.patchId ?? patch.issueId} must include a reason.`);
+      if (patch.sourceNodeId) {
+        const issue = nodeDiffReport.find((entry) => entry.issueId === patch.issueId);
+        assert.equal(issue?.sourceNodeId, patch.sourceNodeId, `repair patch ${patch.patchId} sourceNodeId must match its visual diff issue.`);
+      }
+      if (patch.override.payload?.diffIssueId) {
+        assert.equal(patch.override.payload.diffIssueId, patch.issueId, `repair patch ${patch.patchId} override payload must trace to its diff issue.`);
+      }
     }
   } else {
+    assert.equal(issueIds.has(repairPatch.issueId), true, `workbench repair_patch references unknown visual diff issue ${repairPatch.issueId}.`);
+    assert.ok(["add_override", "replace_override"].includes(repairPatch.operation), "workbench repair_patch operation must be known.");
     assert.ok(repairPatch.overrideId, "workbench repair_patch must include overrideId.");
     assert.ok(repairPatch.afterOverride?.id || repairPatch.rollbackReport, "workbench repair_patch must include applied override or rollback report.");
-    assert.equal(repairPatch.rollback?.type, "disable_override", "workbench repair_patch must be rollbackable.");
+    assert.ok(["disable_override", "restore_override"].includes(repairPatch.rollback?.type), "workbench repair_patch must be rollbackable.");
     assert.equal(repairPatch.rollback.overrideId, repairPatch.overrideId, "workbench repair rollback must target the patch override.");
+    if (repairPatch.afterOverride) {
+      assert.equal(repairPatch.afterOverride.id, repairPatch.overrideId, "workbench repair_patch afterOverride must match overrideId.");
+      assert.equal(repairPatch.afterOverride.payload?.diffIssueId, repairPatch.issueId, "workbench repair override must trace to its diff issue.");
+    }
+    if (repairPatch.rollback?.type === "restore_override") {
+      assert.equal(repairPatch.rollback.override?.id, repairPatch.overrideId, "workbench restore rollback must embed the previous override.");
+    }
+    if (repairPatch.status === "rolled_back") {
+      assert.equal(repairPatch.rollbackReport?.overrideId, repairPatch.overrideId, "rolled back repair_patch must include rollback report.");
+      assert.equal(repairPatch.rollbackReport?.rollbackType, repairPatch.rollback?.type, "rolled back repair_patch report must match rollback type.");
+    }
   }
 
   assert.equal(typeof repairIterationLog.version, "string", "repair_iteration_log.version must be present.");
+  assert.ok(repairIterationLog.generatedAt || repairIterationLog.updatedAt, "repair_iteration_log must include generatedAt or updatedAt.");
+  assert.equal(typeof repairIterationLog.maxIterations, "number", "repair_iteration_log.maxIterations must be present.");
+  assert.ok(
+    Number.isInteger(repairIterationLog.maxIterations) && repairIterationLog.maxIterations > 0 && repairIterationLog.maxIterations <= 3,
+    "repair_iteration_log.maxIterations must be a positive integer no greater than 3."
+  );
   assert.ok(Array.isArray(repairIterationLog.iterations), "repair_iteration_log.iterations must be an array.");
   assert.ok(repairIterationLog.iterations.length > 0, "repair_iteration_log must record at least one iteration.");
+  const automaticIterations = repairIterationLog.iterations.filter((entry) => Number.isInteger(entry.iteration));
+  assert.ok(
+    automaticIterations.length <= repairIterationLog.maxIterations,
+    "repair_iteration_log automatic iterations must not exceed maxIterations."
+  );
+  for (const entry of repairIterationLog.iterations) {
+    const entryTimestamp = entry.generatedAt ?? repairIterationLog.generatedAt ?? repairIterationLog.updatedAt;
+    assert.equal(typeof entryTimestamp, "string", "repair iteration entry must include generatedAt or inherit the log timestamp.");
+    if (Number.isInteger(entry.iteration)) {
+      assert.ok(entry.iteration >= 0 && entry.iteration < repairIterationLog.maxIterations, "repair iteration index must be within maxIterations.");
+      assert.ok(["not_run", "proposed", "applied", "rolled_back"].includes(entry.status), "repair iteration status must be known.");
+      assertScore(entry.visualScore, `repair_iteration_log.iterations.${entry.iteration}.visualScore`);
+      assertScore(entry.pixelDiffRatio, `repair_iteration_log.iterations.${entry.iteration}.pixelDiffRatio`);
+      assertSafeRelativePath(entry.repairPatchPath, `repair_iteration_log.iterations.${entry.iteration}.repairPatchPath`);
+      assert.equal(typeof entry.rollbackAvailable, "boolean", "repair iteration rollbackAvailable must be boolean.");
+      assert.ok(entry.reason, "repair iteration must include reason.");
+    }
+    if (entry.event) {
+      assert.ok(["applied", "rolled_back"].includes(entry.event), "workbench repair iteration event must be known.");
+      assert.ok(entry.overrideId, "workbench repair iteration event must include overrideId.");
+      assertSafeRelativePath(entry.repairPatchPath, `repair_iteration_log.events.${entry.overrideId}.repairPatchPath`);
+      assert.equal(typeof entry.rollbackAvailable, "boolean", "workbench repair iteration event must record rollback availability.");
+      assert.ok(entry.reason, "workbench repair iteration event must include reason.");
+      assertHash(entry.overrideHash, `repair_iteration_log.events.${entry.overrideId}.overrideHash`);
+      if (entry.event === "applied") {
+        const eventIssueIds = new Set(Array.isArray(entry.visualDiffIssueIds) ? entry.visualDiffIssueIds : [...issueIds]);
+        assert.equal(eventIssueIds.has(entry.issueId), true, `workbench applied repair event references unknown visual diff issue ${entry.issueId}.`);
+        assert.ok(entry.visualDiffGeneratedAt, "workbench applied repair event must record the source visual diff timestamp.");
+        assert.ok(["add_override", "replace_override"].includes(entry.operation), "workbench applied repair event operation must be known.");
+        assertScore(entry.visualScore, `repair_iteration_log.events.${entry.overrideId}.visualScore`);
+        assertScore(entry.pixelDiffRatio, `repair_iteration_log.events.${entry.overrideId}.pixelDiffRatio`);
+        assert.equal(entry.rollbackAvailable, true, "workbench applied repair event must be rollbackable.");
+      }
+      if (entry.event === "rolled_back") {
+        assert.ok(["disable_override", "restore_override"].includes(entry.rollbackType), "workbench rolled_back repair event rollbackType must be known.");
+        assert.equal(entry.rollbackAvailable, false, "workbench rolled_back repair event must not advertise an active rollback.");
+      }
+    }
+  }
 }
 
 function findUpliftComparison(comparisons, decision) {

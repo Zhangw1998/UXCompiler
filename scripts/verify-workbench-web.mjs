@@ -980,6 +980,7 @@ try {
   assert.equal(textRepairOverrideSet.overrides.some((entry) => entry.id === "ovr_diff_diff_text_baseline_text_calibration" && entry.type === "text_calibration_override"), true);
   assert.equal(textRepairTasks.some((task) => task.id === "task_visual_diff_text_baseline"), false);
 
+  writeSyntheticVisualDiff(sampleDir);
   const pageRepairResponse = await fetch(`${base}/api/workbench/diff-repair`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -997,7 +998,6 @@ try {
   const pageRepairOverrideSet = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/override_set.json`);
   assert.equal(pageRepairOverrideSet.overrides.some((entry) => entry.id === "ovr_diff_page_frame_fallback" && entry.type === "render_strategy_override"), true);
   assert.equal(pageRepairTasks.some((task) => task.type === "visual_diff_failed"), false);
-  writeSyntheticVisualDiff(sampleDir);
 
   const studioRollbackResponse = await fetch(`${base}/api/workbench/studio-rollback`, {
     method: "POST",

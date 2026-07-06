@@ -908,6 +908,8 @@ async function applyWorkbenchDiffRepair(body) {
     artifactRoot: `/${relative(root, artifactDir).replaceAll(sep, "/")}`,
     repairKind,
     issueId,
+    inputs: visualDiffReport.inputs,
+    page: visualDiffReport.page,
     overrideId: override.id,
     operation: previousOverride ? "replace_override" : "add_override",
     beforeOverride: previousOverride ?? null,
@@ -938,6 +940,13 @@ async function applyWorkbenchDiffRepair(body) {
     issueId,
     overrideId: override.id,
     operation: repairPatch.operation,
+    visualScore: visualDiffReport.page.score.visualScore,
+    pixelDiffRatio: visualDiffReport.page.score.pixelDiffRatio,
+    visualDiffGeneratedAt: visualDiffReport.generatedAt,
+    visualDiffIssueIds: ["page", ...(visualDiffReport.issues ?? []).map((issue) => issue.issueId).filter(Boolean)],
+    repairPatchPath: "repair_patch.json",
+    rollbackAvailable: true,
+    reason: `Applied rollbackable ${repairKind} repair from visual diff issue ${issueId ?? "page"}.`,
     beforeOpenTasks: previousTaskStatusReport.open,
     afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
     overrideHash: rebuilt.overrideResult.overrideSet.hash
@@ -1020,6 +1029,9 @@ async function applyWorkbenchDiffRepairRollback(body) {
     generatedAt: now,
     overrideId,
     rollbackType,
+    repairPatchPath: "repair_patch.json",
+    rollbackAvailable: false,
+    reason: `Rolled back repair override ${overrideId}.`,
     beforeOpenTasks: previousTaskStatusReport.open,
     afterOpenTasks: rebuilt.reviewResult.taskStatusReport.open,
     overrideHash: rebuilt.overrideResult.overrideSet.hash
@@ -1210,11 +1222,13 @@ function normalizeActor(actor) {
 
 async function appendRepairIterationLog(artifactDir, entry) {
   const logPath = resolve(artifactDir, "repair_iteration_log.json");
-  const existing = await readOptionalJson(logPath, { version: "0.1.0", iterations: [] });
+  const existing = await readOptionalJson(logPath, { version: "0.1.0", maxIterations: 3, iterations: [] });
   const iterations = Array.isArray(existing.iterations) ? existing.iterations : [];
   await writeJson(logPath, {
     version: existing.version ?? "0.1.0",
+    generatedAt: existing.generatedAt ?? entry.generatedAt,
     updatedAt: entry.generatedAt,
+    maxIterations: Number.isInteger(existing.maxIterations) ? existing.maxIterations : 3,
     iterations: [...iterations, entry]
   });
 }
