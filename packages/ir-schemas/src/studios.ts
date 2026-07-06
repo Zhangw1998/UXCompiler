@@ -115,6 +115,12 @@ export type StudioOperation =
       messageKey?: string;
       sourceNodeId?: string;
       reason: string;
+    }
+  | {
+      id?: string;
+      kind: "disable_override";
+      overrideId: string;
+      reason: string;
     };
 
 export interface ComponentPropDefinition {
@@ -185,7 +191,8 @@ export interface StudioValidationIssue {
     | "duplicate_token"
     | "invalid_asset"
     | "invalid_i18n_key"
-    | "invalid_i18n_placeholder";
+    | "invalid_i18n_placeholder"
+    | "invalid_override";
   message: string;
 }
 

@@ -34,17 +34,28 @@ export function applyStudioOperations(input: ApplyStudioOperationsInput): Studio
   const issues: StudioValidationIssue[] = [];
   const validOperationIds: string[] = [];
   const rejectedOperationIds: string[] = [];
+  const workingOverrides = baseOverrideSet.overrides.map(cloneOverride);
   const mutations: UxOverride[] = [];
-  const componentRegistry = componentRegistryFromOverrides(baseOverrideSet);
-  const nonI18n = nonI18nFromOverrides(input.i18nManifest, baseOverrideSet);
-  const i18nMerges = i18nMergesFromOverrides(input.i18nManifest, baseOverrideSet);
+  const newOverrides: UxOverride[] = [];
+  let componentRegistry = componentRegistryFromOverrides(currentOverrideSet(baseOverrideSet, workingOverrides, newOverrides));
+  let nonI18n = nonI18nFromOverrides(input.i18nManifest, currentOverrideSet(baseOverrideSet, workingOverrides, newOverrides));
+  let i18nMerges = i18nMergesFromOverrides(input.i18nManifest, currentOverrideSet(baseOverrideSet, workingOverrides, newOverrides));
 
   for (const operation of input.operations) {
     const operationId = operation.id ?? operationFingerprint(operation);
     const before = issues.length;
-    validateOperation(operation, operationId, input, componentRegistry, nonI18n, issues);
+    validateOperation(operation, operationId, input, componentRegistry, nonI18n, workingOverrides, issues);
     if (issues.length > before) {
       rejectedOperationIds.push(operationId);
+      continue;
+    }
+    if (operation.kind === "disable_override") {
+      const disabledOverride = disableOverride(workingOverrides, operation.overrideId, operation.reason, now().toISOString());
+      mutations.push(disabledOverride);
+      componentRegistry = componentRegistryFromOverrides(currentOverrideSet(baseOverrideSet, workingOverrides, newOverrides));
+      nonI18n = nonI18nFromOverrides(input.i18nManifest, currentOverrideSet(baseOverrideSet, workingOverrides, newOverrides));
+      i18nMerges = i18nMergesFromOverrides(input.i18nManifest, currentOverrideSet(baseOverrideSet, workingOverrides, newOverrides));
+      validOperationIds.push(operationId);
       continue;
     }
     applyComponentRegistryOperation(componentRegistry, operation);
@@ -57,7 +68,9 @@ export function applyStudioOperations(input: ApplyStudioOperationsInput): Studio
       const target = input.i18nManifest.messages.find((message) => message.key === operation.targetMessageKey);
       if (source && target) i18nMerges.set(source.sourceNodeId, { sourceKey: source.key, targetKey: target.key });
     }
-    mutations.push(toOverride(operation, operationId, input.actor ?? "user", now().toISOString(), input));
+    const override = toOverride(operation, operationId, input.actor ?? "user", now().toISOString(), input);
+    newOverrides.push(override);
+    mutations.push(override);
     validOperationIds.push(operationId);
   }
 
@@ -69,7 +82,7 @@ export function applyStudioOperations(input: ApplyStudioOperationsInput): Studio
     overrideSet: {
       ...baseOverrideSet,
       hash: "",
-      overrides: [...baseOverrideSet.overrides, ...mutations]
+      overrides: [...workingOverrides, ...newOverrides]
     }
   });
   const finalI18nManifest = mergeI18nMessages(removeNonI18nMessages(overrideResult.reviewedI18nManifest, nonI18n), i18nMerges);
@@ -103,6 +116,7 @@ function validateOperation(
   input: ApplyStudioOperationsInput,
   componentRegistry: ComponentRegistry,
   nonI18n: Map<string, { sourceNodeId?: string; reason?: string }>,
+  workingOverrides: UxOverride[],
   issues: StudioValidationIssue[]
 ): void {
   if (!operation.reason.trim()) {
@@ -216,6 +230,16 @@ function validateOperation(
         if (message && nonI18n.has(message.key)) addIssue(issues, operationId, "invalid_i18n_key", `${message.key} is already marked non-i18n.`);
       }
       return;
+    case "disable_override":
+      {
+        const target = workingOverrides.find((override) => override.id === operation.overrideId);
+        if (!target) {
+          addIssue(issues, operationId, "invalid_override", `Override ${operation.overrideId} does not exist.`);
+        } else if (target.status === "disabled") {
+          addIssue(issues, operationId, "invalid_override", `Override ${operation.overrideId} is already disabled.`);
+        }
+      }
+      return;
   }
   void componentRegistry;
 }
@@ -269,6 +293,33 @@ function componentRegistryFromOverrides(overrideSet: OverrideSet): ComponentRegi
     if (isStudioOperation(operation)) applyComponentRegistryOperation(registry, operation);
   }
   return registry;
+}
+
+function currentOverrideSet(baseOverrideSet: OverrideSet, workingOverrides: UxOverride[], newOverrides: UxOverride[]): OverrideSet {
+  return {
+    ...baseOverrideSet,
+    overrides: [...workingOverrides, ...newOverrides]
+  };
+}
+
+function cloneOverride(override: UxOverride): UxOverride {
+  return JSON.parse(JSON.stringify(override)) as UxOverride;
+}
+
+function disableOverride(workingOverrides: UxOverride[], overrideId: string, reason: string, updatedAt: string): UxOverride {
+  const index = workingOverrides.findIndex((override) => override.id === overrideId);
+  if (index === -1) throw new Error(`Override ${overrideId} does not exist.`);
+  const disabled = {
+    ...workingOverrides[index],
+    status: "disabled" as const,
+    updatedAt,
+    payload: {
+      ...workingOverrides[index].payload,
+      disabledReason: reason
+    }
+  };
+  workingOverrides[index] = disabled;
+  return cloneOverride(disabled);
 }
 
 function nonI18nFromOverrides(manifest: I18nManifest, overrideSet: OverrideSet): Map<string, { sourceNodeId?: string; reason?: string }> {
@@ -456,6 +507,8 @@ function toOverride(
           }
         };
       }
+    case "disable_override":
+      throw new Error("disable_override updates an existing override and is handled before toOverride.");
   }
 }
 

@@ -213,6 +213,25 @@ assert.ok(replayed.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_a
 assert.ok(replayed.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_primary_button_flutter_mapping"));
 assert.ok(replayed.staleOverrideReport.appliedOverrideIds.includes("ovr_studio_subtitle_non_i18n"));
 
+const disabledNonI18n = applyStudioOperations({
+  ...input,
+  overrideSet: result.overrideSet,
+  operations: [
+    {
+      id: "disable_subtitle_non_i18n",
+      kind: "disable_override",
+      overrideId: "ovr_studio_subtitle_non_i18n",
+      reason: "Undo the non-i18n decision so subtitle returns to ARB output."
+    }
+  ]
+});
+assert.equal(disabledNonI18n.validationReport.issues.length, 0);
+assert.equal(disabledNonI18n.overrideMutations.length, 1);
+assert.equal(disabledNonI18n.overrideMutations[0].status, "disabled");
+assert.equal(disabledNonI18n.overrideSet.overrides.find((override) => override.id === "ovr_studio_subtitle_non_i18n").status, "disabled");
+assert.ok(disabledNonI18n.finalI18nManifest.messages.some((message) => message.key === "subtitle"));
+assert.equal(disabledNonI18n.finalArbFile.subtitle, "Sign in to continue your workspace");
+
 const invalid = applyStudioOperations({
   ...input,
   operations: [
@@ -279,6 +298,12 @@ const invalid = applyStudioOperations({
       path: "assets/images/hero_crop.png",
       cropBounds: { x: 0, y: 0, w: 0, h: 12 },
       reason: "Should be rejected because crop bounds must have positive dimensions."
+    },
+    {
+      id: "bad_disable_missing_override",
+      kind: "disable_override",
+      overrideId: "ovr_missing",
+      reason: "Should be rejected because the override does not exist."
     }
   ]
 });
@@ -290,6 +315,7 @@ assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === 
 assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_duplicate_path" && issue.code === "invalid_asset"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_scale" && issue.code === "invalid_asset"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_crop" && issue.code === "invalid_asset"));
+assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_disable_missing_override" && issue.code === "invalid_override"));
 
 const sequentialApprove = applyStudioOperations({
   ...input,
