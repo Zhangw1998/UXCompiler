@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -95,6 +96,84 @@ assert.equal(existsSync(resolve(storeRoot, "projects/proj_login/overrides/overri
 assert.equal(existsSync(resolve(storeRoot, "projects/proj_login/review_tasks/tasks_login_fixture/review_tasks.json")), true);
 assert.equal(existsSync(resolve(storeRoot, "projects/proj_login/previews/preview_login_fixture/flutter_preview")), true);
 
+const firstOverrideSet = withHash({
+  id: "ovset_default",
+  version: 2,
+  snapshotId: "snap_login_fixture",
+  hash: "",
+  overrides: [
+    {
+      id: "ovr_project_store_title_name",
+      scope: "snapshot",
+      type: "naming_override",
+      target: { kind: "source_node", sourceNodeId: "1:3" },
+      payload: { name: "LoginTitle", reason: "Project Store append-only history smoke." },
+      status: "active",
+      createdBy: "user",
+      createdAt: "2026-07-04T00:00:00.000Z"
+    }
+  ]
+});
+const firstOverrideRecord = await store.saveOverrideSet("proj_login", {
+  snapshotId: "snap_login_fixture",
+  overrideSet: firstOverrideSet,
+  actor: "user"
+});
+assert.equal(firstOverrideRecord.hash, firstOverrideSet.hash);
+const firstHistory = readNdjson(resolve(storeRoot, "projects/proj_login/overrides/override_history.ndjson"));
+assert.equal(firstHistory.length, 1);
+assert.deepEqual(firstHistory[0], {
+  event: "saved",
+  overrideId: "ovr_project_store_title_name",
+  overrideSetId: "ovset_default",
+  actor: "user",
+  timestamp: "2026-07-04T00:00:00.000Z"
+});
+
+const secondOverrideSet = withHash({
+  id: "ovset_default",
+  version: 3,
+  snapshotId: "snap_login_fixture",
+  hash: "",
+  overrides: [
+    {
+      ...firstOverrideSet.overrides[0],
+      updatedAt: "2026-07-04T00:00:00.000Z",
+      payload: { name: "LoginTitleReviewed", reason: "Project Store append-only update." }
+    },
+    {
+      id: "ovr_project_store_asset_strategy",
+      scope: "snapshot",
+      type: "asset_strategy_override",
+      target: { kind: "asset", assetId: "asset_1_17", sourceNodeId: "1:17" },
+      payload: { strategy: "svg_icon", reason: "Project Store append-only second override." },
+      status: "active",
+      createdBy: "agent",
+      createdAt: "2026-07-04T00:00:00.000Z"
+    }
+  ]
+});
+const secondOverrideRecord = await store.saveOverrideSet("proj_login", {
+  snapshotId: "snap_login_fixture",
+  overrideSet: secondOverrideSet,
+  actor: "agent"
+});
+assert.equal(secondOverrideRecord.hash, secondOverrideSet.hash);
+const secondHistory = readNdjson(resolve(storeRoot, "projects/proj_login/overrides/override_history.ndjson"));
+assert.equal(secondHistory.length, 3);
+assert.deepEqual(secondHistory[0], firstHistory[0]);
+assert.equal(secondHistory[1].overrideId, "ovr_project_store_title_name");
+assert.equal(secondHistory[1].actor, "agent");
+assert.equal(secondHistory[2].overrideId, "ovr_project_store_asset_strategy");
+assert.equal(secondHistory[2].actor, "agent");
+const storedOverrideSet = JSON.parse(readFileSync(resolve(storeRoot, "projects/proj_login/overrides/ovset_default/override_set.json"), "utf8"));
+assert.equal(storedOverrideSet.hash, secondOverrideSet.hash);
+assert.equal(storedOverrideSet.version, 3);
+const updatedIndex = await store.readProjectIndex("proj_login");
+assert.equal(updatedIndex.overrideSets.find((record) => record.id === "ovset_default")?.hash, secondOverrideSet.hash);
+const updatedProject = await store.readProject("proj_login");
+assert.equal(updatedProject.currentOverrideSetId, "ovset_default");
+
 const exportResult = await store.exportProject("proj_login", archivePath);
 assert.equal(exportResult.projectId, "proj_login");
 assert.equal(existsSync(archivePath), true);
@@ -151,3 +230,29 @@ execFileSync(
 assert.equal(existsSync(resolve(root, "cli-store/projects/proj_cli/review_tasks")), true);
 
 console.log("project store verification passed");
+
+function readNdjson(path) {
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+function withHash(overrideSet) {
+  const copy = JSON.parse(JSON.stringify(overrideSet));
+  copy.hash = "";
+  copy.hash = `sha256_${createHash("sha256").update(stableStringify(copy)).digest("hex")}`;
+  return copy;
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
