@@ -16,6 +16,7 @@ const requiredFiles = [
   "token_usage_map.json",
   "token_confidence_report.json",
   "dart_tokens.dart",
+  "assets/icons/divider_dot.svg",
   "asset_manifest.json",
   "i18n_manifest.json",
   "arb/app_en.arb",
@@ -149,6 +150,13 @@ assert.ok(tokens.colors.length >= 4, "Expected color tokens");
 assert.ok(tokens.spacing.length >= 3, "Expected spacing tokens");
 assert.ok(tokens.typography.length >= 3, "Expected typography tokens");
 assert.ok(assetManifest.assets.length >= 8, "Expected asset strategy entries");
+const dividerDotAsset = assetManifest.assets.find((asset) => asset.sourceNodeId === "1:17");
+assert.equal(dividerDotAsset?.strategy, "svg_icon");
+assert.equal(dividerDotAsset?.path, "assets/icons/divider_dot.svg");
+assert.equal(existsSync(resolve(root, dividerDotAsset.path)), true, "Expected generated SVG icon asset file");
+const dividerSvg = readFileSync(resolve(root, dividerDotAsset.path), "utf8");
+assert.match(dividerSvg, /<svg[^>]+data-uxc-source-node-id="1:17"/);
+assert.match(dividerSvg, /<circle/);
 assert.ok(i18nManifest.messages.length >= 6, "Expected extracted text messages");
 assert.equal(arb["@@locale"], "en");
 assert.equal(arb.title, "Welcome back");

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -10,6 +10,8 @@ import { extractFigmaScene, listFigmaFrames, type FigmaExtractionResult } from "
 import { runIncrementalSync } from "@uxcompiler/incremental-sync";
 import {
   assertRawFigmaScene,
+  type AssetManifestEntry,
+  type CanonicalNode,
   createRawExtractionReport,
   type ComponentPromotionRule,
   type ComponentRegistry,
@@ -407,6 +409,7 @@ async function runCodegenCommand(args: string[]): Promise<void> {
   });
 
   await writeCodegenReviewArtifacts(outDir, result);
+  await stageCodegenAssetSources(artifactDir, outDir, result.assetsToAdd);
 
   console.log(`UXCompiler codegen review completed.`);
   console.log(`Write gate: ${result.codegenReview.gates.status}`);
@@ -425,7 +428,7 @@ async function runCodegenWriteCommand(args: string[]): Promise<void> {
     generatedFiles: await readGeneratedFiles(resolve(reviewDir, "generated")),
     arbPatch: await readOptionalJsonFile<CodegenArbPatch>(resolve(reviewDir, "arb_patch.json")),
     pubspecPatch: await readOptionalJsonFile<CodegenPubspecPatch>(resolve(reviewDir, "pubspec_patch.json")),
-    assetRoots: [resolve(reviewDir, "assets"), ...options.assetRoots.map((root) => resolve(process.cwd(), root))],
+    assetRoots: [reviewDir, resolve(reviewDir, "assets"), ...options.assetRoots.map((root) => resolve(process.cwd(), root))],
     dryRun: options.dryRun,
     allowBlocked: options.allowBlocked,
     backupRoot: options.backupRoot ? resolve(process.cwd(), options.backupRoot) : undefined
@@ -1771,6 +1774,7 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
       await writeFile(target, body, "utf8");
     })
   );
+  await materializeGeneratedSvgAssets(outDir, artifacts);
   const previewDir = resolve(outDir, "flutter_preview");
   await rm(previewDir, { recursive: true, force: true });
   await Promise.all(
@@ -1848,6 +1852,68 @@ async function cleanStaleGeneratedArtifacts(outDir: string): Promise<void> {
     "workbench_diff_repair_rollback_report.json"
   ];
   await Promise.all(stalePaths.map((path) => rm(resolve(outDir, path), { recursive: true, force: true })));
+}
+
+async function materializeGeneratedSvgAssets(outDir: string, artifacts: PipelineArtifacts): Promise<void> {
+  const sourceNodes = new Map<string, CanonicalNode>();
+  collectCanonicalNodesBySourceId(artifacts.canonicalScene.root, sourceNodes);
+  await Promise.all(
+    artifacts.reviewedAssetManifest.assets
+      .filter((asset) => asset.strategy === "svg_icon" && typeof asset.path === "string" && asset.path.length > 0)
+      .map(async (asset) => {
+        const target = resolve(outDir, asset.path as string);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, renderSvgIconAsset(asset, sourceNodes.get(asset.sourceNodeId)), "utf8");
+      })
+  );
+}
+
+function collectCanonicalNodesBySourceId(node: CanonicalNode, target: Map<string, CanonicalNode>): void {
+  target.set(node.sourceNodeId, node);
+  for (const child of node.children) collectCanonicalNodesBySourceId(child, target);
+}
+
+function renderSvgIconAsset(asset: AssetManifestEntry, node: CanonicalNode | undefined): string {
+  const width = Math.max(1, Math.round(node?.bounds.w ?? 24));
+  const height = Math.max(1, Math.round(node?.bounds.h ?? 24));
+  const fill = solidFillHex(node);
+  const opacity = clampOpacity(node?.style.opacity ?? 1);
+  const title = escapeXml(asset.sourceName || asset.id);
+  const shape =
+    width === height
+      ? `<circle cx="${width / 2}" cy="${height / 2}" r="${width / 2}" fill="${fill}" fill-opacity="${opacity}" />`
+      : `<rect width="${width}" height="${height}" fill="${fill}" fill-opacity="${opacity}" />`;
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}" data-uxc-source-node-id="${escapeXml(asset.sourceNodeId)}">`,
+    `  <title>${title}</title>`,
+    `  ${shape}`,
+    "</svg>",
+    ""
+  ].join("\n");
+}
+
+function solidFillHex(node: CanonicalNode | undefined): string {
+  const fill = node?.style.fills.find((paint) => paint.type === "SOLID" && paint.color);
+  const color = fill?.color;
+  if (!color) return "#000000";
+  const red = colorChannelToHex(color.r);
+  const green = colorChannelToHex(color.g);
+  const blue = colorChannelToHex(color.b);
+  return `#${red}${green}${blue}`;
+}
+
+function colorChannelToHex(value: number): string {
+  return Math.round(Math.max(0, Math.min(1, value)) * 255)
+    .toString(16)
+    .padStart(2, "0");
+}
+
+function clampOpacity(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1));
+}
+
+function escapeXml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: PipelineArtifacts, runReport: FigmaRunReport): Promise<void> {
@@ -2159,6 +2225,28 @@ async function writeCodegenReviewArtifacts(outDir: string, result: CodegenReview
     ...result.generatedFiles.map((file) => writeFileWithDirs(resolve(outDir, "generated", file.path), file.content)),
     ...result.filePatches.map((patch) => writeFileWithDirs(resolve(outDir, patch.patchPath), patch.patch))
   ]);
+}
+
+async function stageCodegenAssetSources(
+  artifactDir: string,
+  outDir: string,
+  assetsToAdd: CodegenReviewResult["assetsToAdd"]
+): Promise<void> {
+  await Promise.all(
+    assetsToAdd.map(async (asset) => {
+      if (!asset.path) return;
+      const source = resolve(artifactDir, asset.path);
+      const target = resolve(outDir, asset.path);
+      if (source === target) return;
+      try {
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(source, target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw error;
+      }
+    })
+  );
 }
 
 async function readFirstJsonFile<T>(paths: string[]): Promise<T> {

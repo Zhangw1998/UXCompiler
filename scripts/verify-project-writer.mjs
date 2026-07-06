@@ -36,7 +36,8 @@ execFileSync(
   ["apps/cli/dist/index.js", "codegen", "review", "--artifacts", baseDir, "--out", reviewDir, "--project-id", "proj_login"],
   { stdio: "pipe" }
 );
-writeFile(resolve(reviewDir, "assets/assets/icons/divider_dot.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" />\n");
+assert.equal(existsSync(resolve(baseDir, "assets/icons/divider_dot.svg")), true);
+assert.equal(existsSync(resolve(reviewDir, "assets/icons/divider_dot.svg")), true);
 writeFile(resolve(projectDir, "pubspec.yaml"), "name: smoke_app\npublish_to: none\nflutter:\n  uses-material-design: true\n");
 
 const direct = await writeCodegenToProject({
@@ -45,7 +46,7 @@ const direct = await writeCodegenToProject({
   generatedFiles: readGeneratedFiles(resolve(reviewDir, "generated")),
   arbPatch: readJson(reviewDir, "arb_patch.json"),
   pubspecPatch: readJson(reviewDir, "pubspec_patch.json"),
-  assetRoots: [resolve(reviewDir, "assets")],
+  assetRoots: [reviewDir],
   now: () => new Date("2026-07-04T00:00:00.000Z")
 });
 assert.equal(direct.report.wrote, true);
@@ -69,7 +70,7 @@ const second = await writeCodegenToProject({
   generatedFiles: readGeneratedFiles(resolve(reviewDir, "generated")),
   arbPatch: readJson(reviewDir, "arb_patch.json"),
   pubspecPatch: readJson(reviewDir, "pubspec_patch.json"),
-  assetRoots: [resolve(reviewDir, "assets")]
+  assetRoots: [reviewDir]
 });
 assert.equal(second.report.files.every((file) => file.status === "unchanged"), true);
 
@@ -101,7 +102,7 @@ const arbUpdate = await writeCodegenToProject({
   generatedFiles: readGeneratedFiles(resolve(arbUpdateReviewDir, "generated")),
   arbPatch: readJson(arbUpdateReviewDir, "arb_patch.json"),
   pubspecPatch: readJson(arbUpdateReviewDir, "pubspec_patch.json"),
-  assetRoots: [resolve(arbUpdateReviewDir, "assets")]
+  assetRoots: [arbUpdateReviewDir]
 });
 const arbUpdateFile = arbUpdate.report.files.find((file) => file.path === "lib/l10n/intl_en.arb");
 assert.equal(arbUpdateFile.status, "updated");
@@ -151,7 +152,7 @@ const drift = await writeCodegenToProject({
   generatedFiles: readGeneratedFiles(resolve(driftReviewDir, "generated")),
   arbPatch: readJson(driftReviewDir, "arb_patch.json"),
   pubspecPatch: readJson(driftReviewDir, "pubspec_patch.json"),
-  assetRoots: [resolve(driftReviewDir, "assets")]
+  assetRoots: [driftReviewDir]
 });
 const driftFile = drift.report.files.find((file) => file.path === "lib/main.dart");
 assert.equal(driftFile.status, "blocked");
@@ -177,8 +178,6 @@ execFileSync(
     reviewDir,
     "--project-path",
     dryProjectDir,
-    "--asset-root",
-    resolve(reviewDir, "assets"),
     "--dry-run"
   ],
   { stdio: "pipe" }
