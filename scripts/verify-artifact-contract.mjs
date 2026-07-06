@@ -4,6 +4,19 @@ import { join, relative, resolve } from "node:path";
 import { assertReviewTaskContract } from "./review-task-contract.mjs";
 
 const root = resolve(process.argv[2] ?? "artifacts/sample");
+const assetStrategyDirs = new Map([
+  ["svg_icon", "assets/icons/"],
+  ["image_asset", "assets/images/"],
+  ["frame_screenshot", "assets/frames/"],
+  ["decorative_slice", "assets/slices/"]
+]);
+const pathlessAssetStrategies = new Set(["real_text", "custom_painter", "flutter_shape", "ignored"]);
+const assetFormats = new Map([
+  ["svg", [".svg"]],
+  ["png", [".png"]],
+  ["webp", [".webp"]],
+  ["jpg", [".jpg", ".jpeg"]]
+]);
 
 const requiredJsonFiles = [
   "raw_figma_scene.json",
@@ -33,6 +46,7 @@ const requiredJsonFiles = [
   "render_strategy_manifest.json",
   "fidelity_generation_manifest.json",
   "flutter_generation_manifest.json",
+  "pubspec_patch.json",
   "visual_diff_report.json",
   "node_diff_report.json",
   "manual_review_report.json",
@@ -81,6 +95,7 @@ const normalizationReport = json("normalization_report.json");
 const renderStrategyManifest = json("render_strategy_manifest.json");
 const fidelityManifest = json("fidelity_generation_manifest.json");
 const flutterGenerationManifest = json("flutter_generation_manifest.json");
+const pubspecPatch = json("pubspec_patch.json");
 const visualDiffReport = json("visual_diff_report.json");
 const nodeDiffReport = json("node_diff_report.json");
 const manualReviewReport = json("manual_review_report.json");
@@ -88,6 +103,15 @@ const repairPatch = json("repair_patch.json");
 const repairIterationLog = json("repair_iteration_log.json");
 const compileManifest = json("compile_manifest.json");
 const materializedAssetReport = parsedJsonFiles.get("materialized_assets_report.json");
+const effectiveAssetManifest =
+  parsedJsonFiles.get("final_asset_manifest.json") ?? parsedJsonFiles.get("reviewed_asset_manifest.json") ?? assetManifest;
+const effectiveI18nManifest =
+  parsedJsonFiles.get("final_i18n_manifest.json") ?? parsedJsonFiles.get("reviewed_i18n_manifest.json") ?? i18nManifest;
+const assetManifests = [
+  ["asset_manifest", assetManifest],
+  ["reviewed_asset_manifest", parsedJsonFiles.get("reviewed_asset_manifest.json")],
+  ["final_asset_manifest", parsedJsonFiles.get("final_asset_manifest.json")]
+].filter(([, manifest]) => Boolean(manifest));
 
 const rawSourceNodeIds = new Set();
 walkRawNode(raw.root, (node) => rawSourceNodeIds.add(node.id));
@@ -109,7 +133,9 @@ assertTokenArtifacts(rawSourceNodeIds, tokens, tokenUsageMap, tokenConfidenceRep
 assertSourceRefs(rawSourceNodeIds, "regions", regions, (entry) => entry.sourceNodeIds ?? []);
 assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, layoutCandidates, layoutDecisions);
 assertComponentArtifacts(rawSourceNodeIds, inferredComponents, componentInstanceMap, componentConfidenceReport, semanticIR);
-assertSourceRefs(rawSourceNodeIds, "asset_manifest.assets", assetManifest.assets, (entry) => [entry.sourceNodeId]);
+for (const [label, manifest] of assetManifests) {
+  assertSourceRefs(rawSourceNodeIds, `${label}.assets`, manifest.assets, (entry) => [entry.sourceNodeId]);
+}
 assertSourceRefs(rawSourceNodeIds, "i18n_manifest.messages", i18nManifest.messages, (entry) => [entry.sourceNodeId]);
 assertI18nManifestWarnings(rawSourceNodeIds, i18nManifest, "i18n_manifest");
 for (const optionalI18nPath of ["reviewed_i18n_manifest.json", "final_i18n_manifest.json"]) {
@@ -120,8 +146,17 @@ assertSourceRefs(rawSourceNodeIds, "semantic_labels.nodes", semanticLabels.nodes
 assertSourceRefs(rawSourceNodeIds, "semantic_labels.assets", semanticLabels.assets, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "semantic_labels.i18n", semanticLabels.i18n, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "render_strategy_manifest.regions", renderStrategyManifest.regions, (entry) => entry.sourceNodeIds ?? []);
-assertVisibleTextI18nCoverage(canonical, i18nManifest);
-assertAssetManifestPaths(assetManifest, materializedAssetReport);
+assertVisibleTextI18nCoverage(canonical, effectiveI18nManifest);
+assertAssetManifestContract(
+  rawSourceNodeIds,
+  canonical,
+  assetManifests,
+  effectiveAssetManifest,
+  effectiveI18nManifest,
+  pubspecPatch,
+  flutterGenerationManifest,
+  materializedAssetReport
+);
 assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR);
 assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, flutterGenerationManifest);
 assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap);
@@ -713,22 +748,149 @@ function assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap) {
   }
 }
 
-function assertAssetManifestPaths(manifest, materializedReport) {
-  const usedPaths = new Set();
-  for (const asset of manifest.assets ?? []) {
-    assert.ok(asset.id, `Asset for ${asset.sourceNodeId} must include id.`);
-    assert.ok(asset.reason, `Asset ${asset.id} must include reason.`);
-    assertScore(asset.confidence, `asset_manifest.assets.${asset.id}.confidence`);
-    if (!asset.path) continue;
-    assert.equal(asset.path.startsWith("assets/"), true, `Asset ${asset.id} path must stay under assets/: ${asset.path}`);
-    assert.equal(asset.path.includes(".."), false, `Asset ${asset.id} path must not contain parent traversal.`);
-    assert.equal(usedPaths.has(asset.path), false, `Asset path ${asset.path} must be unique.`);
-    usedPaths.add(asset.path);
+function assertAssetManifestContract(
+  rawSourceNodeIds,
+  canonicalScene,
+  manifests,
+  effectiveManifest,
+  i18nManifest,
+  pubspecPatch,
+  flutterGenerationManifest,
+  materializedReport
+) {
+  const canonicalNodesBySourceId = canonicalNodesBySourceNodeId(canonicalScene);
+  const i18nCoveredSourceIds = new Set((i18nManifest.messages ?? []).map((message) => message.sourceNodeId));
+  const nonI18nSourceIds = new Set(
+    (i18nManifest.warnings ?? [])
+      .filter((warning) => warning.type === "non_i18n" && warning.message)
+      .map((warning) => warning.sourceNodeId)
+      .filter(Boolean)
+  );
+
+  for (const [label, manifest] of manifests) {
+    assertSingleAssetManifest(rawSourceNodeIds, canonicalNodesBySourceId, i18nCoveredSourceIds, nonI18nSourceIds, label, manifest);
   }
 
+  const effectiveAssetPaths = fileBackedAssetPaths(effectiveManifest);
+  assertPubspecPatch(pubspecPatch, effectiveAssetPaths);
+  assertFlutterAssetPlanMatchesPubspec(flutterGenerationManifest, effectiveAssetPaths);
+  assertMaterializedAssetReport(materializedReport);
+}
+
+function assertSingleAssetManifest(rawSourceNodeIds, canonicalNodesBySourceId, i18nCoveredSourceIds, nonI18nSourceIds, label, manifest) {
+  assert.equal(typeof manifest.version, "string", `${label}.version must be present.`);
+  assert.ok(Array.isArray(manifest.assets), `${label}.assets must be an array.`);
+  assert.ok(Array.isArray(manifest.warnings), `${label}.warnings must be an array.`);
+
+  const assetIds = new Set();
+  const usedPaths = new Set();
+  const decorativeSliceTextWarnings = new Set();
+  for (const warning of manifest.warnings) {
+    assert.ok(warning.type, `${label} warning must include type.`);
+    assert.ok(warning.message, `${label} warning ${warning.type} must include message.`);
+    if (warning.sourceNodeId) {
+      assert.equal(rawSourceNodeIds.has(warning.sourceNodeId), true, `${label} warning references unknown sourceNodeId ${warning.sourceNodeId}.`);
+    }
+    if (warning.type === "decorative_slice_contains_text" && warning.sourceNodeId) decorativeSliceTextWarnings.add(warning.sourceNodeId);
+  }
+
+  for (const asset of manifest.assets) {
+    const assetLabel = `${label}.assets.${asset.id ?? asset.sourceNodeId ?? "unknown"}`;
+    assert.ok(asset.id, `${assetLabel} must include id.`);
+    assert.equal(assetIds.has(asset.id), false, `${label} asset id ${asset.id} must be unique.`);
+    assetIds.add(asset.id);
+    assert.equal(rawSourceNodeIds.has(asset.sourceNodeId), true, `${assetLabel} references unknown sourceNodeId ${asset.sourceNodeId}.`);
+    assert.ok(asset.sourceName, `${assetLabel} must include sourceName.`);
+    assert.ok([...assetStrategyDirs.keys(), ...pathlessAssetStrategies].includes(asset.strategy), `${assetLabel} strategy must be known.`);
+    assert.ok(asset.reason, `${assetLabel} must include reason.`);
+    assertScore(asset.confidence, `${assetLabel}.confidence`);
+    if (asset.scale !== undefined) {
+      assert.equal(typeof asset.scale, "number", `${assetLabel}.scale must be a number.`);
+      assert.ok(Number.isFinite(asset.scale) && asset.scale > 0, `${assetLabel}.scale must be positive.`);
+    }
+    if (asset.cropBounds !== undefined) assertBounds(asset.cropBounds, `${assetLabel}.cropBounds`);
+    if (asset.excludeTextNodes !== undefined) {
+      assert.equal(typeof asset.excludeTextNodes, "boolean", `${assetLabel}.excludeTextNodes must be boolean.`);
+    }
+
+    if (assetStrategyDirs.has(asset.strategy)) {
+      assertAssetPathForStrategy(asset, assetLabel);
+      assert.equal(usedPaths.has(asset.path), false, `${label} asset path ${asset.path} must be unique.`);
+      usedPaths.add(asset.path);
+    } else {
+      assert.equal(asset.path, undefined, `${assetLabel} must not declare an asset path for ${asset.strategy}.`);
+      assert.equal(asset.format, undefined, `${assetLabel} must not declare an asset format for ${asset.strategy}.`);
+    }
+
+    const sourceNodes = canonicalNodesBySourceId.get(asset.sourceNodeId) ?? [];
+    if (asset.strategy === "real_text" && sourceNodes.some(hasVisibleText)) {
+      assert.ok(
+        i18nCoveredSourceIds.has(asset.sourceNodeId) || nonI18nSourceIds.has(asset.sourceNodeId),
+        `${assetLabel} real_text must be covered by i18n or an explicit non_i18n reason.`
+      );
+    }
+    if (asset.strategy === "decorative_slice") {
+      assert.ok(sourceNodes.length > 0, `${assetLabel} decorative_slice must trace to a canonical node.`);
+      const containsVisibleText = sourceNodes.some(hasVisibleText);
+      assert.ok(
+        !containsVisibleText || asset.excludeTextNodes === true || decorativeSliceTextWarnings.has(asset.sourceNodeId),
+        `${assetLabel} decorative_slice with visible text descendants must exclude text nodes or emit decorative_slice_contains_text.`
+      );
+    }
+  }
+}
+
+function assertAssetPathForStrategy(asset, label) {
+  assert.ok(asset.path, `${label} must include path for ${asset.strategy}.`);
+  assert.ok(asset.format, `${label} must include format for ${asset.strategy}.`);
+  assertSafeAssetPath(asset.path, `${label}.path`);
+  const expectedDir = assetStrategyDirs.get(asset.strategy);
+  assert.equal(asset.path.startsWith(expectedDir), true, `${label}.path must stay under ${expectedDir}.`);
+  const expectedExtensions = assetFormats.get(asset.format);
+  assert.ok(expectedExtensions, `${label}.format must be known.`);
+  assert.equal(
+    expectedExtensions.some((extension) => asset.path.toLowerCase().endsWith(extension)),
+    true,
+    `${label}.path extension must match ${asset.format}.`
+  );
+  if (asset.strategy === "svg_icon") assert.equal(asset.format, "svg", `${label} svg_icon must use svg format.`);
+  if (asset.strategy === "decorative_slice") {
+    assert.ok(asset.reason.trim().length > 0, `${label} decorative_slice must record a reason.`);
+  }
+}
+
+function assertPubspecPatch(pubspecPatch, effectiveAssetPaths) {
+  assert.equal(pubspecPatch.path, "pubspec.yaml", "pubspec_patch.path must target pubspec.yaml.");
+  assert.ok(Array.isArray(pubspecPatch.assets), "pubspec_patch.assets must be an array.");
+  assert.equal(typeof pubspecPatch.patch, "string", "pubspec_patch.patch must be a string.");
+  assert.ok(Array.isArray(pubspecPatch.warnings), "pubspec_patch.warnings must be an array.");
+
+  const pubspecAssets = new Set();
+  for (const assetPath of pubspecPatch.assets) {
+    assertSafeAssetPath(assetPath, `pubspec_patch.assets.${assetPath}`);
+    assert.equal(pubspecAssets.has(assetPath), false, `pubspec_patch asset ${assetPath} must be unique.`);
+    pubspecAssets.add(assetPath);
+    assert.match(pubspecPatch.patch, new RegExp(escapeRegExp(assetPath)), `pubspec_patch.patch must declare ${assetPath}.`);
+  }
+  if (effectiveAssetPaths.size === 0) {
+    assert.equal(pubspecPatch.patch, "", "pubspec_patch.patch must be empty when no file-backed assets are required.");
+  }
+  assert.deepEqual(pubspecAssets, effectiveAssetPaths, "pubspec_patch.assets must exactly match file-backed paths from the effective asset manifest.");
+}
+
+function assertFlutterAssetPlanMatchesPubspec(flutterGenerationManifest, effectiveAssetPaths) {
+  const plannedAssetPaths = new Set(
+    (flutterGenerationManifest.assetsToAdd ?? [])
+      .filter((asset) => asset.action === "add" && asset.path)
+      .map((asset) => asset.path)
+  );
+  assert.deepEqual(plannedAssetPaths, effectiveAssetPaths, "flutter_generation_manifest.assetsToAdd must match effective file-backed assets.");
+}
+
+function assertMaterializedAssetReport(materializedReport) {
   if (!materializedReport) return;
   for (const asset of materializedReport.materialized ?? []) {
-    assert.equal(typeof asset.path, "string", "materialized asset must include path.");
+    assertSafeAssetPath(asset.path, "materialized asset path");
     assert.equal(existsSync(resolve(root, asset.path)), true, `materialized asset is missing from artifact root: ${asset.path}`);
     assert.equal(
       existsSync(resolve(root, "flutter_preview", asset.path)),
@@ -737,6 +899,35 @@ function assertAssetManifestPaths(manifest, materializedReport) {
     );
     assert.ok(asset.bytes > 0, `materialized asset ${asset.path} must record non-zero bytes.`);
   }
+}
+
+function fileBackedAssetPaths(manifest) {
+  return new Set((manifest.assets ?? []).filter((asset) => assetStrategyDirs.has(asset.strategy)).map((asset) => asset.path));
+}
+
+function canonicalNodesBySourceNodeId(canonicalScene) {
+  const nodes = new Map();
+  walkCanonicalNode(canonicalScene.root, (node) => {
+    if (!node.sourceNodeId) return;
+    const bucket = nodes.get(node.sourceNodeId) ?? [];
+    bucket.push(node);
+    nodes.set(node.sourceNodeId, bucket);
+  });
+  return nodes;
+}
+
+function hasVisibleText(node) {
+  if (!node.flags?.isInvisible && !node.flags?.isZeroSize && node.canonicalType === "text" && (node.text?.content?.trim() ?? "")) return true;
+  return (node.children ?? []).some(hasVisibleText);
+}
+
+function assertSafeAssetPath(path, label) {
+  assertSafeRelativePath(path, label);
+  assert.equal(path.startsWith("assets/"), true, `${label} must stay under assets/: ${path}`);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR) {
