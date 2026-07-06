@@ -157,6 +157,14 @@ const nodeDiffReport = json("node_diff_report.json");
 const manualReviewReport = json("manual_review_report.json");
 const repairPatch = json("repair_patch.json");
 const repairIterationLog = json("repair_iteration_log.json");
+const codegenReview = json("codegen_review.json");
+const filesToCreate = json("files_to_create.json");
+const filesToModify = json("files_to_modify.json");
+const assetsToAdd = json("assets_to_add.json");
+const arbPatch = json("arb_patch.json");
+const codegenPubspecPatch = json("pubspec_patch.json");
+const mergeReport = json("merge_report.json");
+const incrementalSyncReport = json("incremental_sync_report.json");
 const compileManifest = json("compile_manifest.json");
 const overrideSet = parsedJsonFiles.get("override_set.json");
 const materializedAssetReport = parsedJsonFiles.get("materialized_assets_report.json");
@@ -252,6 +260,20 @@ assertScore(normalizationReport.score.overall, "normalization_report.score.overa
 assertScore(normalizationReport.score.assets, "normalization_report.score.assets");
 
 assertCompileManifest(compileManifest);
+assertCodegenReviewArtifacts(
+  rawSourceNodeIds,
+  codegenReview,
+  filesToCreate,
+  filesToModify,
+  assetsToAdd,
+  arbPatch,
+  codegenPubspecPatch,
+  mergeReport,
+  incrementalSyncReport,
+  flutterGenerationManifest,
+  overrideSet,
+  reviewTasks
+);
 
 assert.deepEqual(renderStrategyManifest.viewport, normalized.source.viewport, "render strategy viewport must match normalized viewport.");
 assertVisualDiffArtifacts(rawSourceNodeIds, normalized, visualDiffReport, nodeDiffReport, manualReviewReport);
@@ -283,6 +305,231 @@ function assertCompileManifest(manifest) {
   }
   for (const artifactPath of requiredCompileManifestArtifacts) {
     assert.equal(artifacts.has(artifactPath), true, `compile_manifest must include required artifact ${artifactPath}.`);
+  }
+}
+
+function assertCodegenReviewArtifacts(
+  rawSourceNodeIds,
+  codegenReview,
+  filesToCreate,
+  filesToModify,
+  assetsToAdd,
+  arbPatch,
+  codegenPubspecPatch,
+  mergeReport,
+  incrementalSyncReport,
+  flutterGenerationManifest,
+  overrideSet,
+  reviewTasks
+) {
+  assert.equal(typeof codegenReview.version, "string", "codegen_review.version must be present.");
+  assert.equal(codegenReview.buildId, flutterGenerationManifest.buildId, "codegen_review buildId must match flutter_generation_manifest.");
+  assert.equal(codegenReview.generatedAt, flutterGenerationManifest.generatedAt, "codegen_review generatedAt must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.format, flutterGenerationManifest.format, "codegen_review format must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.analyze, flutterGenerationManifest.analyze, "codegen_review analyze must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.files, flutterGenerationManifest.files, "codegen_review files must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.assetsToAdd, flutterGenerationManifest.assetsToAdd ?? [], "codegen_review assetsToAdd must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.arbKeysToAdd, flutterGenerationManifest.arbKeysToAdd ?? [], "codegen_review arbKeysToAdd must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.blockingTasks, flutterGenerationManifest.blockingTasks ?? [], "codegen_review blockingTasks must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.generatedWidgets, flutterGenerationManifest.generatedWidgets ?? [], "codegen_review generatedWidgets must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.fallbackRegions, flutterGenerationManifest.fallbackRegions ?? [], "codegen_review fallbackRegions must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.unresolvedReviewTasks, flutterGenerationManifest.unresolvedReviewTasks ?? [], "codegen_review unresolvedReviewTasks must match flutter_generation_manifest.");
+  assert.deepEqual(codegenReview.gates, flutterGenerationManifest.gates, "codegen_review gates must match flutter_generation_manifest.");
+
+  const createPlans = codegenReview.files.filter((file) => file.action === "create");
+  const modifyPlans = codegenReview.files.filter((file) => file.action === "modify" || file.action === "conflict");
+  assert.deepEqual(codegenReview.filesToCreate, createPlans.map((file) => file.path), "codegen_review.filesToCreate must list create plans.");
+  assert.deepEqual(filesToCreate, createPlans, "files_to_create.json must mirror create file plans.");
+  assert.deepEqual(filesToModify, modifyPlans, "files_to_modify.json must mirror modify/conflict file plans.");
+  assert.deepEqual(
+    codegenReview.filesToModify,
+    modifyPlans.map((file) => ({ path: file.path, patch: file.patchPath, action: file.action })),
+    "codegen_review.filesToModify must list patch paths for modify/conflict plans."
+  );
+
+  for (const file of codegenReview.files) {
+    assertCodegenFilePlan(rawSourceNodeIds, file, "codegen_review.files");
+    if (file.patchPath) {
+      assertSafeRelativePath(file.patchPath, `codegen_review.files.${file.path}.patchPath`);
+      assert.equal(existsSync(resolve(root, file.patchPath)), true, `codegen patch must exist for ${file.path}: ${file.patchPath}`);
+    }
+    if (file.action === "conflict") {
+      assert.ok(file.existingHash, `conflict file ${file.path} must include existingHash so manual code is not silently overwritten.`);
+      assert.ok(file.patchPath, `conflict file ${file.path} must include a patchPath.`);
+    }
+    if (file.action === "modify") {
+      assert.ok(file.existingHash, `modified file ${file.path} must include existingHash.`);
+      assert.ok(file.patchPath, `modified file ${file.path} must include a patchPath.`);
+    }
+  }
+
+  assert.deepEqual(assetsToAdd, codegenReview.assetsToAdd, "assets_to_add.json must mirror codegen_review.assetsToAdd.");
+  for (const asset of assetsToAdd) {
+    assert.equal(rawSourceNodeIds.has(asset.sourceNodeId), true, `assets_to_add ${asset.assetId} references unknown sourceNodeId ${asset.sourceNodeId}.`);
+    assert.ok(["add", "already_declared", "missing_path", "ignored"].includes(asset.action), `assets_to_add ${asset.assetId} action must be known.`);
+    if (asset.path) assertSafeAssetPath(asset.path, `assets_to_add.${asset.assetId}.path`);
+    assert.ok(asset.reason, `assets_to_add ${asset.assetId} must include reason.`);
+  }
+
+  assert.equal(typeof arbPatch.locale, "string", "arb_patch.locale must be present.");
+  assert.deepEqual(codegenReview.arbKeysToAdd, arbPatch.keysToAdd.map((message) => message.key), "codegen_review.arbKeysToAdd must mirror arb_patch keysToAdd.");
+  for (const message of [...arbPatch.keysToAdd, ...arbPatch.keysToModify]) {
+    assert.ok(message.key, "arb_patch message must include key.");
+    assert.ok(message.description, `arb_patch message ${message.key} must include description.`);
+    assert.equal(rawSourceNodeIds.has(message.sourceNodeId), true, `arb_patch message ${message.key} references unknown sourceNodeId ${message.sourceNodeId}.`);
+    assertScore(message.confidence, `arb_patch.${message.key}.confidence`);
+  }
+  assert.ok(Array.isArray(arbPatch.warnings), "arb_patch.warnings must be an array.");
+
+  assert.deepEqual(codegenPubspecPatch, pubspecPatch, "codegen pubspec_patch.json must match the asset pubspec patch contract.");
+  const pubspecPatchText = readFileSync(resolve(root, "pubspec.yaml.patch"), "utf8");
+  assert.equal(pubspecPatchText, codegenPubspecPatch.patch, "pubspec.yaml.patch must exactly mirror pubspec_patch.patch.");
+  if (codegenPubspecPatch.assets.length > 0) {
+    assert.match(pubspecPatchText, /# existingHash: sha256_[a-f0-9]{64}/, "pubspec patch must record existingHash.");
+    assert.match(pubspecPatchText, /# currentHash: sha256_[a-f0-9]{64}/, "pubspec patch must record currentHash.");
+  }
+
+  assert.equal(typeof mergeReport.version, "string", "merge_report.version must be present.");
+  assert.equal(mergeReport.generatedAt, codegenReview.generatedAt, "merge_report generatedAt must match codegen_review.");
+  assert.deepEqual(
+    mergeReport.files,
+    codegenReview.files.map((file) => ({
+      path: file.path,
+      action: file.action,
+      ...(file.patchPath ? { patchPath: file.patchPath } : {}),
+      reason: file.reason
+    })),
+    "merge_report.files must summarize every codegen file plan."
+  );
+  assert.deepEqual(
+    mergeReport.conflicts,
+    codegenReview.files
+      .filter((file) => file.action === "conflict")
+      .map((file) => ({ path: file.path, reason: file.reason, patchPath: file.patchPath })),
+    "merge_report.conflicts must mirror conflict file plans."
+  );
+
+  assertIncrementalSyncReport(rawSourceNodeIds, incrementalSyncReport, codegenReview, overrideSet, reviewTasks);
+  assertManualOverrideSummary(codegenReview.manualOverrideSummary, overrideSet);
+  assertCodegenReviewGates(codegenReview, reviewTasks, incrementalSyncReport);
+}
+
+function assertCodegenFilePlan(rawSourceNodeIds, file, label) {
+  assertSafeRelativePath(file.path, `${label}.${file.path}.path`);
+  assert.ok(["create", "modify", "unchanged", "conflict"].includes(file.action), `${label}.${file.path}.action must be known.`);
+  assertHash(file.hash, `${label}.${file.path}.hash`);
+  if (file.previousHash) assertHash(file.previousHash, `${label}.${file.path}.previousHash`);
+  if (file.existingHash) assertHash(file.existingHash, `${label}.${file.path}.existingHash`);
+  assert.ok(file.reason, `${label}.${file.path}.reason must be present.`);
+  assert.ok(Array.isArray(file.generatedRegions) && file.generatedRegions.length > 0, `${label}.${file.path} must include generatedRegions.`);
+  for (const region of file.generatedRegions) {
+    assert.ok(region.id, `${label}.${file.path}.generatedRegions must include id.`);
+    assert.ok(region.strategy, `${label}.${file.path}.generatedRegions.${region.id} must include strategy.`);
+    assertHash(region.hash, `${label}.${file.path}.generatedRegions.${region.id}.hash`);
+    assertSourceRefs(rawSourceNodeIds, `${label}.${file.path}.generatedRegions.${region.id}`, [region], (entry) => entry.sourceNodeIds ?? []);
+  }
+}
+
+function assertIncrementalSyncReport(rawSourceNodeIds, report, codegenReview, overrideSet, reviewTasks) {
+  assert.equal(typeof report.version, "string", "incremental_sync_report.version must be present.");
+  assert.equal(report.generatedAt, codegenReview.generatedAt, "incremental_sync_report generatedAt must match codegen_review.");
+  assert.ok(["initial_generation", "incremental_review"].includes(report.mode), "incremental_sync_report.mode must be known.");
+  assertStringArray(report.nodeRemapReport.exactSourceNodeIds, "incremental_sync_report.nodeRemapReport.exactSourceNodeIds");
+  assertStringArray(report.nodeRemapReport.addedSourceNodeIds, "incremental_sync_report.nodeRemapReport.addedSourceNodeIds");
+  assertStringArray(report.nodeRemapReport.removedSourceNodeIds, "incremental_sync_report.nodeRemapReport.removedSourceNodeIds");
+  for (const sourceNodeId of [...report.nodeRemapReport.exactSourceNodeIds, ...report.nodeRemapReport.addedSourceNodeIds]) {
+    assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `incremental_sync_report references unknown current sourceNodeId ${sourceNodeId}.`);
+  }
+  const currentFiles = new Map(codegenReview.files.map((file) => [file.path, file]));
+  assert.ok(Array.isArray(report.fileChanges), "incremental_sync_report.fileChanges must be an array.");
+  assert.ok(report.fileChanges.length > 0, "incremental_sync_report must describe file changes.");
+  for (const change of report.fileChanges) {
+    assertSafeRelativePath(change.path, `incremental_sync_report.fileChanges.${change.path}.path`);
+    assert.ok(["added", "changed", "removed", "unchanged"].includes(change.change), `incremental_sync_report file ${change.path} change must be known.`);
+    if (change.previousHash) assertHash(change.previousHash, `incremental_sync_report.fileChanges.${change.path}.previousHash`);
+    if (change.currentHash) assertHash(change.currentHash, `incremental_sync_report.fileChanges.${change.path}.currentHash`);
+    const current = currentFiles.get(change.path);
+    if (change.change === "removed") {
+      assert.equal(current, undefined, `removed incremental file ${change.path} must not exist in current codegen_review.`);
+      assert.ok(change.previousHash, `removed incremental file ${change.path} must include previousHash.`);
+    } else {
+      assert.ok(current, `incremental file ${change.path} must exist in current codegen_review.`);
+      assert.equal(change.currentHash, current.hash, `incremental file ${change.path} currentHash must match codegen_review hash.`);
+      if (change.change === "added") assert.equal(change.previousHash, undefined, `added incremental file ${change.path} must not include previousHash.`);
+      if (change.change === "unchanged") assert.equal(change.previousHash, change.currentHash, `unchanged incremental file ${change.path} hashes must match.`);
+      if (change.change === "changed") assert.notEqual(change.previousHash, change.currentHash, `changed incremental file ${change.path} hashes must differ.`);
+    }
+  }
+
+  const activeOverrideIds = new Set((overrideSet?.overrides ?? []).filter((override) => override.status === "active").map((override) => override.id));
+  const staleOverrideIds = new Set();
+  for (const stale of report.staleOverrides ?? []) {
+    assert.ok(stale.overrideId, "incremental stale override must include overrideId.");
+    staleOverrideIds.add(stale.overrideId);
+    assert.ok(stale.reason, `incremental stale override ${stale.overrideId} must include reason.`);
+  }
+  for (const reapplied of report.reappliedOverrides ?? []) {
+    assert.equal(activeOverrideIds.has(reapplied.overrideId), true, `reapplied override ${reapplied.overrideId} must be active in override_set.`);
+    assert.equal(staleOverrideIds.has(reapplied.overrideId), false, `reapplied override ${reapplied.overrideId} cannot also be stale.`);
+    assert.ok(reapplied.reason, `reapplied override ${reapplied.overrideId} must include reason.`);
+  }
+  const staleTaskIds = new Set(reviewTasks.filter((task) => task.type === "stale_override").map((task) => task.id));
+  for (const stale of report.staleOverrides ?? []) {
+    assert.equal(
+      staleTaskIds.has(stale.overrideId) || staleTaskIds.has(`task_incremental_remap_${stale.overrideId}`),
+      true,
+      `stale override ${stale.overrideId} must be represented by a review task.`
+    );
+  }
+
+  const expectedReviewRequired =
+    codegenReview.gates.status === "blocked" ||
+    (report.staleOverrides ?? []).length > 0 ||
+    report.fileChanges.some((change) => change.change === "added" || change.change === "changed" || change.change === "removed");
+  assert.equal(report.reviewRequired, expectedReviewRequired, "incremental_sync_report.reviewRequired must reflect gates, stale overrides, and file changes.");
+  assert.ok(Array.isArray(report.warnings), "incremental_sync_report.warnings must be an array.");
+  if (report.mode === "initial_generation") {
+    assert.equal(report.warnings.some((warning) => warning.type === "no_previous_manifest"), true, "initial_generation must warn that no previous manifest exists.");
+  }
+}
+
+function assertManualOverrideSummary(summary, overrideSet) {
+  assert.equal(typeof summary.active, "number", "manualOverrideSummary.active must be a number.");
+  assert.equal(typeof summary.disabled, "number", "manualOverrideSummary.disabled must be a number.");
+  const overrides = overrideSet?.overrides ?? [];
+  const active = overrides.filter((override) => override.status === "active");
+  const disabled = overrides.filter((override) => override.status === "disabled");
+  assert.equal(summary.active, active.length, "manualOverrideSummary.active must match override_set.");
+  assert.equal(summary.disabled, disabled.length, "manualOverrideSummary.disabled must match override_set.");
+  const byType = {};
+  for (const override of active) byType[override.type] = (byType[override.type] ?? 0) + 1;
+  assert.deepEqual(summary.byType, byType, "manualOverrideSummary.byType must count active overrides by type.");
+  assert.ok(Array.isArray(summary.latest), "manualOverrideSummary.latest must be an array.");
+  assert.ok(summary.latest.length <= 5, "manualOverrideSummary.latest must contain at most five overrides.");
+  const overrideIds = new Set(overrides.map((override) => override.id));
+  for (const entry of summary.latest) {
+    assert.equal(overrideIds.has(entry.id), true, `manualOverrideSummary.latest references unknown override ${entry.id}.`);
+    assert.ok(entry.type, `manualOverrideSummary.latest ${entry.id} must include type.`);
+    assert.ok(["active", "disabled"].includes(entry.status), `manualOverrideSummary.latest ${entry.id} status must be known.`);
+    assert.ok(entry.target, `manualOverrideSummary.latest ${entry.id} must include target.`);
+  }
+}
+
+function assertCodegenReviewGates(codegenReview, reviewTasks, incrementalSyncReport) {
+  assert.equal(typeof codegenReview.gates.canWrite, "boolean", "codegen_review.gates.canWrite must be boolean.");
+  assert.ok(["ready", "blocked"].includes(codegenReview.gates.status), "codegen_review.gates.status must be known.");
+  assert.equal(codegenReview.gates.canWrite, codegenReview.gates.status === "ready", "codegen_review.gates.canWrite must match gate status.");
+  const blockerTypes = new Set(codegenReview.gates.blockers.map((blocker) => blocker.type));
+  const openP0Tasks = reviewTasks.filter((task) => task.status === "open" && task.priority === "P0");
+  assert.deepEqual(codegenReview.blockingTasks, openP0Tasks.map((task) => task.id), "codegen_review.blockingTasks must list open P0 tasks.");
+  for (const task of openP0Tasks) {
+    assert.equal(blockerTypes.has("blocking_review_task"), true, `open P0 task ${task.id} must block codegen write.`);
+  }
+  if (incrementalSyncReport.staleOverrides.length > 0 || reviewTasks.some((task) => task.status === "open" && task.type === "stale_override")) {
+    assert.equal(blockerTypes.has("stale_override_unresolved"), true, "stale overrides must block codegen write.");
+  }
+  if (codegenReview.files.some((file) => file.action === "conflict")) {
+    assert.equal(blockerTypes.has("manual_file_conflict"), true, "manual file conflicts must block codegen write.");
   }
 }
 
