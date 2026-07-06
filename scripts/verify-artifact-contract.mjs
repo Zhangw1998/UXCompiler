@@ -136,6 +136,8 @@ const layoutDecisions = json("layout_decisions.json");
 const inferredComponents = json("inferred_components.json");
 const componentInstanceMap = json("component_instance_map.json");
 const componentConfidenceReport = json("component_confidence_report.json");
+const reviewTasks = json("review_tasks.json");
+const taskStatusReport = json("task_status_report.json");
 const assetManifest = json("asset_manifest.json");
 const i18nManifest = json("i18n_manifest.json");
 const normalized = json("normalized_design_ir.json");
@@ -215,9 +217,7 @@ assertAssetManifestContract(
 assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport, semanticIR);
 assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, flutterGenerationManifest, visualDiffReport, normalized, overrideSet);
 assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap);
-if (parsedJsonFiles.has("review_tasks.json")) {
-  assertReviewTaskArtifacts(reviewTaskSourceNodeIds(rawSourceNodeIds, parsedJsonFiles.get("node_remap_report.json")), normalizedIds, parsedJsonFiles.get("review_tasks.json"));
-}
+assertReviewTaskArtifacts(reviewTaskSourceNodeIds(rawSourceNodeIds, parsedJsonFiles.get("node_remap_report.json")), normalizedIds, reviewTasks, taskStatusReport);
 
 walkNormalizedNode(normalized.tree, (node) => {
   assert.ok(node.sourceNodeIds.length > 0, `Normalized node ${node.id} must include sourceNodeIds.`);
@@ -344,8 +344,9 @@ function assertI18nManifestWarnings(rawSourceNodeIds, manifest, label) {
   }
 }
 
-function assertReviewTaskArtifacts(rawSourceNodeIds, normalizedIds, tasks) {
+function assertReviewTaskArtifacts(rawSourceNodeIds, normalizedIds, tasks, statusReport) {
   assertReviewTaskContract(tasks, "review_tasks.json");
+  assertReviewTaskStatusReport(tasks, statusReport);
   for (const task of tasks) {
     if (task.target.normalizedNodeId) {
       assert.equal(
@@ -361,6 +362,35 @@ function assertReviewTaskArtifacts(rawSourceNodeIds, normalizedIds, tasks) {
       assert.ok(task.closedReason || task.closeReason, `${task.id}: closed task must include a closed reason.`);
     }
   }
+}
+
+function assertReviewTaskStatusReport(tasks, statusReport) {
+  assert.equal(typeof statusReport.version, "string", "task_status_report.version must be present.");
+  assert.equal(typeof statusReport.generatedAt, "string", "task_status_report.generatedAt must be present.");
+  assert.equal(statusReport.total, tasks.length, "task_status_report.total must match review_tasks length.");
+  const openTasks = tasks.filter((task) => task.status === "open");
+  assert.equal(statusReport.open, openTasks.length, "task_status_report.open must match open review tasks.");
+  assert.equal(typeof statusReport.byPriority, "object", "task_status_report.byPriority must be an object.");
+  assert.ok(statusReport.byPriority !== null && !Array.isArray(statusReport.byPriority), "task_status_report.byPriority must be an object.");
+  assert.equal(typeof statusReport.byType, "object", "task_status_report.byType must be an object.");
+  assert.ok(statusReport.byType !== null && !Array.isArray(statusReport.byType), "task_status_report.byType must be an object.");
+  assert.equal(typeof statusReport.codegenWriteBlocked, "boolean", "task_status_report.codegenWriteBlocked must be boolean.");
+  assertStringArray(statusReport.blockedReasons, "task_status_report.blockedReasons");
+
+  const expectedByPriority = { P0: 0, P1: 0, P2: 0 };
+  const expectedByType = new Map();
+  for (const task of openTasks) {
+    expectedByPriority[task.priority] += 1;
+    expectedByType.set(task.type, (expectedByType.get(task.type) ?? 0) + 1);
+  }
+  for (const priority of ["P0", "P1", "P2"]) {
+    assert.equal(statusReport.byPriority[priority], expectedByPriority[priority], `task_status_report.byPriority.${priority} must match open tasks.`);
+  }
+  assert.deepEqual(new Map(Object.entries(statusReport.byType)), expectedByType, "task_status_report.byType must match open task types.");
+
+  const openP0Titles = openTasks.filter((task) => task.priority === "P0").map((task) => task.title);
+  assert.equal(statusReport.codegenWriteBlocked, openP0Titles.length > 0, "task_status_report.codegenWriteBlocked must reflect open P0 tasks.");
+  assert.deepEqual(new Set(statusReport.blockedReasons), new Set(openP0Titles), "task_status_report.blockedReasons must list every open P0 task title.");
 }
 
 function assertTokenArtifacts(rawSourceNodeIds, tokens, tokenUsageMap, tokenConfidenceReport) {

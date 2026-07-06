@@ -1046,6 +1046,7 @@ try {
   const reappliedOverrides = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/reapplied_overrides.json`);
   const staleOverrides = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/stale_overrides.json`);
   const reviewTasksAfterSync = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/review_tasks.json`);
+  const taskStatusAfterSync = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/task_status_report.json`);
   assert.equal(syncRemapReport.newSnapshotId, "workbench_smoke_next");
   assert.notEqual(syncRemapReport.tokenMigrationStatus, "unchanged");
   assert.equal(syncRemapReport.visualDiffChange.status, "missing_new");
@@ -1058,6 +1059,9 @@ try {
   assert.equal(reappliedOverrides.some((entry) => entry.overrideId === "ovr_tree_verify_rename_title"), true);
   assert.equal(staleOverrides.length > 0, true);
   assert.equal(reviewTasksAfterSync.some((task) => task.id.startsWith("task_incremental_remap_")), true);
+  assert.equal(taskStatusAfterSync.total, reviewTasksAfterSync.length);
+  assert.equal(taskStatusAfterSync.open, reviewTasksAfterSync.filter((task) => task.status === "open").length);
+  assert.equal(taskStatusAfterSync.byType.stale_override, reviewTasksAfterSync.filter((task) => task.status === "open" && task.type === "stale_override").length);
   const staleGateResponse = await fetch(`${base}/api/workbench/codegen-review`, {
     method: "POST",
     headers: { "content-type": "application/json" },

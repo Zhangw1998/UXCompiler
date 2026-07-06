@@ -792,6 +792,7 @@ async function applyWorkbenchSyncRemap(body) {
     ...asArray(existingReviewTasks).filter((task) => !incrementalTaskIds.has(task.id)),
     ...result.incrementalReviewTasks
   ];
+  const nextTaskStatusReport = buildTaskStatusReport(mergedReviewTasks, now);
   const report = {
     version: "0.1.0",
     generatedAt: now,
@@ -820,13 +821,15 @@ async function applyWorkbenchSyncRemap(body) {
   await writeJson(resolve(artifactDir, "stale_overrides.json"), result.staleOverrides);
   await writeJson(resolve(artifactDir, "incremental_review_tasks.json"), result.incrementalReviewTasks);
   await writeJson(resolve(artifactDir, "review_tasks.json"), mergedReviewTasks);
+  await writeJson(resolve(artifactDir, "task_status_report.json"), nextTaskStatusReport);
   await writeJson(resolve(artifactDir, "workbench_sync_remap_report.json"), report);
   return {
     report,
     overrideSet: result.overrideSet,
     nodeRemapReport: result.nodeRemapReport,
     tokenMigrationReport: result.tokenMigrationReport,
-    reviewTasks: mergedReviewTasks
+    reviewTasks: mergedReviewTasks,
+    taskStatusReport: nextTaskStatusReport
   };
 }
 
