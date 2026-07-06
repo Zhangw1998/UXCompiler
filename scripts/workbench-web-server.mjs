@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createServer } from "node:http";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import { codegenProjectFileProbePaths, createCodegenReview } from "../packages/codegen-review/dist/index.js";
 import { runIncrementalSync } from "../packages/incremental-sync/dist/index.js";
@@ -681,6 +681,7 @@ async function applyWorkbenchStudioOperation(body) {
   await writeJson(resolve(artifactDir, "final_asset_manifest.json"), result.finalAssetManifest);
   await writeJson(resolve(artifactDir, "final_i18n_manifest.json"), result.finalI18nManifest);
   await writeJson(resolve(artifactDir, "arb/app_en.arb"), result.finalArbFile);
+  await ensureFileBackedAssets(artifactDir, artifactDir, result.finalAssetManifest);
   await writeJson(resolve(artifactDir, "workbench_studio_action_report.json"), report);
 
   return {
@@ -1104,6 +1105,7 @@ async function rebuildReviewedArtifacts(artifactDir, overrideSet, now, reviewedP
   });
   await writeJson(resolve(artifactDir, "reviewed_normalized_design_ir.json"), reviewedNormalizedDesignIR);
   await writeJson(resolve(artifactDir, "reviewed_asset_manifest.json"), reviewedAssetManifest);
+  await ensureFileBackedAssets(artifactDir, artifactDir, reviewedAssetManifest);
   await writeJson(resolve(artifactDir, "reviewed_i18n_manifest.json"), reviewedI18nManifest);
   await writeJson(resolve(artifactDir, "reviewed_inferred_tokens.json"), reviewedInferredTokens);
   await writeJson(resolve(artifactDir, "reviewed_arb/app_en.arb"), reviewedArbFile);
@@ -1164,7 +1166,67 @@ async function refreshStudioArtifacts(artifactDir, overrideSet, now, nowValue = 
   await writeJson(resolve(artifactDir, "final_asset_manifest.json"), studioResult.finalAssetManifest);
   await writeJson(resolve(artifactDir, "final_i18n_manifest.json"), studioResult.finalI18nManifest);
   await writeJson(resolve(artifactDir, "arb/app_en.arb"), studioResult.finalArbFile);
+  await ensureFileBackedAssets(artifactDir, artifactDir, studioResult.finalAssetManifest);
   return { studioResult, rebuilt };
+}
+
+async function ensureFileBackedAssets(sourceDir, outDir, assetManifest) {
+  await Promise.all(
+    (assetManifest.assets ?? [])
+      .filter((asset) => typeof asset.path === "string" && asset.path.length > 0)
+      .map(async (asset) => {
+        const target = resolveSafeAssetPath(outDir, asset.path);
+        if (await fileExists(target)) return;
+        const source = resolveSafeAssetPath(sourceDir, asset.path);
+        if (source !== target && (await fileExists(source))) {
+          await mkdir(dirname(target), { recursive: true });
+          await copyFile(source, target);
+          return;
+        }
+        await mkdir(dirname(target), { recursive: true });
+        if (asset.format === "svg" || asset.path.toLowerCase().endsWith(".svg")) {
+          await writeFile(target, renderPlaceholderSvgAsset(asset), "utf8");
+        } else if (asset.format === "png" || asset.path.toLowerCase().endsWith(".png")) {
+          await writeFile(target, placeholderPngBytes());
+        }
+      })
+  );
+}
+
+function resolveSafeAssetPath(base, assetPath) {
+  if (assetPath.startsWith("/") || assetPath.includes("..") || !assetPath.startsWith("assets/")) {
+    throw new Error(`Unsafe asset path: ${assetPath}`);
+  }
+  return resolve(base, assetPath);
+}
+
+async function fileExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function renderPlaceholderSvgAsset(asset) {
+  const title = escapeXml(asset.sourceName || asset.id);
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1" data-uxc-placeholder="true" data-uxc-source-node-id="${escapeXml(asset.sourceNodeId)}">`,
+    `  <title>${title}</title>`,
+    `  <rect width="1" height="1" fill="none" />`,
+    "</svg>",
+    ""
+  ].join("\n");
+}
+
+function escapeXml(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function placeholderPngBytes() {
+  return Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64");
 }
 
 async function appendOverrideHistory(artifactDir, previousOverrideSet, nextOverrideSet, context = {}) {

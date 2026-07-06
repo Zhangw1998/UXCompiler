@@ -524,6 +524,7 @@ try {
   assert.equal(reviewedDividerAsset.scale, 3);
   assert.deepEqual(reviewedDividerAsset.cropBounds, { x: 185, y: 622, w: 20, h: 20 });
   assert.equal(reviewedDividerAsset.excludeTextNodes, true);
+  assert.equal(existsSync(resolve(sampleDir, "assets/slices/divider_dot_workbench.png")), true);
 
   const studioI18nResponse = await fetch(`${base}/api/workbench/studio-operation`, {
     method: "POST",

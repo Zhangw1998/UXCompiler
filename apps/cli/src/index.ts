@@ -333,6 +333,7 @@ async function runStudioCommand(args: string[]): Promise<void> {
     writeJsonFile(resolve(outDir, "override_conflict_report.json"), result.overrideConflictReport),
     writeJsonFile(resolve(outDir, "stale_override_report.json"), result.staleOverrideReport)
   ]);
+  await ensureFileBackedAssets(artifactDir, outDir, result.finalAssetManifest);
 
   if (result.validationReport.rejectedOperationIds.length > 0) {
     throw new Error(
@@ -2247,6 +2248,62 @@ async function stageCodegenAssetSources(
       }
     })
   );
+}
+
+async function ensureFileBackedAssets(sourceDir: string, outDir: string, assetManifest: { assets?: AssetManifestEntry[] }): Promise<void> {
+  await Promise.all(
+    (assetManifest.assets ?? [])
+      .filter((asset) => typeof asset.path === "string" && asset.path.length > 0)
+      .map(async (asset) => {
+        const assetPath = asset.path as string;
+        const target = resolveSafeAssetPath(outDir, assetPath);
+        if (await fileExists(target)) return;
+        const source = resolveSafeAssetPath(sourceDir, assetPath);
+        if (source !== target && (await fileExists(source))) {
+          await mkdir(dirname(target), { recursive: true });
+          await copyFile(source, target);
+          return;
+        }
+        await mkdir(dirname(target), { recursive: true });
+        if (asset.format === "svg" || assetPath.toLowerCase().endsWith(".svg")) {
+          await writeFile(target, renderPlaceholderSvgAsset(asset), "utf8");
+        } else if (asset.format === "png" || assetPath.toLowerCase().endsWith(".png")) {
+          await writeFile(target, placeholderPngBytes());
+        }
+      })
+  );
+}
+
+function resolveSafeAssetPath(base: string, assetPath: string): string {
+  if (assetPath.startsWith("/") || assetPath.includes("..") || !assetPath.startsWith("assets/")) {
+    throw new Error(`Unsafe asset path: ${assetPath}`);
+  }
+  return resolve(base, assetPath);
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await readFile(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function renderPlaceholderSvgAsset(asset: AssetManifestEntry): string {
+  const title = escapeXml(asset.sourceName || asset.id);
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1" data-uxc-placeholder="true" data-uxc-source-node-id="${escapeXml(asset.sourceNodeId)}">`,
+    `  <title>${title}</title>`,
+    `  <rect width="1" height="1" fill="none" />`,
+    "</svg>",
+    ""
+  ].join("\n");
+}
+
+function placeholderPngBytes(): Buffer {
+  return Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64");
 }
 
 async function readFirstJsonFile<T>(paths: string[]): Promise<T> {

@@ -181,6 +181,9 @@ function validateOperation(
       if (operation.path && assetPathInUse(input.assetManifest, operation.path, operation.assetId, operation.sourceNodeId)) {
         addIssue(issues, operationId, "invalid_asset", `Asset path ${operation.path} is already in use.`);
       }
+      if (operation.path && !isSafeAssetPath(operation.path)) {
+        addIssue(issues, operationId, "invalid_asset", `Asset path ${operation.path} must be a relative path under assets/.`);
+      }
       if (operation.scale !== undefined && (!Number.isFinite(operation.scale) || operation.scale <= 0 || operation.scale > 4)) {
         addIssue(issues, operationId, "invalid_asset", "Asset export scale must be between 0.01 and 4.");
       }
@@ -647,6 +650,10 @@ function findAsset(manifest: AssetManifest, target: { assetId?: string; sourceNo
 
 function assetPathInUse(manifest: AssetManifest, path: string, assetId?: string, sourceNodeId?: string): boolean {
   return manifest.assets.some((asset) => asset.path === path && asset.id !== assetId && asset.sourceNodeId !== sourceNodeId);
+}
+
+function isSafeAssetPath(path: string): boolean {
+  return !path.startsWith("/") && !path.includes("..") && path.startsWith("assets/");
 }
 
 function findMessage(manifest: I18nManifest, target: { messageKey?: string; sourceNodeId?: string }) {

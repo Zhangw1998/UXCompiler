@@ -300,6 +300,14 @@ const invalid = applyStudioOperations({
       reason: "Should be rejected because crop bounds must have positive dimensions."
     },
     {
+      id: "bad_asset_path_traversal",
+      kind: "set_asset_strategy",
+      assetId: "asset_1_2",
+      strategy: "image_asset",
+      path: "../outside.png",
+      reason: "Should be rejected because asset paths must stay under assets/."
+    },
+    {
       id: "bad_disable_missing_override",
       kind: "disable_override",
       overrideId: "ovr_missing",
@@ -315,6 +323,7 @@ assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === 
 assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_duplicate_path" && issue.code === "invalid_asset"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_scale" && issue.code === "invalid_asset"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_crop" && issue.code === "invalid_asset"));
+assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_asset_path_traversal" && issue.code === "invalid_asset"));
 assert.ok(invalid.validationReport.issues.some((issue) => issue.operationId === "bad_disable_missing_override" && issue.code === "invalid_override"));
 
 const sequentialApprove = applyStudioOperations({
@@ -451,6 +460,7 @@ for (const file of [
 ]) {
   assert.equal(existsSync(resolve(studioDir, file)), true, `Missing ${file}`);
 }
+assert.equal(existsSync(resolve(studioDir, "assets/slices/divider_dot.png")), true, "Missing CLI Studio decorative slice asset file");
 const cliRegistry = JSON.parse(readFileSync(resolve(studioDir, "component_registry.json"), "utf8"));
 assert.equal(cliRegistry.components[0].id, "cmp_primary_button");
 

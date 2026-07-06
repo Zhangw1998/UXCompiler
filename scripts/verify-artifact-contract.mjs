@@ -1186,6 +1186,7 @@ function assertAssetManifestContract(
   }
 
   const effectiveAssetPaths = fileBackedAssetPaths(effectiveManifest);
+  assertFileBackedAssetsExist(effectiveAssetPaths);
   assertPubspecPatch(pubspecPatch, effectiveAssetPaths);
   assertFlutterAssetPlanMatchesPubspec(flutterGenerationManifest, effectiveAssetPaths);
   assertMaterializedAssetReport(materializedReport);
@@ -1290,6 +1291,12 @@ function assertPubspecPatch(pubspecPatch, effectiveAssetPaths) {
     assert.equal(pubspecPatch.patch, "", "pubspec_patch.patch must be empty when no file-backed assets are required.");
   }
   assert.deepEqual(pubspecAssets, effectiveAssetPaths, "pubspec_patch.assets must exactly match file-backed paths from the effective asset manifest.");
+}
+
+function assertFileBackedAssetsExist(effectiveAssetPaths) {
+  for (const assetPath of effectiveAssetPaths) {
+    assert.equal(existsSync(resolve(root, assetPath)), true, `file-backed asset path is missing from artifact root: ${assetPath}`);
+  }
 }
 
 function assertFlutterAssetPlanMatchesPubspec(flutterGenerationManifest, effectiveAssetPaths) {
