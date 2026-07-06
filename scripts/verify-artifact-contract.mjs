@@ -16,6 +16,9 @@ const requiredJsonFiles = [
   "regions.json",
   "layout_candidates.json",
   "layout_decisions.json",
+  "inferred_components.json",
+  "component_instance_map.json",
+  "component_confidence_report.json",
   "asset_manifest.json",
   "i18n_manifest.json",
   "normalized_design_ir.json",
@@ -57,6 +60,9 @@ const tokens = json("inferred_tokens.json");
 const regions = json("regions.json");
 const layoutCandidates = json("layout_candidates.json");
 const layoutDecisions = json("layout_decisions.json");
+const inferredComponents = json("inferred_components.json");
+const componentInstanceMap = json("component_instance_map.json");
+const componentConfidenceReport = json("component_confidence_report.json");
 const assetManifest = json("asset_manifest.json");
 const i18nManifest = json("i18n_manifest.json");
 const normalized = json("normalized_design_ir.json");
@@ -99,6 +105,7 @@ assertSourceRefs(rawSourceNodeIds, "inferred_tokens.radii", tokens.radii, (entry
 assertSourceRefs(rawSourceNodeIds, "inferred_tokens.shadows", tokens.shadows, (entry) => entry.sourceNodeIds ?? []);
 assertSourceRefs(rawSourceNodeIds, "regions", regions, (entry) => entry.sourceNodeIds ?? []);
 assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, layoutCandidates, layoutDecisions);
+assertComponentArtifacts(rawSourceNodeIds, inferredComponents, componentInstanceMap, componentConfidenceReport, semanticIR);
 assertSourceRefs(rawSourceNodeIds, "asset_manifest.assets", assetManifest.assets, (entry) => [entry.sourceNodeId]);
 assertSourceRefs(rawSourceNodeIds, "i18n_manifest.messages", i18nManifest.messages, (entry) => [entry.sourceNodeId]);
 assertI18nManifestWarnings(rawSourceNodeIds, i18nManifest, "i18n_manifest");
@@ -261,6 +268,110 @@ function assertReviewTaskArtifacts(rawSourceNodeIds, normalizedIds, tasks) {
     if (task.status === "closed") {
       assert.ok(task.closedReason || task.closeReason, `${task.id}: closed task must include a closed reason.`);
     }
+  }
+}
+
+function assertComponentArtifacts(rawSourceNodeIds, inferredComponents, componentInstanceMap, componentConfidenceReport, semanticIR) {
+  assert.equal(inferredComponents.version, "2.0", "inferred_components.version must be 2.0.");
+  assert.ok(
+    ["candidates_detected", "no_reusable_components_detected"].includes(inferredComponents.status),
+    "inferred_components.status must be known."
+  );
+  assert.ok(Array.isArray(inferredComponents.candidates), "inferred_components.candidates must be an array.");
+  assertScore(inferredComponents.confidence, "inferred_components.confidence");
+
+  assert.equal(componentInstanceMap.version, "2.0", "component_instance_map.version must be 2.0.");
+  assert.ok(Array.isArray(componentInstanceMap.components), "component_instance_map.components must be an array.");
+  assertStringArray(componentInstanceMap.unmappedSourceNodeIds, "component_instance_map.unmappedSourceNodeIds", (sourceNodeId, label) => {
+    assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `${label} references unknown sourceNodeId ${sourceNodeId}.`);
+  });
+
+  assert.equal(componentConfidenceReport.version, "2.0", "component_confidence_report.version must be 2.0.");
+  assert.ok(["ready", "no_candidates"].includes(componentConfidenceReport.status), "component_confidence_report.status must be known.");
+  assert.ok(Array.isArray(componentConfidenceReport.candidates), "component_confidence_report.candidates must be an array.");
+  assert.ok(Array.isArray(componentConfidenceReport.warnings), "component_confidence_report.warnings must be an array.");
+
+  assert.deepEqual(
+    semanticIR.inferredComponents,
+    inferredComponents,
+    "semantic_ir.inferredComponents must embed inferred_components.json exactly."
+  );
+
+  if (inferredComponents.status === "no_reusable_components_detected") {
+    assert.deepEqual(inferredComponents.candidates, [], "no_reusable_components_detected must not include candidates.");
+    assert.ok(inferredComponents.fallback, "no_reusable_components_detected must include a fallback strategy.");
+    assert.equal(componentConfidenceReport.status, "no_candidates", "no reusable components must produce a no_candidates confidence report.");
+    assert.deepEqual(componentInstanceMap.components, [], "no reusable components must not produce instance-map components.");
+    assert.equal(
+      componentConfidenceReport.warnings.some((warning) => warning.type === "no_reusable_components_detected" && warning.message),
+      true,
+      "no reusable components must include an explicit confidence-report warning."
+    );
+    return;
+  }
+
+  assert.equal(componentConfidenceReport.status, "ready", "detected components must produce a ready confidence report.");
+  assert.ok(inferredComponents.candidates.length > 0, "candidates_detected must include candidates.");
+
+  const inferredIds = new Set();
+  for (const candidate of inferredComponents.candidates) {
+    assertComponentCandidate(rawSourceNodeIds, candidate, inferredIds);
+  }
+
+  const instanceIds = new Set();
+  for (const component of componentInstanceMap.components) {
+    assert.ok(component.componentId, "component_instance_map component must include componentId.");
+    assert.equal(inferredIds.has(component.componentId), true, `component_instance_map references unknown componentId ${component.componentId}.`);
+    assert.ok(["candidate", "accepted", "rejected", "fallback"].includes(component.status), `${component.componentId} status must be known.`);
+    assert.ok(Array.isArray(component.instances), `${component.componentId} instances must be an array.`);
+    assert.ok(component.instances.length >= 2, `${component.componentId} must map at least two instances.`);
+    for (const [index, instance] of component.instances.entries()) {
+      assertStringArray(instance.sourceNodeIds, `${component.componentId}.instances[${index}].sourceNodeIds`, (sourceNodeId, label) => {
+        assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `${label} references unknown sourceNodeId ${sourceNodeId}.`);
+      });
+      assert.ok(instance.sourceNodeIds.length > 0, `${component.componentId}.instances[${index}] must include sourceNodeIds.`);
+    }
+    instanceIds.add(component.componentId);
+  }
+
+  const reportIds = new Set();
+  for (const candidate of componentConfidenceReport.candidates) {
+    assert.ok(candidate.componentId, "component_confidence_report candidate must include componentId.");
+    assert.equal(inferredIds.has(candidate.componentId), true, `component_confidence_report references unknown componentId ${candidate.componentId}.`);
+    assertScore(candidate.confidence, `component_confidence_report.${candidate.componentId}.confidence`);
+    assert.equal(typeof candidate.instanceCount, "number", `${candidate.componentId} instanceCount must be a number.`);
+    assert.ok(Number.isInteger(candidate.instanceCount) && candidate.instanceCount >= 2, `${candidate.componentId} instanceCount must be at least 2.`);
+    assert.ok(["auto_reusable", "needs_review", "fallback"].includes(candidate.gate), `${candidate.componentId} gate must be known.`);
+    assert.ok(candidate.reason, `${candidate.componentId} confidence report must include a reason.`);
+    reportIds.add(candidate.componentId);
+  }
+
+  assert.deepEqual(instanceIds, inferredIds, "component_instance_map must cover every inferred component exactly once.");
+  assert.deepEqual(reportIds, inferredIds, "component_confidence_report must cover every inferred component exactly once.");
+}
+
+function assertComponentCandidate(rawSourceNodeIds, candidate, seenIds) {
+  assert.ok(candidate && typeof candidate === "object" && !Array.isArray(candidate), "component candidate must be an object.");
+  assert.ok(candidate.componentId, "component candidate must include componentId.");
+  assert.equal(seenIds.has(candidate.componentId), false, `Duplicate component candidate ${candidate.componentId}.`);
+  seenIds.add(candidate.componentId);
+  assert.ok(candidate.name, `component candidate ${candidate.componentId} must include a name.`);
+  assert.ok(["Button", "Card", "ListItem"].includes(candidate.kind), `${candidate.componentId} kind must be supported.`);
+  assertScore(candidate.confidence, `inferred_components.${candidate.componentId}.confidence`);
+  assertStringArray(candidate.sourceInstances, `inferred_components.${candidate.componentId}.sourceInstances`, (sourceNodeId, label) => {
+    assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `${label} references unknown sourceNodeId ${sourceNodeId}.`);
+  });
+  assert.ok(candidate.sourceInstances.length >= 2, `${candidate.componentId} must have at least two source instances.`);
+  assert.ok(Array.isArray(candidate.evidence), `${candidate.componentId} evidence must be an array.`);
+  assert.ok(candidate.evidence.length > 0, `${candidate.componentId} must include evidence.`);
+  assert.ok(Array.isArray(candidate.props), `${candidate.componentId} props must be an array.`);
+  for (const [index, prop] of candidate.props.entries()) {
+    assert.ok(prop.name, `${candidate.componentId}.props[${index}] must include a name.`);
+    assert.ok(prop.kind, `${candidate.componentId}.${prop.name} must include kind.`);
+    assertStringArray(prop.sourceNodeIds, `${candidate.componentId}.${prop.name}.sourceNodeIds`, (sourceNodeId, label) => {
+      assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `${label} references unknown sourceNodeId ${sourceNodeId}.`);
+    });
+    assert.ok(prop.sourceNodeIds.length > 0, `${candidate.componentId}.${prop.name} must include sourceNodeIds.`);
   }
 }
 
