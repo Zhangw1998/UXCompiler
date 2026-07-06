@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { assertReviewTaskContract } from "./review-task-contract.mjs";
 
 const root = resolve("artifacts/sample");
+const staleRoot = resolve("artifacts/sample-stale-cleanup");
 const requiredFiles = [
   "raw_figma_scene.json",
   "extraction_report.json",
@@ -62,6 +63,20 @@ const requiredFiles = [
 
 for (const file of requiredFiles) {
   assert.equal(existsSync(resolve(root, file)), true, `Missing artifact: ${file}`);
+}
+for (const staleFile of [
+  "visual_diff_report.json",
+  "node_diff_report.json",
+  "diff_issues.json",
+  "manual_review_report.json",
+  "repair_patch.json",
+  "repair_iteration_log.json",
+  "diff_heatmap.png",
+  "preview_artifact.json",
+  "pipeline_run_report.json",
+  "flutter_preview_capture_report.json"
+]) {
+  assert.equal(existsSync(resolve(root, staleFile)), false, `Compile output must not retain stale runtime artifact: ${staleFile}`);
 }
 
 const readJson = (file) => JSON.parse(readFileSync(resolve(root, file), "utf8"));
@@ -259,6 +274,37 @@ if (commandExists("flutter")) {
   assert.equal(captureReport.dpr, 1);
   assert.deepEqual(captureReport.fonts, []);
 }
+
+rmSync(staleRoot, { recursive: true, force: true });
+mkdirSync(resolve(staleRoot, "diff"), { recursive: true });
+writeFileSync(resolve(staleRoot, "visual_diff_report.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "node_diff_report.json"), "[]\n");
+writeFileSync(resolve(staleRoot, "diff_heatmap.png"), "stale");
+writeFileSync(resolve(staleRoot, "preview_artifact.json"), "{}\n");
+writeFileSync(resolve(staleRoot, "diff/visual_diff_report.json"), "{}\n");
+execFileSync(
+  "node",
+  [
+    "apps/cli/dist/index.js",
+    "compile",
+    "--input",
+    "examples/fixtures/login_raw_figma_scene.json",
+    "--out",
+    staleRoot
+  ],
+  { stdio: "pipe" }
+);
+for (const stalePath of [
+  "visual_diff_report.json",
+  "node_diff_report.json",
+  "diff_heatmap.png",
+  "preview_artifact.json",
+  "diff/visual_diff_report.json"
+]) {
+  assert.equal(existsSync(resolve(staleRoot, stalePath)), false, `Recompile must remove stale artifact: ${stalePath}`);
+}
+const staleCompileManifest = JSON.parse(readFileSync(resolve(staleRoot, "compile_manifest.json"), "utf8"));
+assert.equal(staleCompileManifest.artifacts.includes("visual_diff_report.json"), false);
 
 console.log("sample verification passed");
 

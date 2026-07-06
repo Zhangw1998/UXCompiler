@@ -1640,6 +1640,7 @@ async function writeFigmaSnapshot(outDir: string, extraction: FigmaExtractionRes
 }
 
 async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inputPath: string): Promise<void> {
+  await cleanStaleGeneratedArtifacts(outDir);
   const files: Array<[string, unknown | string]> = [
     ["raw_figma_scene.json", artifacts.rawFigmaScene],
     ["extraction_report.json", createRawExtractionReport(artifacts.rawFigmaScene)],
@@ -1800,6 +1801,27 @@ async function writeArtifacts(outDir: string, artifacts: PipelineArtifacts, inpu
     analyze: normalizeAnalyzeSummary(analyzeReport, "flutter_preview_analyze_report.json")
   });
   await writeCodegenReviewArtifacts(outDir, codegenReview);
+}
+
+async function cleanStaleGeneratedArtifacts(outDir: string): Promise<void> {
+  const stalePaths = [
+    "generated",
+    "patches",
+    "diff",
+    "visual_diff_report.json",
+    "node_diff_report.json",
+    "diff_issues.json",
+    "manual_review_report.json",
+    "repair_patch.json",
+    "repair_iteration_log.json",
+    "diff_heatmap.png",
+    "preview_artifact.json",
+    "pipeline_run_report.json",
+    "flutter_preview.png",
+    "flutter_preview_capture_report.json",
+    "project_write_report.json"
+  ];
+  await Promise.all(stalePaths.map((path) => rm(resolve(outDir, path), { recursive: true, force: true })));
 }
 
 async function writeRuntimeReviewTaskArtifacts(outDir: string, artifacts: PipelineArtifacts, runReport: FigmaRunReport): Promise<void> {

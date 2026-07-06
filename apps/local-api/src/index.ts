@@ -349,6 +349,7 @@ async function writePipelineArtifacts(
   artifacts: PipelineArtifacts,
   options: { assets?: SnapshotAsset[]; frameScreenshotAssetPath?: string; frameScreenshotPngBase64?: string } = {}
 ): Promise<MaterializedAssetReport> {
+  await cleanStaleGeneratedArtifacts(outDir);
   const files: Array<[string, unknown | string]> = [
     ["canonical_scene.json", artifacts.canonicalScene],
     ["canonicalization_report.json", artifacts.canonicalizationReport],
@@ -504,6 +505,27 @@ async function writePipelineArtifacts(
   });
   await writeJson(resolve(outDir, "flutter_generation_manifest.json"), codegenReview.codegenReview);
   return materializedAssetReport;
+}
+
+async function cleanStaleGeneratedArtifacts(outDir: string): Promise<void> {
+  const stalePaths = [
+    "generated",
+    "patches",
+    "diff",
+    "visual_diff_report.json",
+    "node_diff_report.json",
+    "diff_issues.json",
+    "manual_review_report.json",
+    "repair_patch.json",
+    "repair_iteration_log.json",
+    "diff_heatmap.png",
+    "preview_artifact.json",
+    "pipeline_run_report.json",
+    "flutter_preview.png",
+    "flutter_preview_capture_report.json",
+    "project_write_report.json"
+  ];
+  await Promise.all(stalePaths.map((path) => rm(resolve(outDir, path), { recursive: true, force: true })));
 }
 
 async function writeRuntimeReviewTaskArtifacts(

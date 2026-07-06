@@ -15,19 +15,8 @@ rmSync(invalidRoot, { recursive: true, force: true });
 mkdirSync(dirname(invalidRoot), { recursive: true });
 cpSync(sampleRoot, invalidRoot, { recursive: true });
 
-const visualDiffReport = readJson(resolve(invalidRoot, "visual_diff_report.json"));
 writeSyntheticDiffImages(invalidRoot);
-visualDiffReport.environment = {
-  viewport: { width: 390, height: 844 },
-  dpr: 1,
-  fonts: ["Inter"],
-  flutterVersion: "Flutter uplift negative fixture",
-  themeBrightness: "light",
-  locale: "en",
-  textScaleFactor: 1,
-  safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
-  renderer: "uplift_contract_negative_fixture"
-};
+const visualDiffReport = syntheticVisualDiffReport();
 writeJson(resolve(invalidRoot, "visual_diff_report.json"), visualDiffReport);
 writeJson(resolve(invalidRoot, "node_diff_report.json"), visualDiffReport.issues ?? []);
 writeJson(resolve(invalidRoot, "manual_review_report.json"), {
@@ -120,4 +109,42 @@ function writeSyntheticDiffImages(root) {
   writeFileSync(resolve(root, "figma_reference.png"), png);
   writeFileSync(resolve(root, "flutter_preview.png"), png);
   writeFileSync(resolve(root, "diff_heatmap.png"), png);
+}
+
+function syntheticVisualDiffReport() {
+  return {
+    version: "2.0",
+    generatedAt: "2026-07-04T00:00:00.000Z",
+    inputs: {
+      reference: "figma_reference.png",
+      candidate: "flutter_preview.png",
+      heatmap: "diff_heatmap.png"
+    },
+    environment: {
+      viewport: { width: 390, height: 844 },
+      dpr: 1,
+      fonts: ["Inter"],
+      flutterVersion: "Flutter uplift negative fixture",
+      themeBrightness: "light",
+      locale: "en",
+      textScaleFactor: 1,
+      safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
+      renderer: "uplift_contract_negative_fixture"
+    },
+    page: {
+      pass: true,
+      score: {
+        visualScore: 1,
+        pixelDiffRatio: 0,
+        diffPixels: 0,
+        totalPixels: 1
+      },
+      threshold: {
+        visualScore: 0.99,
+        pixelDiffRatio: 0.01
+      }
+    },
+    issues: [],
+    warnings: []
+  };
 }
