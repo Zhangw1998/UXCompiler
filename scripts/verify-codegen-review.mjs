@@ -95,11 +95,12 @@ const fallbackSummary = createCodegenReview({
     ]
   }
 });
-assert.ok(
-  fallbackSummary.codegenReview.fallbackRegions.some(
-    (region) => region.nodeId === input.normalizedDesignIR.tree.id && region.strategy === "absolute_widget"
-  )
+const fallbackRegion = fallbackSummary.codegenReview.fallbackRegions.find(
+  (region) => region.nodeId === input.normalizedDesignIR.tree.id && region.strategy === "absolute_widget"
 );
+assert.ok(fallbackRegion);
+assert.equal(fallbackRegion.name, input.normalizedDesignIR.tree.name);
+assert.deepEqual(fallbackRegion.sourceNodeIds, input.normalizedDesignIR.tree.sourceNodeIds);
 
 const incremental = createCodegenReview({
   ...input,

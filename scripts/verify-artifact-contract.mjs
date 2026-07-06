@@ -251,6 +251,7 @@ for (const decision of fidelityManifest.renderDecisions ?? []) {
 }
 
 for (const fallback of normalized.fallbacks ?? []) {
+  assert.equal(normalizedIds.has(fallback.nodeId), true, `Fallback references unknown normalized nodeId ${fallback.nodeId}.`);
   assert.ok(fallback.reason, `Fallback for ${fallback.nodeId} must include a reason.`);
   assert.ok(fallback.strategy, `Fallback for ${fallback.nodeId} must include a strategy.`);
 }

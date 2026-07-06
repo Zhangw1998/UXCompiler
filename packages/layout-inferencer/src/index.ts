@@ -119,6 +119,7 @@ function normalizeNode(
 ): NormalizedNode {
   const visibleChildren = node.children.filter((child) => !child.flags.isInvisible && !child.flags.isZeroSize);
   const decision = decideLayout(node, visibleChildren);
+  const id = normalizedId(node.id);
   layoutCandidates.push({
     nodeId: node.id,
     candidates: decision.candidates
@@ -129,14 +130,14 @@ function normalizeNode(
     decision.decision.confidence < 0.7 || decision.decision.layout === "absolute";
   if (usesFidelityFallback) {
     fallbacks.push({
-      nodeId: node.id,
+      nodeId: id,
       reason: decision.decision.evidence.join(" "),
       strategy: decision.decision.fallback
     });
   }
 
   return {
-    id: normalizedId(node.id),
+    id,
     sourceNodeIds: [node.sourceNodeId],
     type: rootKind === "page" ? "page" : toNormalizedType(node),
     name: normalizedName(node),

@@ -67,8 +67,10 @@ for (const testCase of cases) {
   assertArtifactShape(result, testCase.name);
 
   const rootId = rootIdFor(testCase.name);
+  const normalizedRootId = normalizedRootIdFor(testCase.name);
   const decision = findDecision(result, rootId);
   assert.equal(decision.layout, testCase.expected, `${testCase.name} root should infer ${testCase.expected}`);
+  assert.equal(result.normalizedDesignIR.tree.id, normalizedRootId);
   assert.equal(result.normalizedDesignIR.tree.layout.type, testCase.expected);
 
   if (testCase.expected === "absolute") {
@@ -83,7 +85,7 @@ for (const testCase of cases) {
     `${testCase.name} fallback should be present in candidates`
   );
   const hasNormalizedFallback = result.normalizedDesignIR.fallbacks.some(
-    (fallback) => fallback.nodeId === rootId && fallback.strategy === decision.fallback
+    (fallback) => fallback.nodeId === normalizedRootId && fallback.strategy === decision.fallback
   );
   assert.equal(
     hasNormalizedFallback,
@@ -205,6 +207,10 @@ function node(id, canonicalType, x, y, w, h, children) {
 
 function rootIdFor(name) {
   return `c_${name}_root`;
+}
+
+function normalizedRootIdFor(name) {
+  return `n_${name}_root`;
 }
 
 function sourceIdFor(id) {
