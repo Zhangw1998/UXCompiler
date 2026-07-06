@@ -58,11 +58,16 @@ export interface InferredTokens {
   shadows: ShadowToken[];
 }
 
+export interface TokenUsageMapEntry {
+  tokenName: string;
+  sourceNodeIds: string[];
+}
+
 export interface TokenUsageMap {
-  colors: Record<string, string>;
-  spacing: Record<string, string>;
-  typography: Record<string, string>;
-  radii: Record<string, string>;
+  colors: Record<string, TokenUsageMapEntry>;
+  spacing: Record<string, TokenUsageMapEntry>;
+  typography: Record<string, TokenUsageMapEntry>;
+  radii: Record<string, TokenUsageMapEntry>;
 }
 
 export interface TokenConfidenceReport {

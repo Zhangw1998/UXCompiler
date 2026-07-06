@@ -278,19 +278,44 @@ function typographyName(sample: TypographySample): string {
   return "text_body_medium";
 }
 
-function buildValueMap(tokens: Array<{ aliases: string[]; name: string }>): Record<string, string> {
-  return Object.fromEntries(tokens.flatMap((token) => token.aliases.map((alias) => [alias, token.name])));
+function buildValueMap(tokens: Array<{ aliases: string[]; name: string; sourceNodeIds: string[] }>): TokenMiningResult["tokenUsageMap"]["colors"] {
+  return Object.fromEntries(
+    tokens.flatMap((token) =>
+      token.aliases.map((alias) => [
+        alias,
+        {
+          tokenName: token.name,
+          sourceNodeIds: token.sourceNodeIds
+        }
+      ])
+    )
+  );
 }
 
-function buildNumberMap(tokens: Array<{ aliases: number[]; name: string }>): Record<string, string> {
-  return Object.fromEntries(tokens.flatMap((token) => token.aliases.map((alias) => [String(alias), token.name])));
+function buildNumberMap(
+  tokens: Array<{ aliases: number[]; name: string; sourceNodeIds: string[] }>
+): TokenMiningResult["tokenUsageMap"]["spacing"] {
+  return Object.fromEntries(
+    tokens.flatMap((token) =>
+      token.aliases.map((alias) => [
+        String(alias),
+        {
+          tokenName: token.name,
+          sourceNodeIds: token.sourceNodeIds
+        }
+      ])
+    )
+  );
 }
 
-function buildTypographyMap(tokens: TypographyToken[]): Record<string, string> {
+function buildTypographyMap(tokens: TypographyToken[]): TokenMiningResult["tokenUsageMap"]["typography"] {
   return Object.fromEntries(
     tokens.map((token) => [
       [token.fontFamily, token.fontSize, token.fontWeight, token.lineHeight, token.letterSpacing].join("|"),
-      token.name
+      {
+        tokenName: token.name,
+        sourceNodeIds: token.sourceNodeIds
+      }
     ])
   );
 }

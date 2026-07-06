@@ -663,15 +663,15 @@ function assertTokenArtifacts(rawSourceNodeIds, tokens, tokenUsageMap, tokenConf
     for (const token of tokens[category]) assertTokenEntry(rawSourceNodeIds, category, token);
   }
 
-  assertTokenUsageMap(tokenNamesByCategory.get("colors"), tokenUsageMap.colors, "token_usage_map.colors");
-  assertTokenUsageMap(tokenNamesByCategory.get("spacing"), tokenUsageMap.spacing, "token_usage_map.spacing");
-  assertTokenUsageMap(tokenNamesByCategory.get("typography"), tokenUsageMap.typography, "token_usage_map.typography");
-  assertTokenUsageMap(tokenNamesByCategory.get("radii"), tokenUsageMap.radii, "token_usage_map.radii");
+  assertTokenUsageMap(rawSourceNodeIds, tokenNamesByCategory.get("colors"), tokenUsageMap.colors, "token_usage_map.colors");
+  assertTokenUsageMap(rawSourceNodeIds, tokenNamesByCategory.get("spacing"), tokenUsageMap.spacing, "token_usage_map.spacing");
+  assertTokenUsageMap(rawSourceNodeIds, tokenNamesByCategory.get("typography"), tokenUsageMap.typography, "token_usage_map.typography");
+  assertTokenUsageMap(rawSourceNodeIds, tokenNamesByCategory.get("radii"), tokenUsageMap.radii, "token_usage_map.radii");
   for (const token of tokens.spacing) assertAliasesCovered(tokenUsageMap.spacing, token, `spacing token ${token.name}`);
   for (const token of tokens.radii) assertAliasesCovered(tokenUsageMap.radii, token, `radius token ${token.name}`);
   for (const token of tokens.typography) {
     const key = [token.fontFamily, token.fontSize, token.fontWeight, token.lineHeight, token.letterSpacing].join("|");
-    assert.equal(tokenUsageMap.typography[key], token.name, `Typography token ${token.name} must be present in token_usage_map.`);
+    assert.equal(tokenUsageMap.typography[key]?.tokenName, token.name, `Typography token ${token.name} must be present in token_usage_map.`);
   }
 
   const lowConfidenceTokens = new Map();
@@ -735,17 +735,23 @@ function assertTokenEntry(rawSourceNodeIds, category, token) {
   }
 }
 
-function assertTokenUsageMap(validNames, usageMap, label) {
-  for (const [rawValue, tokenName] of Object.entries(usageMap)) {
+function assertTokenUsageMap(rawSourceNodeIds, validNames, usageMap, label) {
+  for (const [rawValue, entry] of Object.entries(usageMap)) {
     assert.ok(rawValue.length > 0, `${label} raw value must not be empty.`);
-    assert.equal(typeof tokenName, "string", `${label}.${rawValue} must map to a token name.`);
-    assert.equal(validNames.has(tokenName), true, `${label}.${rawValue} references unknown token ${tokenName}.`);
+    assert.equal(typeof entry, "object", `${label}.${rawValue} must map to a usage entry.`);
+    assert.ok(entry !== null && !Array.isArray(entry), `${label}.${rawValue} must map to a usage entry.`);
+    assert.equal(typeof entry.tokenName, "string", `${label}.${rawValue}.tokenName must be a string.`);
+    assert.equal(validNames.has(entry.tokenName), true, `${label}.${rawValue} references unknown token ${entry.tokenName}.`);
+    assertStringArray(entry.sourceNodeIds, `${label}.${rawValue}.sourceNodeIds`, (sourceNodeId, sourceLabel) => {
+      assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `${sourceLabel} references unknown sourceNodeId ${sourceNodeId}.`);
+    });
+    assert.ok(entry.sourceNodeIds.length > 0, `${label}.${rawValue}.sourceNodeIds must not be empty.`);
   }
 }
 
 function assertAliasesCovered(usageMap, token, label) {
   for (const alias of token.aliases) {
-    assert.equal(usageMap[String(alias)], token.name, `${label} alias ${alias} must be present in token_usage_map.`);
+    assert.equal(usageMap[String(alias)]?.tokenName, token.name, `${label} alias ${alias} must be present in token_usage_map.`);
   }
 }
 
