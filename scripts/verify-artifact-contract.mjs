@@ -33,6 +33,8 @@ const requiredJsonFiles = [
   "fidelity_generation_manifest.json",
   "flutter_generation_manifest.json",
   "visual_diff_report.json",
+  "node_diff_report.json",
+  "manual_review_report.json",
   "repair_patch.json",
   "repair_iteration_log.json",
   "compile_manifest.json"
@@ -77,6 +79,8 @@ const renderStrategyManifest = json("render_strategy_manifest.json");
 const fidelityManifest = json("fidelity_generation_manifest.json");
 const flutterGenerationManifest = json("flutter_generation_manifest.json");
 const visualDiffReport = json("visual_diff_report.json");
+const nodeDiffReport = json("node_diff_report.json");
+const manualReviewReport = json("manual_review_report.json");
 const repairPatch = json("repair_patch.json");
 const repairIterationLog = json("repair_iteration_log.json");
 const compileManifest = json("compile_manifest.json");
@@ -164,24 +168,7 @@ for (const artifactPath of compileManifest.artifacts ?? []) {
 }
 
 assert.deepEqual(renderStrategyManifest.viewport, normalized.source.viewport, "render strategy viewport must match normalized viewport.");
-assert.deepEqual(visualDiffReport.environment.viewport, normalized.source.viewport, "visual diff viewport must match normalized viewport.");
-assert.equal(typeof visualDiffReport.environment.dpr, "number", "visual diff report must record DPR.");
-assert.ok(Array.isArray(visualDiffReport.environment.fonts), "visual diff report must record font profile.");
-assert.equal(typeof visualDiffReport.environment.flutterVersion, "string", "visual diff report must record Flutter version.");
-assert.ok(visualDiffReport.environment.flutterVersion.length > 0, "visual diff Flutter version must not be empty.");
-assert.ok(["light", "dark"].includes(visualDiffReport.environment.themeBrightness), "visual diff report must record theme brightness.");
-assert.equal(typeof visualDiffReport.environment.locale, "string", "visual diff report must record locale.");
-assert.ok(visualDiffReport.environment.locale.length > 0, "visual diff locale must not be empty.");
-assert.equal(typeof visualDiffReport.environment.textScaleFactor, "number", "visual diff report must record text scale factor.");
-assert.ok(visualDiffReport.environment.textScaleFactor > 0, "visual diff text scale factor must be positive.");
-assert.deepEqual(
-  Object.keys(visualDiffReport.environment.safeArea ?? {}).sort(),
-  ["bottom", "left", "right", "top"],
-  "visual diff report must record safe area insets."
-);
-assert.equal(typeof visualDiffReport.environment.renderer, "string", "visual diff report must record renderer.");
-assertScore(visualDiffReport.page.score.visualScore, "visual_diff_report.page.score.visualScore");
-assertScore(visualDiffReport.page.score.pixelDiffRatio, "visual_diff_report.page.score.pixelDiffRatio");
+assertVisualDiffArtifacts(rawSourceNodeIds, normalized, visualDiffReport, nodeDiffReport, manualReviewReport);
 assertRepairArtifacts(repairPatch, repairIterationLog);
 
 console.log("artifact contract verification passed");
@@ -671,6 +658,96 @@ function assertAcceptedUpliftsHaveDiffEvidence(upliftDecisions, upliftDiffReport
     assert.ok(afterScore >= threshold, `Accepted uplift ${decision.regionId ?? ""} afterScore must meet threshold.`);
     assert.equal(comparison.accepted, true, `Accepted uplift ${decision.regionId ?? ""} diff comparison must be accepted.`);
   }
+}
+
+function assertVisualDiffArtifacts(rawSourceNodeIds, normalized, visualDiffReport, nodeDiffReport, manualReviewReport) {
+  assert.equal(typeof visualDiffReport.version, "string", "visual_diff_report.version must be present.");
+  assert.equal(typeof visualDiffReport.generatedAt, "string", "visual_diff_report.generatedAt must be present.");
+  assertVisualDiffInputs(visualDiffReport.inputs, "visual_diff_report.inputs");
+  assert.deepEqual(visualDiffReport.environment.viewport, normalized.source.viewport, "visual diff viewport must match normalized viewport.");
+  assert.equal(typeof visualDiffReport.environment.dpr, "number", "visual diff report must record DPR.");
+  assert.ok(Number.isFinite(visualDiffReport.environment.dpr) && visualDiffReport.environment.dpr > 0, "visual diff DPR must be positive.");
+  assert.ok(Array.isArray(visualDiffReport.environment.fonts), "visual diff report must record font profile.");
+  assert.equal(typeof visualDiffReport.environment.flutterVersion, "string", "visual diff report must record Flutter version.");
+  assert.ok(visualDiffReport.environment.flutterVersion.length > 0, "visual diff Flutter version must not be empty.");
+  assert.ok(["light", "dark"].includes(visualDiffReport.environment.themeBrightness), "visual diff report must record theme brightness.");
+  assert.equal(typeof visualDiffReport.environment.locale, "string", "visual diff report must record locale.");
+  assert.ok(visualDiffReport.environment.locale.length > 0, "visual diff locale must not be empty.");
+  assert.equal(typeof visualDiffReport.environment.textScaleFactor, "number", "visual diff report must record text scale factor.");
+  assert.ok(visualDiffReport.environment.textScaleFactor > 0, "visual diff text scale factor must be positive.");
+  assert.deepEqual(
+    Object.keys(visualDiffReport.environment.safeArea ?? {}).sort(),
+    ["bottom", "left", "right", "top"],
+    "visual diff report must record safe area insets."
+  );
+  assert.equal(typeof visualDiffReport.environment.renderer, "string", "visual diff report must record renderer.");
+  assert.equal(typeof visualDiffReport.page.pass, "boolean", "visual_diff_report.page.pass must be boolean.");
+  assertVisualDiffScore(visualDiffReport.page.score, "visual_diff_report.page.score");
+  assertScore(visualDiffReport.page.threshold.visualScore, "visual_diff_report.page.threshold.visualScore");
+  assertScore(visualDiffReport.page.threshold.pixelDiffRatio, "visual_diff_report.page.threshold.pixelDiffRatio");
+  assert.ok(Array.isArray(visualDiffReport.issues), "visual_diff_report.issues must be an array.");
+  assert.ok(Array.isArray(visualDiffReport.warnings), "visual_diff_report.warnings must be an array.");
+
+  assert.ok(Array.isArray(nodeDiffReport), "node_diff_report must be an array.");
+  assert.deepEqual(nodeDiffReport, visualDiffReport.issues, "node_diff_report.json must mirror visual_diff_report.issues.");
+  const issueIds = new Set();
+  for (const issue of nodeDiffReport) {
+    assert.ok(issue.issueId, "node diff issue must include issueId.");
+    assert.equal(issueIds.has(issue.issueId), false, `Duplicate visual diff issue ${issue.issueId}.`);
+    issueIds.add(issue.issueId);
+    assert.ok(["pixel_diff_region", "size_mismatch"].includes(issue.type), `visual diff issue ${issue.issueId} type must be known.`);
+    if (issue.sourceNodeId) {
+      assert.equal(rawSourceNodeIds.has(issue.sourceNodeId), true, `visual diff issue ${issue.issueId} references unknown sourceNodeId ${issue.sourceNodeId}.`);
+    }
+    if (issue.bounds) assertBounds(issue.bounds, `node_diff_report.${issue.issueId}.bounds`);
+    assertVisualDiffScore(issue.score, `node_diff_report.${issue.issueId}.score`);
+    assert.ok(Array.isArray(issue.suggestedFixes), `node diff issue ${issue.issueId} must include suggestedFixes.`);
+    if (!visualDiffReport.page.pass) assert.ok(issue.suggestedFixes.length > 0, `failing node diff issue ${issue.issueId} must include suggested fixes.`);
+  }
+
+  assert.equal(typeof manualReviewReport.version, "string", "manual_review_report.version must be present.");
+  assert.equal(typeof manualReviewReport.generatedAt, "string", "manual_review_report.generatedAt must be present.");
+  assert.equal(typeof manualReviewReport.required, "boolean", "manual_review_report.required must be boolean.");
+  assert.equal(manualReviewReport.required, !visualDiffReport.page.pass, "manual_review_report.required must match visual diff pass state.");
+  assert.ok(manualReviewReport.reason, "manual_review_report must include reason.");
+  assert.ok(["P0", "P1"].includes(manualReviewReport.severity), "manual_review_report severity must be known.");
+  assert.deepEqual(manualReviewReport.inputs, visualDiffReport.inputs, "manual_review_report inputs must match visual_diff_report inputs.");
+  assert.deepEqual(manualReviewReport.page, visualDiffReport.page, "manual_review_report page must match visual_diff_report page.");
+  assert.ok(Array.isArray(manualReviewReport.issues), "manual_review_report.issues must be an array.");
+  assert.ok(Array.isArray(manualReviewReport.suggestedActions), "manual_review_report.suggestedActions must be an array.");
+  const manualIssueIds = new Set(manualReviewReport.issues.map((issue) => issue.issueId));
+  assert.deepEqual(manualIssueIds, issueIds, "manual_review_report must cover every visual diff issue.");
+  if (manualReviewReport.required) {
+    assert.ok(manualReviewReport.issues.length > 0, "required manual_review_report must include issues.");
+    assert.ok(manualReviewReport.suggestedActions.length > 0, "required manual_review_report must include suggested actions.");
+  }
+}
+
+function assertVisualDiffInputs(inputs, label) {
+  assert.equal(typeof inputs, "object", `${label} must be an object.`);
+  assert.ok(inputs !== null && !Array.isArray(inputs), `${label} must be an object.`);
+  for (const key of ["reference", "candidate", "heatmap"]) {
+    assertSafeRelativePath(inputs[key], `${label}.${key}`);
+    assert.equal(existsSync(resolve(root, inputs[key])), true, `${label}.${key} file must exist: ${inputs[key]}`);
+    assert.ok(statSync(resolve(root, inputs[key])).size > 0, `${label}.${key} file must be non-empty: ${inputs[key]}`);
+  }
+}
+
+function assertVisualDiffScore(score, label) {
+  assertVisualDiffPixelCounts(score, label);
+  assertScore(score.visualScore, `${label}.visualScore`);
+  assertScore(score.pixelDiffRatio, `${label}.pixelDiffRatio`);
+}
+
+function assertVisualDiffPixelCounts(score, label) {
+  assert.equal(typeof score, "object", `${label} must be an object.`);
+  assert.ok(score !== null && !Array.isArray(score), `${label} must be an object.`);
+  for (const key of ["diffPixels", "totalPixels"]) {
+    assert.equal(typeof score[key], "number", `${label}.${key} must be a number.`);
+    assert.ok(Number.isInteger(score[key]) && score[key] >= 0, `${label}.${key} must be a non-negative integer.`);
+  }
+  assert.ok(score.totalPixels > 0, `${label}.totalPixels must be positive.`);
+  assert.ok(score.diffPixels <= score.totalPixels, `${label}.diffPixels must not exceed totalPixels.`);
 }
 
 function assertFlutterGenerationManifest(rawSourceNodeIds, traceableIds, manifest) {

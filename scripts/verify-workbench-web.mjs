@@ -1107,6 +1107,7 @@ function writeJson(base, file, value) {
 }
 
 function writeSyntheticVisualDiff(base) {
+  writeSyntheticDiffImages(base);
   const report = {
     version: "0.1.0",
     generatedAt: "2026-07-04T00:00:00.000Z",
@@ -1157,9 +1158,11 @@ function writeSyntheticVisualDiff(base) {
     warnings: []
   };
   writeFileSync(resolve(base, "visual_diff_report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  writeSyntheticDiffAuxiliaryReports(base, report);
 }
 
 function writeSyntheticTextVisualDiff(base) {
+  writeSyntheticDiffImages(base);
   const report = {
     version: "0.1.0",
     generatedAt: "2026-07-04T00:00:00.000Z",
@@ -1210,6 +1213,45 @@ function writeSyntheticTextVisualDiff(base) {
     warnings: []
   };
   writeFileSync(resolve(base, "visual_diff_report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  writeSyntheticDiffAuxiliaryReports(base, report);
+}
+
+function writeSyntheticDiffAuxiliaryReports(base, report) {
+  writeFileSync(resolve(base, "node_diff_report.json"), `${JSON.stringify(report.issues, null, 2)}\n`, "utf8");
+  const manualReviewReport = {
+    version: report.version,
+    generatedAt: report.generatedAt,
+    required: !report.page.pass,
+    reason: report.page.pass ? "Visual diff passed." : "Visual diff score is below threshold.",
+    severity: "P0",
+    inputs: report.inputs,
+    page: report.page,
+    issues: report.issues.map((issue) => ({
+      issueId: issue.issueId,
+      type: issue.type,
+      sourceNodeId: issue.sourceNodeId,
+      bounds: issue.bounds,
+      score: issue.score
+    })),
+    suggestedActions: [
+      {
+        label: "Review visual diff",
+        reason: "Synthetic Workbench smoke diff requires a reviewable action when the visual score fails.",
+        payload: { action: "review_visual_diff" }
+      }
+    ]
+  };
+  writeFileSync(resolve(base, "manual_review_report.json"), `${JSON.stringify(manualReviewReport, null, 2)}\n`, "utf8");
+}
+
+function writeSyntheticDiffImages(base) {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ax2X7sAAAAASUVORK5CYII=",
+    "base64"
+  );
+  writeFileSync(resolve(base, "figma_reference.png"), png);
+  writeFileSync(resolve(base, "flutter_preview.png"), png);
+  writeFileSync(resolve(base, "diff_heatmap.png"), png);
 }
 
 function writeTextFile(path, content) {

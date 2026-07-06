@@ -16,13 +16,43 @@ mkdirSync(dirname(invalidRoot), { recursive: true });
 cpSync(sampleRoot, invalidRoot, { recursive: true });
 
 const visualDiffReport = readJson(resolve(invalidRoot, "visual_diff_report.json"));
+writeSyntheticDiffImages(invalidRoot);
 visualDiffReport.environment = {
   viewport: { width: 390, height: 844 },
   dpr: 1,
-  fonts: [],
+  fonts: ["Inter"],
+  flutterVersion: "Flutter uplift negative fixture",
+  themeBrightness: "light",
+  locale: "en",
+  textScaleFactor: 1,
+  safeArea: { top: 0, right: 0, bottom: 0, left: 0 },
   renderer: "uplift_contract_negative_fixture"
 };
 writeJson(resolve(invalidRoot, "visual_diff_report.json"), visualDiffReport);
+writeJson(resolve(invalidRoot, "node_diff_report.json"), visualDiffReport.issues ?? []);
+writeJson(resolve(invalidRoot, "manual_review_report.json"), {
+  version: visualDiffReport.version,
+  generatedAt: visualDiffReport.generatedAt,
+  required: !visualDiffReport.page.pass,
+  reason: "Negative uplift contract fixture preserves visual diff review coverage.",
+  severity: "P0",
+  inputs: visualDiffReport.inputs,
+  page: visualDiffReport.page,
+  issues: (visualDiffReport.issues ?? []).map((issue) => ({
+    issueId: issue.issueId,
+    type: issue.type,
+    sourceNodeId: issue.sourceNodeId,
+    bounds: issue.bounds,
+    score: issue.score
+  })),
+  suggestedActions: [
+    {
+      label: "Review uplift evidence",
+      reason: "Uplift acceptance must be backed by diff evidence.",
+      payload: { action: "review_uplift_diff" }
+    }
+  ]
+});
 writeJson(resolve(invalidRoot, "repair_patch.json"), {
   version: "2.0",
   generatedAt: visualDiffReport.generatedAt,
@@ -80,4 +110,14 @@ function readJson(path) {
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function writeSyntheticDiffImages(root) {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ax2X7sAAAAASUVORK5CYII=",
+    "base64"
+  );
+  writeFileSync(resolve(root, "figma_reference.png"), png);
+  writeFileSync(resolve(root, "flutter_preview.png"), png);
+  writeFileSync(resolve(root, "diff_heatmap.png"), png);
 }
