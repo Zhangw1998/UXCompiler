@@ -5,7 +5,9 @@ import type {
   InferredTokens,
   RadiusToken,
   RawPaint,
+  ShadowToken,
   SpacingToken,
+  TokenConfidenceReport,
   TokenMiningResult,
   TokenUsage,
   TypographyToken
@@ -94,7 +96,7 @@ export function mineTokens(canonicalScene: CanonicalScene): TokenMiningResult {
       radii: buildNumberMap(radii)
     },
     confidenceReport: {
-      warnings: buildWarnings(colorSamples, spacingSamples, typographySamples)
+      warnings: buildWarnings(inferredTokens, colorSamples, spacingSamples, typographySamples)
     },
     dartTokenFile: renderDartTokens(inferredTokens)
   };
@@ -294,15 +296,37 @@ function buildTypographyMap(tokens: TypographyToken[]): Record<string, string> {
 }
 
 function buildWarnings(
+  inferredTokens: InferredTokens,
   colorSamples: ColorSample[],
   spacingSamples: NumberSample[],
   typographySamples: TypographySample[]
-): Array<{ type: string; message: string; sourceNodeIds?: string[] }> {
-  const warnings: Array<{ type: string; message: string; sourceNodeIds?: string[] }> = [];
+): TokenConfidenceReport["warnings"] {
+  const warnings: TokenConfidenceReport["warnings"] = [];
   if (colorSamples.length === 0) warnings.push({ type: "no_colors", message: "No color samples were discovered." });
   if (spacingSamples.length === 0) warnings.push({ type: "no_spacing", message: "No spacing samples were discovered." });
   if (typographySamples.length === 0) warnings.push({ type: "no_typography", message: "No text style samples were discovered." });
+  warnings.push(...lowConfidenceWarnings("colors", inferredTokens.colors));
+  warnings.push(...lowConfidenceWarnings("spacing", inferredTokens.spacing));
+  warnings.push(...lowConfidenceWarnings("typography", inferredTokens.typography));
+  warnings.push(...lowConfidenceWarnings("radii", inferredTokens.radii));
+  warnings.push(...lowConfidenceWarnings("shadows", inferredTokens.shadows));
   return warnings;
+}
+
+function lowConfidenceWarnings(
+  category: NonNullable<TokenConfidenceReport["warnings"][number]["category"]>,
+  tokens: Array<ColorToken | SpacingToken | TypographyToken | RadiusToken | ShadowToken>
+): TokenConfidenceReport["warnings"] {
+  return tokens
+    .filter((token) => token.confidence < 0.8)
+    .map((token) => ({
+      type: "low_confidence_token",
+      tokenName: token.name,
+      category,
+      confidence: token.confidence,
+      sourceNodeIds: token.sourceNodeIds,
+      message: `${category} token ${token.name} has low confidence ${token.confidence}.`
+    }));
 }
 
 function renderDartTokens(tokens: InferredTokens): string {

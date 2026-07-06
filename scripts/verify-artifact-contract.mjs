@@ -13,6 +13,7 @@ const requiredJsonFiles = [
   "node_mapping.json",
   "inferred_tokens.json",
   "token_usage_map.json",
+  "token_confidence_report.json",
   "regions.json",
   "layout_candidates.json",
   "layout_decisions.json",
@@ -59,6 +60,8 @@ const canonical = json("canonical_scene.json");
 const canonicalizationReport = json("canonicalization_report.json");
 const mapping = json("node_mapping.json");
 const tokens = json("inferred_tokens.json");
+const tokenUsageMap = json("token_usage_map.json");
+const tokenConfidenceReport = json("token_confidence_report.json");
 const regions = json("regions.json");
 const layoutCandidates = json("layout_candidates.json");
 const layoutDecisions = json("layout_decisions.json");
@@ -102,11 +105,7 @@ assert.equal(semanticIR.normalizedDesignIR.tree.id, normalized.tree.id, "semanti
 assertRawExtractionContract(raw, extractionReport);
 assertCanonicalMapping(rawSourceNodeIds, canonicalIds, mapping);
 assertCanonicalizationReport(rawSourceNodeIds, canonicalIds, canonicalizationReport);
-assertSourceRefs(rawSourceNodeIds, "inferred_tokens.colors", tokens.colors, (entry) => entry.sourceNodeIds ?? []);
-assertSourceRefs(rawSourceNodeIds, "inferred_tokens.spacing", tokens.spacing, (entry) => entry.sourceNodeIds ?? []);
-assertSourceRefs(rawSourceNodeIds, "inferred_tokens.typography", tokens.typography, (entry) => entry.sourceNodeIds ?? []);
-assertSourceRefs(rawSourceNodeIds, "inferred_tokens.radii", tokens.radii, (entry) => entry.sourceNodeIds ?? []);
-assertSourceRefs(rawSourceNodeIds, "inferred_tokens.shadows", tokens.shadows, (entry) => entry.sourceNodeIds ?? []);
+assertTokenArtifacts(rawSourceNodeIds, tokens, tokenUsageMap, tokenConfidenceReport);
 assertSourceRefs(rawSourceNodeIds, "regions", regions, (entry) => entry.sourceNodeIds ?? []);
 assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, layoutCandidates, layoutDecisions);
 assertComponentArtifacts(rawSourceNodeIds, inferredComponents, componentInstanceMap, componentConfidenceReport, semanticIR);
@@ -255,6 +254,111 @@ function assertReviewTaskArtifacts(rawSourceNodeIds, normalizedIds, tasks) {
     if (task.status === "closed") {
       assert.ok(task.closedReason || task.closeReason, `${task.id}: closed task must include a closed reason.`);
     }
+  }
+}
+
+function assertTokenArtifacts(rawSourceNodeIds, tokens, tokenUsageMap, tokenConfidenceReport) {
+  assert.equal(tokens.version, "2.0", "inferred_tokens.version must be 2.0.");
+  for (const category of ["colors", "spacing", "typography", "radii", "shadows"]) {
+    assert.ok(Array.isArray(tokens[category]), `inferred_tokens.${category} must be an array.`);
+  }
+  assert.equal(typeof tokenUsageMap, "object", "token_usage_map must be an object.");
+  assert.ok(tokenUsageMap !== null && !Array.isArray(tokenUsageMap), "token_usage_map must be an object.");
+  for (const category of ["colors", "spacing", "typography", "radii"]) {
+    assert.equal(typeof tokenUsageMap[category], "object", `token_usage_map.${category} must be an object.`);
+    assert.ok(tokenUsageMap[category] !== null && !Array.isArray(tokenUsageMap[category]), `token_usage_map.${category} must be an object.`);
+  }
+  assert.ok(Array.isArray(tokenConfidenceReport.warnings), "token_confidence_report.warnings must be an array.");
+
+  const tokenNamesByCategory = new Map();
+  for (const category of ["colors", "spacing", "typography", "radii", "shadows"]) {
+    tokenNamesByCategory.set(category, new Set(tokens[category].map((token) => token.name)));
+    for (const token of tokens[category]) assertTokenEntry(rawSourceNodeIds, category, token);
+  }
+
+  assertTokenUsageMap(tokenNamesByCategory.get("colors"), tokenUsageMap.colors, "token_usage_map.colors");
+  assertTokenUsageMap(tokenNamesByCategory.get("spacing"), tokenUsageMap.spacing, "token_usage_map.spacing");
+  assertTokenUsageMap(tokenNamesByCategory.get("typography"), tokenUsageMap.typography, "token_usage_map.typography");
+  assertTokenUsageMap(tokenNamesByCategory.get("radii"), tokenUsageMap.radii, "token_usage_map.radii");
+  for (const token of tokens.spacing) assertAliasesCovered(tokenUsageMap.spacing, token, `spacing token ${token.name}`);
+  for (const token of tokens.radii) assertAliasesCovered(tokenUsageMap.radii, token, `radius token ${token.name}`);
+  for (const token of tokens.typography) {
+    const key = [token.fontFamily, token.fontSize, token.fontWeight, token.lineHeight, token.letterSpacing].join("|");
+    assert.equal(tokenUsageMap.typography[key], token.name, `Typography token ${token.name} must be present in token_usage_map.`);
+  }
+
+  const lowConfidenceTokens = new Map();
+  for (const category of ["colors", "spacing", "typography", "radii", "shadows"]) {
+    for (const token of tokens[category]) {
+      if (token.confidence < 0.8) lowConfidenceTokens.set(token.name, { category, token });
+    }
+  }
+  const lowConfidenceWarnings = tokenConfidenceReport.warnings.filter((warning) => warning.type === "low_confidence_token");
+  const warnedTokenNames = new Set();
+  for (const warning of tokenConfidenceReport.warnings) {
+    assert.ok(warning.type, "token_confidence_report warning must include type.");
+    assert.ok(warning.message, `token_confidence_report warning ${warning.type} must include message.`);
+    if (warning.sourceNodeIds) {
+      assertSourceRefs(rawSourceNodeIds, `token_confidence_report.${warning.type}`, [warning], (entry) => entry.sourceNodeIds ?? []);
+    }
+    if (warning.confidence !== undefined) assertScore(warning.confidence, `token_confidence_report.${warning.type}.${warning.tokenName ?? "unknown"}.confidence`);
+  }
+  for (const warning of lowConfidenceWarnings) {
+    assert.ok(warning.tokenName, "low_confidence_token warning must include tokenName.");
+    assert.ok(warning.category, `low_confidence_token ${warning.tokenName} must include category.`);
+    const match = lowConfidenceTokens.get(warning.tokenName);
+    assert.ok(match, `low_confidence_token warning references unknown or high-confidence token ${warning.tokenName}.`);
+    assert.equal(warning.category, match.category, `low_confidence_token ${warning.tokenName} category must match inferred token category.`);
+    assert.equal(warning.confidence, match.token.confidence, `low_confidence_token ${warning.tokenName} confidence must match inferred token.`);
+    assert.deepEqual(new Set(warning.sourceNodeIds ?? []), new Set(match.token.sourceNodeIds), `low_confidence_token ${warning.tokenName} sourceNodeIds must match inferred token.`);
+    warnedTokenNames.add(warning.tokenName);
+  }
+  assert.deepEqual(warnedTokenNames, new Set(lowConfidenceTokens.keys()), "token_confidence_report must cover every low-confidence token.");
+}
+
+function assertTokenEntry(rawSourceNodeIds, category, token) {
+  assert.ok(token.name, `inferred_tokens.${category} token must include name.`);
+  assertScore(token.confidence, `inferred_tokens.${category}.${token.name}.confidence`);
+  assert.equal(typeof token.usageCount, "number", `inferred_tokens.${category}.${token.name}.usageCount must be a number.`);
+  assert.ok(Number.isInteger(token.usageCount) && token.usageCount > 0, `inferred_tokens.${category}.${token.name}.usageCount must be positive.`);
+  assertStringArray(token.sourceNodeIds, `inferred_tokens.${category}.${token.name}.sourceNodeIds`, (sourceNodeId, label) => {
+    assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `${label} references unknown sourceNodeId ${sourceNodeId}.`);
+  });
+  assert.ok(token.sourceNodeIds.length > 0, `inferred_tokens.${category}.${token.name} must include sourceNodeIds.`);
+  if (category === "colors") {
+    assert.match(token.value, /^#[0-9A-F]{6}$/i, `Color token ${token.name} value must be a hex color.`);
+    assert.ok(["background", "surface", "text", "border", "icon", "shadow", "unknown"].includes(token.usage), `Color token ${token.name} usage must be known.`);
+    assertStringArray(token.aliases, `inferred_tokens.colors.${token.name}.aliases`);
+    assert.ok(token.aliases.length > 0, `Color token ${token.name} must preserve aliases.`);
+  }
+  if (category === "spacing" || category === "radii") {
+    assert.equal(typeof token.value, "number", `${category} token ${token.name} value must be a number.`);
+    assert.ok(Number.isFinite(token.value), `${category} token ${token.name} value must be finite.`);
+    assert.ok(Array.isArray(token.aliases), `${category} token ${token.name} aliases must be an array.`);
+    assert.ok(token.aliases.length > 0, `${category} token ${token.name} must preserve aliases.`);
+    for (const alias of token.aliases) assert.equal(typeof alias, "number", `${category} token ${token.name} aliases must be numbers.`);
+  }
+  if (category === "typography") {
+    assert.ok(token.fontFamily, `Typography token ${token.name} must include fontFamily.`);
+    for (const key of ["fontSize", "fontWeight", "lineHeight", "letterSpacing"]) {
+      assert.equal(typeof token[key], "number", `Typography token ${token.name}.${key} must be a number.`);
+      assert.ok(Number.isFinite(token[key]), `Typography token ${token.name}.${key} must be finite.`);
+    }
+    assert.ok(token.lineHeight > 0, `Typography token ${token.name} lineHeight must be positive.`);
+  }
+}
+
+function assertTokenUsageMap(validNames, usageMap, label) {
+  for (const [rawValue, tokenName] of Object.entries(usageMap)) {
+    assert.ok(rawValue.length > 0, `${label} raw value must not be empty.`);
+    assert.equal(typeof tokenName, "string", `${label}.${rawValue} must map to a token name.`);
+    assert.equal(validNames.has(tokenName), true, `${label}.${rawValue} references unknown token ${tokenName}.`);
+  }
+}
+
+function assertAliasesCovered(usageMap, token, label) {
+  for (const alias of token.aliases) {
+    assert.equal(usageMap[String(alias)], token.name, `${label} alias ${alias} must be present in token_usage_map.`);
   }
 }
 

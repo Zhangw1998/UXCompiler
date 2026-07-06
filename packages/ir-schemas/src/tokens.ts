@@ -66,7 +66,14 @@ export interface TokenUsageMap {
 }
 
 export interface TokenConfidenceReport {
-  warnings: Array<{ type: string; message: string; sourceNodeIds?: string[] }>;
+  warnings: Array<{
+    type: string;
+    message: string;
+    sourceNodeIds?: string[];
+    tokenName?: string;
+    category?: "colors" | "spacing" | "typography" | "radii" | "shadows";
+    confidence?: number;
+  }>;
 }
 
 export interface TokenMiningResult {
