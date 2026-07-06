@@ -124,6 +124,7 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "flutter_preview_analyze_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "review_tasks.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "task_status_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "region_tree.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "override_set.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "reviewed_normalized_design_ir.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "override_conflict_report.json")), true);
@@ -140,6 +141,7 @@ try {
   assert.equal(extractionReport.source.rootNodeId, rawFigmaScene.root.id);
   assert.equal(extractionReport.stats.nodes > 0, true);
   assert.ok(compileManifest.artifacts.includes("extraction_report.json"));
+  assert.ok(compileManifest.artifacts.includes("region_tree.json"));
   assert.equal(materializedAssetReport.requested, 3);
   assert.equal(materializedAssetReport.materialized.length, 3);
   const imageAsset = materializedAssetReport.materialized.find((asset) => asset.sourceNodeId === imageSourceNodeId);

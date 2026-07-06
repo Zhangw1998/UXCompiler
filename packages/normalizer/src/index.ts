@@ -138,6 +138,7 @@ export function compileRawScene(rawFigmaScene: RawFigmaScene, options: CompileRa
     taskStatusReport: reviewTaskResult.taskStatusReport,
     flutterPreviewProject: fidelityResult.flutterPreviewProject,
     regions: layoutResult.regions,
+    regionTree: layoutResult.regionTree,
     layoutCandidates: layoutResult.layoutCandidates,
     layoutDecisions: layoutResult.layoutDecisions,
     inferredComponents,

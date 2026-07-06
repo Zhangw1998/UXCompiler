@@ -168,6 +168,7 @@ try {
     "canonical_scene.json",
     "inferred_tokens.json",
     "regions.json",
+    "region_tree.json",
     "layout_decisions.json",
     "inferred_components.json",
     "component_instance_map.json",

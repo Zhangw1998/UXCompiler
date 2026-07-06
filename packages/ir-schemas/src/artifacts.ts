@@ -1,5 +1,5 @@
 import type { CanonicalScene, CanonicalizationReport, NodeMapping } from "./canonical-scene.js";
-import type { LayoutCandidate, LayoutDecision, NormalizedDesignIR, Region } from "./layout.js";
+import type { LayoutCandidate, LayoutDecision, NormalizedDesignIR, Region, RegionTreeNode } from "./layout.js";
 import type { RawFigmaScene } from "./raw-figma-scene.js";
 import type { InferredTokens, TokenConfidenceReport, TokenUsageMap } from "./tokens.js";
 import type { AssetManifest, I18nManifest } from "./asset-i18n.js";
@@ -211,6 +211,7 @@ export interface PipelineArtifacts {
   taskStatusReport: ReviewTaskStatusReport;
   flutterPreviewProject: FlutterPreviewProject;
   regions: Region[];
+  regionTree: RegionTreeNode;
   layoutCandidates: LayoutCandidate[];
   layoutDecisions: LayoutDecision[];
   inferredComponents: InferredComponentsArtifact;

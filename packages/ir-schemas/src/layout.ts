@@ -11,6 +11,17 @@ export interface Region {
   sourceNodeIds: string[];
 }
 
+export interface RegionTreeNode {
+  id: string;
+  name: string;
+  role?: Region["role"] | "list" | "decoration";
+  bounds: Bounds;
+  sourceNodeIds: string[];
+  layout?: LayoutType;
+  normalizedNodeId?: string;
+  children: RegionTreeNode[];
+}
+
 export interface LayoutDecision {
   nodeId: string;
   sourceNodeIds: string[];
@@ -61,6 +72,7 @@ export interface NormalizedDesignIR {
 
 export interface LayoutInferenceResult {
   regions: Region[];
+  regionTree: RegionTreeNode;
   layoutCandidates: LayoutCandidate[];
   layoutDecisions: LayoutDecision[];
   normalizedDesignIR: NormalizedDesignIR;

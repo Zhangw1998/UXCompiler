@@ -40,6 +40,7 @@ const requiredFiles = [
   "flutter_preview_format_report.json",
   "flutter_preview_analyze_report.json",
   "regions.json",
+  "region_tree.json",
   "layout_candidates.json",
   "layout_decisions.json",
   "inferred_components.json",
@@ -82,6 +83,7 @@ const taskStatusReport = readJson("task_status_report.json");
 const formatReport = readJson("flutter_preview_format_report.json");
 const analyzeReport = readJson("flutter_preview_analyze_report.json");
 const regions = readJson("regions.json");
+const regionTree = readJson("region_tree.json");
 const decisions = readJson("layout_decisions.json");
 const inferredComponents = readJson("inferred_components.json");
 const componentInstanceMap = readJson("component_instance_map.json");
@@ -138,6 +140,9 @@ assert.equal(regions.length, 3);
 assert.equal(regions[0].role, "header");
 assert.equal(regions[1].role, "content");
 assert.equal(regions[2].role, "footer");
+assert.equal(regionTree.id, "region_tree_root");
+assert.equal(regionTree.children.length, regions.length);
+assert.ok(regionTree.children.some((region) => region.id === "region_1" && region.role === "header"));
 assertDecision(decisions, "c_1_5", "column");
 assertDecision(decisions, "c_1_15", "row");
 assert.equal(inferredComponents.version, "2.0");
@@ -196,6 +201,7 @@ assert.equal(extractionReport.stats.nodes > 0, true);
 assert.equal(extractionReport.stats.textNodes > 0, true);
 assert.equal(Array.isArray(extractionReport.warnings), true);
 assert.ok(compileManifest.artifacts.includes("extraction_report.json"));
+assert.ok(compileManifest.artifacts.includes("region_tree.json"));
 assert.ok(compileManifest.artifacts.includes("inferred_components.json"));
 assert.ok(compileManifest.artifacts.includes("component_instance_map.json"));
 assert.ok(compileManifest.artifacts.includes("component_confidence_report.json"));

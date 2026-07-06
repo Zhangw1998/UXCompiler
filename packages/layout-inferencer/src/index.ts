@@ -9,7 +9,8 @@ import type {
   LayoutType,
   NormalizedDesignIR,
   NormalizedNode,
-  Region
+  Region,
+  RegionTreeNode
 } from "@uxcompiler/ir-schemas";
 
 export function inferLayout(canonicalScene: CanonicalScene, inferredTokens: InferredTokens): LayoutInferenceResult {
@@ -18,6 +19,8 @@ export function inferLayout(canonicalScene: CanonicalScene, inferredTokens: Infe
   const fallbacks: Array<{ nodeId: string; reason: string; strategy: string }> = [];
 
   const tree = normalizeNode(canonicalScene.root, "page", inferredTokens, layoutCandidates, layoutDecisions, fallbacks);
+  const regions = segmentRegions(canonicalScene.root);
+  const regionTree = createRegionTree(tree, regions);
   const layoutConfidence = average(layoutDecisions.map((decision) => decision.confidence), 0.75);
   const tokenConfidence = average(
     [
@@ -45,11 +48,65 @@ export function inferLayout(canonicalScene: CanonicalScene, inferredTokens: Infe
   };
 
   return {
-    regions: segmentRegions(canonicalScene.root),
+    regions,
+    regionTree,
     layoutCandidates,
     layoutDecisions,
     normalizedDesignIR
   };
+}
+
+function createRegionTree(tree: NormalizedNode, regions: Region[]): RegionTreeNode {
+  return {
+    id: "region_tree_root",
+    name: tree.name,
+    role: tree.role,
+    bounds: tree.bounds,
+    sourceNodeIds: tree.sourceNodeIds,
+    layout: tree.layout.type,
+    normalizedNodeId: tree.id,
+    children: regions.map((region) => {
+      const children = tree.children.filter((child) => intersects(child.sourceNodeIds, region.sourceNodeIds)).map(toRegionTreeNode);
+      return {
+        id: region.id,
+        name: region.name,
+        role: region.role,
+        bounds: region.bounds,
+        sourceNodeIds: region.sourceNodeIds,
+        layout: dominantLayout(children),
+        children
+      };
+    })
+  };
+}
+
+function toRegionTreeNode(node: NormalizedNode): RegionTreeNode {
+  return {
+    id: `region_tree_${node.id}`,
+    name: node.name,
+    role: node.role,
+    bounds: node.bounds,
+    sourceNodeIds: node.sourceNodeIds,
+    layout: node.layout.type,
+    normalizedNodeId: node.id,
+    children: node.children.map(toRegionTreeNode)
+  };
+}
+
+function dominantLayout(children: RegionTreeNode[]): LayoutType | undefined {
+  if (children.length === 0) return undefined;
+  if (children.length === 1) return children[0].layout;
+  const counts = new Map<LayoutType, number>();
+  for (const child of children) {
+    if (!child.layout) continue;
+    counts.set(child.layout, (counts.get(child.layout) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0];
+}
+
+function intersects(left: string[], right: string[]): boolean {
+  const rightSet = new Set(right);
+  return left.some((value) => rightSet.has(value));
 }
 
 function normalizeNode(

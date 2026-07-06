@@ -99,6 +99,9 @@ console.log("layout inferencer verification passed");
 
 function assertArtifactShape(result, name) {
   assert.ok(result.regions.length > 0, `${name} should emit at least one region`);
+  assert.equal(result.regionTree.id, "region_tree_root", `${name} should emit a stable region tree root`);
+  assert.equal(result.regionTree.normalizedNodeId, result.normalizedDesignIR.tree.id, `${name} region tree root should trace normalized root`);
+  assert.equal(result.regionTree.children.length, result.regions.length, `${name} region tree should expose every segmented region`);
   assert.ok(result.layoutCandidates.length > 0, `${name} should emit layout candidates`);
   assert.ok(result.layoutDecisions.length > 0, `${name} should emit layout decisions`);
   assert.equal(result.normalizedDesignIR.version, "2.0");
@@ -131,6 +134,12 @@ function assertArtifactShape(result, name) {
         `${decision.nodeId} low-confidence layout should use absolute fidelity fallback`
       );
     }
+  }
+
+  const regionIds = new Set(result.regions.map((region) => region.id));
+  for (const child of result.regionTree.children) {
+    assert.equal(regionIds.has(child.id), true, `${name} region tree child ${child.id} should match regions`);
+    assert.ok(Array.isArray(child.sourceNodeIds) && child.sourceNodeIds.length > 0, `${name} region tree child should trace source nodes`);
   }
 }
 

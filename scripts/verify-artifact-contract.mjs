@@ -28,6 +28,7 @@ const requiredJsonFiles = [
   "token_usage_map.json",
   "token_confidence_report.json",
   "regions.json",
+  "region_tree.json",
   "layout_candidates.json",
   "layout_decisions.json",
   "inferred_components.json",
@@ -85,6 +86,7 @@ const requiredCompileManifestArtifacts = [
   "flutter_preview/lib/main.dart",
   "flutter_preview/lib/generated/fidelity/preview_page.dart",
   "regions.json",
+  "region_tree.json",
   "layout_candidates.json",
   "layout_decisions.json",
   "inferred_components.json",
@@ -131,6 +133,7 @@ const tokens = json("inferred_tokens.json");
 const tokenUsageMap = json("token_usage_map.json");
 const tokenConfidenceReport = json("token_confidence_report.json");
 const regions = json("regions.json");
+const regionTree = json("region_tree.json");
 const layoutCandidates = json("layout_candidates.json");
 const layoutDecisions = json("layout_decisions.json");
 const inferredComponents = json("inferred_components.json");
@@ -196,6 +199,7 @@ assertCanonicalMapping(rawSourceNodeIds, canonicalIds, mapping);
 assertCanonicalizationReport(rawSourceNodeIds, canonicalIds, canonicalizationReport);
 assertTokenArtifacts(rawSourceNodeIds, tokens, tokenUsageMap, tokenConfidenceReport);
 assertSourceRefs(rawSourceNodeIds, "regions", regions, (entry) => entry.sourceNodeIds ?? []);
+assertRegionTree(rawSourceNodeIds, normalizedIds, regions, regionTree);
 assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, layoutCandidates, layoutDecisions);
 assertComponentArtifacts(rawSourceNodeIds, inferredComponents, componentInstanceMap, componentConfidenceReport, semanticIR);
 for (const [label, manifest] of assetManifests) {
@@ -1082,6 +1086,42 @@ function assertLayoutArtifacts(rawSourceNodeIds, traceableIds, regions, candidat
   }
 }
 
+function assertRegionTree(rawSourceNodeIds, normalizedIds, regions, tree) {
+  assert.equal(typeof tree, "object", "region_tree must be an object.");
+  assert.ok(tree !== null && !Array.isArray(tree), "region_tree must be an object.");
+  assert.equal(tree.id, "region_tree_root", "region_tree root id must be stable.");
+  assert.ok(Array.isArray(tree.children), "region_tree.children must be an array.");
+  assert.equal(tree.children.length, regions.length, "region_tree must include one top-level child per region.");
+
+  const expectedRegionIds = new Set(regions.map((region) => region.id));
+  const regionSourceIds = new Set(regions.flatMap((region) => region.sourceNodeIds ?? []));
+  const treeSourceIds = new Set();
+  const normalizedNodeIdsInTree = new Set();
+  walkRegionTreeNode(tree, (node, label) => {
+    assert.ok(node.id, `${label}.id must be present.`);
+    assert.ok(node.name, `${label}.name must be present.`);
+    assertBounds(node.bounds, `${label}.bounds`);
+    assertStringArray(node.sourceNodeIds, `${label}.sourceNodeIds`, (sourceNodeId, sourceLabel) => {
+      assert.equal(rawSourceNodeIds.has(sourceNodeId), true, `${sourceLabel} references unknown sourceNodeId ${sourceNodeId}.`);
+    });
+    for (const sourceNodeId of node.sourceNodeIds) treeSourceIds.add(sourceNodeId);
+    if (node.normalizedNodeId) {
+      assert.equal(normalizedIds.has(node.normalizedNodeId), true, `${label}.normalizedNodeId references unknown normalized node ${node.normalizedNodeId}.`);
+      normalizedNodeIdsInTree.add(node.normalizedNodeId);
+    }
+    if (node.layout) assert.ok(["column", "row", "grid", "stack", "absolute", "leaf"].includes(node.layout), `${label}.layout must be known.`);
+    assert.ok(Array.isArray(node.children), `${label}.children must be an array.`);
+  });
+
+  for (const child of tree.children) {
+    assert.equal(expectedRegionIds.has(child.id), true, `region_tree child ${child.id} must match regions.json.`);
+  }
+  for (const sourceNodeId of regionSourceIds) {
+    assert.equal(treeSourceIds.has(sourceNodeId), true, `region_tree must cover region sourceNodeId ${sourceNodeId}.`);
+  }
+  assert.ok(normalizedNodeIdsInTree.size > 0, "region_tree must trace at least one normalized node.");
+}
+
 function assertVisualTraceability(rawSourceNodeIds, visualIR, nodePixelMap) {
   assert.deepEqual(visualIR.source.viewport, json("normalized_design_ir.json").source.viewport, "visual_ir viewport must match normalized viewport.");
   walkVisualNode(visualIR.root, (node) => {
@@ -1644,6 +1684,11 @@ function findUpliftComparison(comparisons, decision) {
 function walkNormalizedNode(node, visit) {
   visit(node);
   for (const child of node.children ?? []) walkNormalizedNode(child, visit);
+}
+
+function walkRegionTreeNode(node, visit, label = "region_tree") {
+  visit(node, label);
+  for (const child of node.children ?? []) walkRegionTreeNode(child, visit, `${label}.${child.id}`);
 }
 
 function walkVisualNode(node, visit) {
