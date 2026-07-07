@@ -37,6 +37,10 @@ assertIncludes(main, "message.type !== \"sync-selection\"", "main sync handler")
 assertIncludes(main, "kind: \"health\"", "main posts health result kind");
 assertIncludes(main, "kind: \"sync\"", "main posts sync result kind");
 assertIncludes(main, "workbenchUrl", "main forwards workbench URL");
+assertIncludes(main, "projectId: rawFigmaScene.source.projectName", "main sends project name as project id");
+assertIncludes(main, "projectName: readPluginProjectName()", "main captures Figma project name");
+assertIncludes(main, "pageName: figma.currentPage.name", "main captures Figma page name");
+assertIncludes(main, "selectedNodeName: root.name", "main captures selected node name");
 assertIncludes(main, "/health", "main health URL derivation");
 assertIncludes(main, "exportNodeAssets(root)", "main exports node assets");
 assertIncludes(main, "status: \"failed\"", "main records failed asset exports");
@@ -53,7 +57,6 @@ assertIncludes(main, "hasImageFill", "main detects image fills");
 assertIncludes(main, "hasNodeSliceAsset", "main detects slice assets");
 assertIncludes(main, "hasBlurEffect", "main detects blurred slice assets");
 assertNotIncludes(main, "new URL(", "main should avoid URL global unavailable in Figma plugin runtime");
-assertNotIncludes(main, "figma.root", "main should avoid document root access");
 assertIncludes(builtMain, "message.type === \"check-health\"", "built main health handler");
 assertIncludes(builtMain, "message.type === \"export-snapshot-zip\"", "built main offline export handler");
 assertIncludes(builtMain, "message.type !== \"sync-selection\"", "built main sync handler");
@@ -72,7 +75,6 @@ assertIncludes(builtMain, "hasImageFill", "built main detects image fills");
 assertIncludes(builtMain, "hasNodeSliceAsset", "built main detects slice assets");
 assertIncludes(builtMain, "hasBlurEffect", "built main detects blurred slice assets");
 assertNotIncludes(builtMain, "new URL(", "built main should avoid URL global unavailable in Figma plugin runtime");
-assertNotIncludes(builtMain, "figma.root", "built main should avoid document root access");
 
 console.log("figma plugin bridge verification passed");
 

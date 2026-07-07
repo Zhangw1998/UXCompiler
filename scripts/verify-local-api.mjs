@@ -21,6 +21,9 @@ const server = spawn("node", ["apps/local-api/dist/index.js"], {
 try {
   await waitForHealth();
   const rawFigmaScene = JSON.parse(readFileSync("examples/fixtures/login_raw_figma_scene.json", "utf8"));
+  rawFigmaScene.source.projectName = "Smoke Project";
+  rawFigmaScene.source.pageName = "Login Page";
+  rawFigmaScene.source.selectedNodeName = rawFigmaScene.root.name;
   const imageSourceNodeId = "smoke:asset:1";
   const duplicateImageSourceNodeId = "smoke:asset:2";
   const sliceSourceNodeId = "smoke:slice:1";
@@ -74,7 +77,7 @@ try {
     body: JSON.stringify({
       sourceKind: "local_smoke",
       rawFigmaScene,
-      projectId: "smoke",
+      projectId: rawFigmaScene.source.projectName,
       figmaReferencePngBase64: referencePngBase64,
       assets: [
         {
@@ -105,7 +108,9 @@ try {
   const result = await response.json();
   assert.equal(result.ok, true);
   assert.ok(result.artifactDir);
-  assert.equal(result.artifactRootPath.startsWith("/artifacts/local-api-smoke/"), true);
+  assert.equal(result.projectName, "Smoke Project");
+  assert.equal(result.pageName, "Login Page");
+  assert.equal(result.artifactRootPath, "/artifacts/local-api-smoke/Smoke Project/Login Page");
   assert.match(result.workbenchUrl, /^http:\/\/127\.0\.0\.1:8788\/apps\/workbench-web\/\?artifacts=/);
   assert.equal(existsSync(resolve(result.artifactDir, "raw_figma_scene.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "extraction_report.json")), true);
@@ -166,6 +171,8 @@ try {
   assert.match(previewPage, /assets\/slices\/smoke_blur_slice\.png/);
   const pipelineRunReport = JSON.parse(readFileSync(resolve(result.artifactDir, "pipeline_run_report.json"), "utf8"));
   assert.equal(pipelineRunReport.source.sourceKind, "local_smoke");
+  assert.equal(pipelineRunReport.source.projectName, "Smoke Project");
+  assert.equal(pipelineRunReport.source.pageName, "Login Page");
   assert.equal(pipelineRunReport.steps.snapshot.materializedAssets, 3);
   assert.equal(pipelineRunReport.steps.snapshot.frameScreenshotFallback, false);
   assert.equal(pipelineRunReport.steps.flutterAnalyze.status, "success");
@@ -244,6 +251,24 @@ try {
   );
   assert.ok(taskStatusReport.codegenWriteBlocked);
   assert.ok(taskStatusReport.byPriority.P0 > 0);
+
+  const updateResponse = await fetch("http://127.0.0.1:8799/api/snapshots", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      sourceKind: "local_smoke",
+      rawFigmaScene,
+      projectId: rawFigmaScene.source.projectName,
+      figmaReferencePngBase64: referencePngBase64,
+      runPreview: false,
+      runDiff: false
+    })
+  });
+  assert.equal(updateResponse.ok, true);
+  const updateResult = await updateResponse.json();
+  assert.equal(updateResult.ok, true);
+  assert.equal(updateResult.artifactDir, result.artifactDir);
+  assert.equal(updateResult.artifactRootPath, result.artifactRootPath);
 
   const fallbackScene = {
     version: "2.0",

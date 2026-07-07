@@ -93,6 +93,9 @@ interface LocalPipelineRunReport {
     sourceKind?: string;
     fileKey?: string;
     fileName?: string;
+    projectName?: string;
+    pageName?: string;
+    selectedNodeName?: string;
     frameNodeId?: string;
   };
   steps: {
@@ -194,16 +197,17 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 async function saveSnapshot(body: SnapshotRequest): Promise<{
   artifactDir: string;
   artifactRootPath: string;
+  projectName: string;
+  pageName: string;
   workbenchUrl: string;
   normalizedConfidence: number;
   pipelineRunReport: LocalPipelineRunReport;
 }> {
   const source = body.rawFigmaScene.source;
-  const projectId = body.projectId ?? safeName(source.fileName ?? source.fileKey ?? "figma_project");
-  const frameId = safeName(source.frameNodeId ?? body.rawFigmaScene.root.id);
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const artifactDir = resolve(artifactRoot, `${projectId}_${frameId}_${stamp}`);
+  const location = artifactLocation(body);
+  const artifactDir = location.artifactDir;
 
+  await rm(artifactDir, { recursive: true, force: true });
   await mkdir(artifactDir, { recursive: true });
   await writeJson(resolve(artifactDir, "raw_figma_scene.json"), body.rawFigmaScene);
   await writeJson(resolve(artifactDir, "extraction_report.json"), body.extractionReport ?? createRawExtractionReport(body.rawFigmaScene));
@@ -239,7 +243,10 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{
     version: "0.1.0",
     generatedAt: new Date().toISOString(),
     artifactDir,
-    projectId,
+    projectId: location.projectName,
+    projectName: location.projectName,
+    pageName: location.pageName,
+    selectedNodeName: location.selectedNodeName,
     sourceKind: body.sourceKind ?? "unknown",
     frameNodeId: source.frameNodeId,
     normalizedConfidence: artifacts.normalizedDesignIR.confidence.overall,
@@ -256,9 +263,33 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{
   return {
     artifactDir,
     artifactRootPath,
+    projectName: location.projectName,
+    pageName: location.pageName,
     workbenchUrl: workbenchUrlForArtifactRoot(artifactRootPath),
     normalizedConfidence: artifacts.normalizedDesignIR.confidence.overall,
     pipelineRunReport
+  };
+}
+
+function artifactLocation(body: SnapshotRequest): {
+  artifactDir: string;
+  projectName: string;
+  pageName: string;
+  selectedNodeName: string;
+} {
+  const source = body.rawFigmaScene.source as RawFigmaScene["source"] & {
+    projectName?: string;
+    pageName?: string;
+    selectedNodeName?: string;
+  };
+  const selectedNodeName = source.selectedNodeName ?? body.rawFigmaScene.root.name ?? source.frameNodeId ?? "selection";
+  const projectName = body.projectId ?? source.projectName ?? source.fileName ?? source.fileKey ?? "figma_project";
+  const pageName = source.pageName ?? selectedNodeName;
+  return {
+    artifactDir: resolve(artifactRoot, safeDirectoryName(projectName), safeDirectoryName(pageName)),
+    projectName,
+    pageName,
+    selectedNodeName
   };
 }
 
@@ -881,6 +912,9 @@ async function runLocalPipeline(
       sourceKind: body.sourceKind ?? "unknown",
       fileKey: source.fileKey,
       fileName: source.fileName,
+      projectName: stringValue(source.projectName),
+      pageName: stringValue(source.pageName),
+      selectedNodeName: stringValue(source.selectedNodeName),
       frameNodeId: source.frameNodeId
     },
     steps: {
@@ -1291,6 +1325,16 @@ function parseAnalyzeOutput(output: string): { errors: number; warnings: number 
 
 function safeName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "snapshot";
+}
+
+function safeDirectoryName(value: string): string {
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/[<>:"/\\|?*\x00-\x1f]+/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+|\.+$/g, "")
+    .trim();
+  return normalized.slice(0, 120) || "untitled";
 }
 
 type ZipEntryOutput = {

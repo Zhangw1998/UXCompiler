@@ -46,6 +46,7 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         sourceKind: "figma_plugin",
+        projectId: rawFigmaScene.source.projectName,
         rawFigmaScene,
         figmaReferencePngBase64: uint8ToBase64(png),
         preferFrameScreenshotFallback: true,
@@ -63,9 +64,11 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
       ok: true,
       artifactDir: result.artifactDir,
       artifactRootPath: result.artifactRootPath,
+      projectName: result.projectName,
+      pageName: result.pageName,
       workbenchUrl: result.workbenchUrl,
       normalizedConfidence: result.normalizedConfidence,
-      message: `已同步 ${root.name}\n产物路径：${result.artifactRootPath ?? result.artifactDir}\n置信度：${result.normalizedConfidence}`
+      message: `已同步 ${result.projectName ?? rawFigmaScene.source.projectName}/${result.pageName ?? rawFigmaScene.source.pageName}\n产物路径：${result.artifactRootPath ?? result.artifactDir}\n置信度：${result.normalizedConfidence}`
     });
   } catch (error) {
     figma.ui.postMessage({
@@ -88,7 +91,10 @@ async function collectSnapshotPayload(): Promise<SnapshotPayload> {
     source: {
       fileKey: figma.fileKey ?? "plugin_file",
       frameNodeId: root.id,
-      fileName: readPluginFileName(),
+      fileName: readPluginProjectName(),
+      projectName: readPluginProjectName(),
+      pageName: figma.currentPage.name,
+      selectedNodeName: root.name,
       apiBaseUrl: "figma-plugin"
     },
     stats: countNodes(rawFigmaScene.root),
@@ -228,7 +234,10 @@ function buildRawFigmaScene(root: SceneNode) {
       frameNodeId: root.id,
       exportedAt: new Date().toISOString(),
       viewport: bounds ? { width: bounds.width, height: bounds.height, scale: 1 } : undefined,
-      fileName: readPluginFileName(),
+      fileName: readPluginProjectName(),
+      projectName: readPluginProjectName(),
+      pageName: figma.currentPage.name,
+      selectedNodeName: root.name,
       editorType: "figma",
       apiBaseUrl: "figma-plugin"
     },
@@ -236,7 +245,9 @@ function buildRawFigmaScene(root: SceneNode) {
   };
 }
 
-function readPluginFileName(): string {
+function readPluginProjectName(): string {
+  const fileName = typeof figma.root?.name === "string" ? figma.root.name : "";
+  if (fileName.trim()) return fileName.trim();
   return figma.fileKey ? `figma_${figma.fileKey}` : `figma_plugin_${figma.currentPage.name}`;
 }
 

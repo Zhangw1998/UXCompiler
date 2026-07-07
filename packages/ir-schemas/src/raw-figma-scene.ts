@@ -110,6 +110,9 @@ export interface RawFigmaSceneSource {
   exportedAt?: string;
   viewport?: { width: number; height: number; scale?: number };
   fileName?: string;
+  projectName?: string;
+  pageName?: string;
+  selectedNodeName?: string;
   lastModified?: string;
   version?: string;
   editorType?: string;
