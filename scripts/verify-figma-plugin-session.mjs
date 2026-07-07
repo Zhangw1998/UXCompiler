@@ -10,9 +10,11 @@ const execFileAsync = promisify(execFile);
 const cwd = resolve(import.meta.dirname, "..");
 const tmp = await mkdtemp(join(tmpdir(), "uxcompiler-figma-plugin-session-"));
 const port = await reservePort();
+const workbenchPort = await reservePort();
 const env = {
   ...process.env,
   UXCOMPILER_LOCAL_API_PORT: String(port),
+  UXCOMPILER_WORKBENCH_PORT: String(workbenchPort),
   UXCOMPILER_LOCAL_API_SESSION_DIR: join(tmp, "session"),
   UXCOMPILER_ARTIFACTS_DIR: join(tmp, "artifacts")
 };
@@ -31,6 +33,10 @@ try {
   assert.equal(response.ok, true);
   assert.equal(body.ok, true);
   assert.equal(body.artifactRoot, join(tmp, "artifacts"));
+  assert.match(body.workbenchUrl, new RegExp(`^http://127\\.0\\.0\\.1:${workbenchPort}/apps/workbench-web/`));
+
+  const workbenchResponse = await fetch(`http://127.0.0.1:${workbenchPort}/apps/workbench-web/`);
+  assert.equal(workbenchResponse.ok, true);
 
   const stop = await execFileAsync("node", ["scripts/figma-plugin-stop.mjs"], {
     cwd,

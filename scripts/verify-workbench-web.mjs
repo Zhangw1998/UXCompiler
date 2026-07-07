@@ -154,8 +154,8 @@ assert.ok(model.i18nCount >= 6, "Expected i18n messages");
 assert.equal(model.preview.hasVisualIR, true);
 assert.equal(model.preview.hasWebPreviewState, true);
 assert.equal(model.preview.hasFlutterPreview, hasFlutterPreview);
-assert.ok(model.artifactStatus.some((entry) => entry.label === "Visual IR" && entry.present));
-assert.ok(model.artifactStatus.some((entry) => entry.label === "Web Preview" && entry.present));
+assert.ok(model.artifactStatus.some((entry) => entry.label === "视觉 IR" && entry.present));
+assert.ok(model.artifactStatus.some((entry) => entry.label === "Web 预览" && entry.present));
 
 const server = spawn("node", ["scripts/workbench-web-server.mjs", "--port", "8798", "--artifacts", "/artifacts/workbench-web-smoke/sample"], {
   stdio: ["ignore", "pipe", "pipe"]
@@ -172,16 +172,19 @@ try {
   const previewPng = hasFlutterPreview ? await fetch(`${base}/artifacts/workbench-web-smoke/sample/flutter_preview.png`) : undefined;
 
   assert.match(html, /id="app"/);
+  assert.match(html, /lang="zh-CN"/);
+  assert.match(html, /UXCompiler 工作台/);
   assert.match(js, /loadFromArtifactRoot/);
-  assert.match(js, /Token Migration/);
-  assert.match(js, /Assets To Add/);
-  assert.match(js, /ARB Changes/);
-  assert.match(js, /Pubspec Patch/);
-  assert.match(js, /Merge Report/);
-  assert.match(js, /Generated Widgets/);
-  assert.match(js, /Fallback Regions/);
-  assert.match(js, /Unresolved Review Tasks/);
-  assert.match(js, /Manual Overrides/);
+  assert.match(js, /项目看板/);
+  assert.match(js, /Token 迁移/);
+  assert.match(js, /待添加资源/);
+  assert.match(js, /ARB 变更/);
+  assert.match(js, /Pubspec 补丁/);
+  assert.match(js, /合并报告/);
+  assert.match(js, /生成的 Widget/);
+  assert.match(js, /兜底区域/);
+  assert.match(js, /未解决审查任务/);
+  assert.match(js, /人工覆盖/);
   assert.match(modelJs, /buildWorkbenchModel/);
   assert.match(css, /preview-stage/);
   assert.match(css, /code-block/);

@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 340, height: 312 });
+figma.showUI(__html__, { width: 360, height: 330 });
 
 type SerializableNode = Record<string, unknown> & {
   id: string;
@@ -58,12 +58,20 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
       throw new Error(result.error || `Local API returned ${response.status}`);
     }
     figma.ui.postMessage({
-      type: "success",
-      message: `Synced ${root.name}\nArtifacts: ${result.artifactDir}\nConfidence: ${result.normalizedConfidence}`
+      type: "sync-result",
+      kind: "sync",
+      ok: true,
+      artifactDir: result.artifactDir,
+      artifactRootPath: result.artifactRootPath,
+      workbenchUrl: result.workbenchUrl,
+      normalizedConfidence: result.normalizedConfidence,
+      message: `已同步 ${root.name}\n产物路径：${result.artifactRootPath ?? result.artifactDir}\n置信度：${result.normalizedConfidence}`
     });
   } catch (error) {
     figma.ui.postMessage({
-      type: "error",
+      type: "sync-result",
+      kind: "sync",
+      ok: false,
       message: error instanceof Error ? error.message : String(error)
     });
   }
@@ -181,12 +189,18 @@ async function checkLocalApi(endpoint: string): Promise<void> {
       throw new Error(result.error || `Local API returned ${response.status}`);
     }
     figma.ui.postMessage({
-      type: "success",
-      message: `Local API online\n${healthUrl}\nArtifacts: ${result.artifactRoot}`
+      type: "connection",
+      kind: "health",
+      ok: true,
+      artifactRoot: result.artifactRoot,
+      workbenchUrl: result.workbenchUrl,
+      message: `本地服务在线\n${healthUrl}\n产物根目录：${result.artifactRoot}`
     });
   } catch (error) {
     figma.ui.postMessage({
-      type: "error",
+      type: "connection",
+      kind: "health",
+      ok: false,
       message: error instanceof Error ? error.message : String(error)
     });
   }

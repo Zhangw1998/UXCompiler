@@ -3,7 +3,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { createCodegenReview } from "@uxcompiler/codegen-review";
 import {
@@ -122,6 +122,7 @@ interface LocalPipelineRunReport {
 const execFileAsync = promisify(execFile);
 
 const port = Number(process.env.UXCOMPILER_LOCAL_API_PORT ?? 8787);
+const workbenchPort = Number(process.env.UXCOMPILER_WORKBENCH_PORT ?? 8788);
 const artifactRoot = resolve(process.env.UXCOMPILER_ARTIFACTS_DIR ?? "artifacts/figma-bridge");
 
 const server = createServer(async (request, response) => {
@@ -155,7 +156,8 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       ok: true,
       service: "uxcompiler-local-api",
       port,
-      artifactRoot
+      artifactRoot,
+      workbenchUrl: workbenchUrlForArtifactRoot(`/${relative(process.cwd(), artifactRoot).replaceAll(sep, "/")}`)
     });
     return;
   }
@@ -189,7 +191,13 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
   });
 }
 
-async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: string; normalizedConfidence: number; pipelineRunReport: LocalPipelineRunReport }> {
+async function saveSnapshot(body: SnapshotRequest): Promise<{
+  artifactDir: string;
+  artifactRootPath: string;
+  workbenchUrl: string;
+  normalizedConfidence: number;
+  pipelineRunReport: LocalPipelineRunReport;
+}> {
   const source = body.rawFigmaScene.source;
   const projectId = body.projectId ?? safeName(source.fileName ?? source.fileKey ?? "figma_project");
   const frameId = safeName(source.frameNodeId ?? body.rawFigmaScene.root.id);
@@ -244,11 +252,20 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{ artifactDir: strin
   });
   await writeJson(resolve(artifactDir, "pipeline_run_report.json"), pipelineRunReport);
 
+  const artifactRootPath = `/${relative(process.cwd(), artifactDir).replaceAll(sep, "/")}`;
   return {
     artifactDir,
+    artifactRootPath,
+    workbenchUrl: workbenchUrlForArtifactRoot(artifactRootPath),
     normalizedConfidence: artifacts.normalizedDesignIR.confidence.overall,
     pipelineRunReport
   };
+}
+
+function workbenchUrlForArtifactRoot(artifactRootPath: string): string {
+  const url = new URL("/apps/workbench-web/", `http://127.0.0.1:${workbenchPort}`);
+  url.searchParams.set("artifacts", artifactRootPath);
+  return url.toString();
 }
 
 function readSnapshotZipRequest(body: SnapshotZipImportRequest): SnapshotRequest {

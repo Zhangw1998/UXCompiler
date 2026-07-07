@@ -138,7 +138,7 @@ export function buildWorkbenchModel(artifacts: WorkbenchArtifacts): WorkbenchMod
   const tree = asRecord(normalized.tree);
   const confidence = numberFrom(asRecord(normalized.confidence).overall);
   const frameNodeId = stringFrom(normalizedSource.frameNodeId) ?? stringFrom(visualSource.frameNodeId) ?? "unknown";
-  const frameName = stringFrom(tree.name) ?? "Current Frame";
+  const frameName = stringFrom(tree.name) ?? "当前页面";
   const reviewTasks = asArray(artifacts.reviewTasks).map(asRecord);
   const taskStatusReport = asRecord(artifacts.taskStatusReport);
   const codegenBlocked = booleanFrom(taskStatusReport.codegenWriteBlocked) ?? false;
@@ -167,12 +167,12 @@ export function buildWorkbenchModel(artifacts: WorkbenchArtifacts): WorkbenchMod
 
   const status = codegenBlocked ? "review-blocked" : reviewSummary.open > 0 ? "needs-review" : "ready";
   const metrics = [
-    metric("Open Tasks", reviewSummary.open, reviewSummary.open > 0 ? "warn" : "good"),
-    metric("Tree Nodes", treeRows.length, treeRows.length > 0 ? "good" : "bad"),
-    metric("Visual Nodes", visualNodes.length, visualNodes.length > 0 ? "good" : "bad"),
-    metric("Overrides", overrideCount, overrideCount > 0 ? "neutral" : "neutral"),
-    metric("Assets", assetCount, assetCount > 0 ? "good" : "warn"),
-    metric("i18n Keys", i18nCount, i18nCount > 0 ? "good" : "warn")
+    metric("待处理任务", reviewSummary.open, reviewSummary.open > 0 ? "warn" : "good"),
+    metric("结构节点", treeRows.length, treeRows.length > 0 ? "good" : "bad"),
+    metric("视觉节点", visualNodes.length, visualNodes.length > 0 ? "good" : "bad"),
+    metric("人工覆盖", overrideCount, overrideCount > 0 ? "neutral" : "neutral"),
+    metric("资源", assetCount, assetCount > 0 ? "good" : "warn"),
+    metric("文案 Key", i18nCount, i18nCount > 0 ? "good" : "warn")
   ];
 
   return {
@@ -197,15 +197,15 @@ export function buildWorkbenchModel(artifacts: WorkbenchArtifacts): WorkbenchMod
     sync,
     preview,
     artifactStatus: [
-      artifactStatus("Reviewed Normalized IR", Boolean(normalized.tree), frameName),
-      artifactStatus("Visual IR", visualNodes.length > 0, `${visualNodes.length} render nodes`),
-      artifactStatus("Web Preview", preview.hasWebPreviewState, `${webPreviewCommands.length} canvas commands`),
-      artifactStatus("Review Tasks", reviewTasks.length > 0, `${reviewSummary.open} open`),
-      artifactStatus("Override Set", Boolean(overrideSet.hash) || overrideCount > 0, `${overrideCount} overrides`),
-      artifactStatus("Studio Review", Boolean(artifacts.studioReport), Boolean(artifacts.studioReport) ? "review applied" : "not applied"),
-      artifactStatus("Flutter Preview", preview.hasFlutterPreview, preview.hasFlutterPreview ? "image available" : "missing"),
-      artifactStatus("Codegen Review", Boolean(artifacts.codegenReview), codegen.status),
-      artifactStatus("Incremental Sync", Boolean(artifacts.nodeRemapReport), `${sync.matches} matches`)
+      artifactStatus("已审查规范 IR", Boolean(normalized.tree), frameName),
+      artifactStatus("视觉 IR", visualNodes.length > 0, `${visualNodes.length} 个渲染节点`),
+      artifactStatus("Web 预览", preview.hasWebPreviewState, `${webPreviewCommands.length} 条画布命令`),
+      artifactStatus("审查任务", reviewTasks.length > 0, `${reviewSummary.open} 个待处理`),
+      artifactStatus("覆盖集", Boolean(overrideSet.hash) || overrideCount > 0, `${overrideCount} 个覆盖项`),
+      artifactStatus("Studio 审查", Boolean(artifacts.studioReport), Boolean(artifacts.studioReport) ? "已应用审查" : "未应用"),
+      artifactStatus("Flutter 预览", preview.hasFlutterPreview, preview.hasFlutterPreview ? "图片可用" : "缺失"),
+      artifactStatus("代码生成审查", Boolean(artifacts.codegenReview), codegen.status),
+      artifactStatus("增量同步", Boolean(artifacts.nodeRemapReport), `${sync.matches} 个匹配`)
     ]
   };
 }

@@ -105,6 +105,8 @@ try {
   const result = await response.json();
   assert.equal(result.ok, true);
   assert.ok(result.artifactDir);
+  assert.equal(result.artifactRootPath.startsWith("/artifacts/local-api-smoke/"), true);
+  assert.match(result.workbenchUrl, /^http:\/\/127\.0\.0\.1:8788\/apps\/workbench-web\/\?artifacts=/);
   assert.equal(existsSync(resolve(result.artifactDir, "raw_figma_scene.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "extraction_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "normalized_design_ir.json")), true);
@@ -285,6 +287,8 @@ try {
   assert.equal(fallbackResponse.ok, true);
   const fallbackResult = await fallbackResponse.json();
   assert.equal(fallbackResult.ok, true);
+  assert.equal(fallbackResult.artifactRootPath.startsWith("/artifacts/local-api-smoke/"), true);
+  assert.match(fallbackResult.workbenchUrl, /^http:\/\/127\.0\.0\.1:8788\/apps\/workbench-web\/\?artifacts=/);
   assert.equal(existsSync(resolve(fallbackResult.artifactDir, "assets/frames/figma_reference.png")), true);
   assert.equal(existsSync(resolve(fallbackResult.artifactDir, "flutter_preview/assets/frames/figma_reference.png")), true);
   const fallbackPreviewPage = readFileSync(
@@ -385,6 +389,8 @@ try {
   const zipResult = await zipResponse.json();
   assert.equal(zipResult.ok, true);
   assert.equal(zipResult.importedFromZip, true);
+  assert.equal(zipResult.artifactRootPath.startsWith("/artifacts/local-api-smoke/"), true);
+  assert.match(zipResult.workbenchUrl, /^http:\/\/127\.0\.0\.1:8788\/apps\/workbench-web\/\?artifacts=/);
   assert.equal(existsSync(resolve(zipResult.artifactDir, "raw_figma_scene.json")), true);
   assert.equal(existsSync(resolve(zipResult.artifactDir, "figma_reference.png")), true);
   assert.equal(existsSync(resolve(zipResult.artifactDir, "extraction_report.json")), true);

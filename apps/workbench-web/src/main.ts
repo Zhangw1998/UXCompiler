@@ -49,6 +49,10 @@ if (!appElement || !artifactInputElement) {
 
 const app = appElement;
 const artifactInput = artifactInputElement;
+const defaultLocale = "zh-CN";
+
+document.documentElement.lang = defaultLocale;
+document.title = "UXCompiler 工作台";
 
 const jsonArtifacts: ArtifactSpec[] = [
   { key: "reviewedNormalizedDesignIR", files: ["reviewed_normalized_design_ir.json"] },
@@ -94,16 +98,16 @@ const jsonArtifacts: ArtifactSpec[] = [
 ];
 
 const navItems: Array<{ id: ViewId; label: string }> = [
-  { id: "dashboard", label: "Project" },
-  { id: "tasks", label: "Review Tasks" },
-  { id: "tree", label: "Tree" },
-  { id: "components", label: "Components" },
-  { id: "tokens", label: "Tokens" },
-  { id: "assets", label: "Assets" },
-  { id: "i18n", label: "i18n" },
-  { id: "preview", label: "Preview" },
-  { id: "codegen", label: "Codegen" },
-  { id: "settings", label: "Settings" }
+  { id: "dashboard", label: "项目" },
+  { id: "tasks", label: "任务" },
+  { id: "tree", label: "结构树" },
+  { id: "components", label: "组件" },
+  { id: "tokens", label: "Token" },
+  { id: "assets", label: "资源" },
+  { id: "i18n", label: "文案" },
+  { id: "preview", label: "预览" },
+  { id: "codegen", label: "代码生成" },
+  { id: "settings", label: "设置" }
 ];
 
 const layoutOptions = ["column", "row", "grid", "stack", "absolute", "leaf"];
@@ -136,8 +140,6 @@ window.addEventListener("hashchange", () => {
     render();
   }
 });
-
-void loadFromArtifactRoot(initialArtifactRoot);
 
 async function loadFromArtifactRoot(root: string): Promise<void> {
   const previousRoot = state.artifactRoot;
@@ -233,24 +235,162 @@ async function handleArtifactDirectory(fileList: FileList | null): Promise<void>
 
 function render(): void {
   if (state.loading) {
-    app.innerHTML = renderShell(`<section class="empty-state"><div class="spinner"></div><strong>Loading artifacts</strong></section>`);
+    renderApp(renderShell(`<section class="empty-state"><div class="spinner"></div><strong>Loading artifacts</strong></section>`));
     return;
   }
 
   if (state.error || !state.model) {
-    app.innerHTML = renderShell(`
+    renderApp(renderShell(`
       <section class="empty-state empty-state--error">
         <strong>Workbench could not load this artifact set.</strong>
         <p>${escapeHtml(state.error ?? "Unknown load error")}</p>
         <button class="button button--primary" data-action="reload">Retry</button>
       </section>
-    `);
+    `));
     return;
   }
 
-  app.innerHTML = renderShell(renderActiveView(state.model));
+  renderApp(renderShell(renderActiveView(state.model)));
   window.requestAnimationFrame(fitPreviewStages);
 }
+
+function renderApp(html: string): void {
+  app.innerHTML = html;
+  localizeRenderedPage();
+}
+
+function localizeRenderedPage(): void {
+  const walker = document.createTreeWalker(app, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) {
+    if (walker.currentNode instanceof Text) textNodes.push(walker.currentNode);
+  }
+  for (const node of textNodes) {
+    const translated = translateText(node.textContent ?? "");
+    if (translated !== undefined) node.textContent = translated;
+  }
+}
+
+function translateText(value: string): string | undefined {
+  const leading = value.match(/^\s*/)?.[0] ?? "";
+  const trailing = value.match(/\s*$/)?.[0] ?? "";
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const exact = zhCn[trimmed];
+  if (exact) return `${leading}${exact}${trailing}`;
+  const tasksLoaded = trimmed.match(/^(\d+) tasks loaded$/);
+  if (tasksLoaded) return `${leading}已加载 ${tasksLoaded[1]} 个任务${trailing}`;
+  const treeHeader = trimmed.match(/^(\d+) nodes · (\d+) open tasks$/);
+  if (treeHeader) return `${leading}${treeHeader[1]} 个节点 · ${treeHeader[2]} 个待处理任务${trailing}`;
+  const components = trimmed.match(/^(\d+) components$/);
+  if (components) return `${leading}${components[1]} 个组件${trailing}`;
+  const open = trimmed.match(/^(\d+) open$/);
+  if (open) return `${leading}${open[1]} 个待处理${trailing}`;
+  return undefined;
+}
+
+const zhCn: Record<string, string> = {
+  "UXCompiler Workbench": "UXCompiler 工作台",
+  "Loading artifacts": "正在加载产物",
+  "Workbench could not load this artifact set.": "Workbench 无法加载这组产物。",
+  "Unknown load error": "未知加载错误",
+  "Retry": "重试",
+  "Open Artifacts": "打开产物",
+  "Reload": "刷新",
+  "loading": "加载中",
+  "review-blocked": "审查阻塞",
+  "needs-review": "待审查",
+  "ready": "就绪",
+  "blocked": "已阻塞",
+  "missing": "缺失",
+  "review": "需审查",
+  "not-generated": "未生成",
+  "Project Dashboard": "项目看板",
+  "Artifact Status": "产物状态",
+  "Review Distribution": "任务分布",
+  "Pipeline Gates": "流水线门禁",
+  "Tasks": "任务",
+  "Preview": "预览",
+  "Flutter": "Flutter",
+  "Codegen": "代码生成",
+  "Sync": "同步",
+  "Review Tasks": "审查任务",
+  "No review tasks in this artifact set.": "这组产物没有审查任务。",
+  "Review task": "审查任务",
+  "No action": "无操作",
+  "Applying...": "正在应用...",
+  "Normalized Tree": "规范化结构树",
+  "Name": "名称",
+  "Type": "类型",
+  "Layout": "布局",
+  "Confidence": "置信度",
+  "Source": "来源",
+  "Node Detail": "节点详情",
+  "Children": "子节点",
+  "Bounds": "边界",
+  "Render": "渲染",
+  "Reason": "原因",
+  "Save Name": "保存名称",
+  "Save Layout": "保存布局",
+  "Save Render": "保存渲染",
+  "Ignore Node": "忽略节点",
+  "Region ID": "区域 ID",
+  "Region Name": "区域名称",
+  "Role": "角色",
+  "Source IDs": "来源 ID",
+  "Parent ID": "父级 ID",
+  "Merge IDs": "合并 ID",
+  "Create Region": "创建区域",
+  "Split Region": "拆分区域",
+  "Move Node": "移动节点",
+  "Merge Regions": "合并区域",
+  "Select a tree row.": "请选择一个结构树节点。",
+  "Component Studio": "组件工作台",
+  "Create / Review Component": "创建/审查组件",
+  "manual": "手动",
+  "Instances": "实例",
+  "Token Studio": "Token 工作台",
+  "Asset Studio": "资源工作台",
+  "Asset Name": "资源名称",
+  "Current": "当前",
+  "Write Strategy": "写入策略",
+  "Path": "路径",
+  "Format": "格式",
+  "Scale": "缩放",
+  "Crop JSON": "裁剪 JSON",
+  "Exclude Text": "排除文本",
+  "Action": "操作",
+  "i18n Studio": "文案工作台",
+  "Preview & Diff": "预览与差异",
+  "Web Preview": "Web 预览",
+  "Flutter Preview": "Flutter 预览",
+  "Codegen Review": "代码生成审查",
+  "Write Control": "写入控制",
+  "Project Path": "项目路径",
+  "Write files": "写入文件",
+  "Dry Run": "试运行",
+  "Write": "写入",
+  "Gate Blockers": "门禁阻塞项",
+  "Incremental Sync": "增量同步",
+  "Token Migration": "Token 迁移",
+  "Files To Create": "待创建文件",
+  "Files To Modify": "待修改文件",
+  "Assets To Add": "待添加资源",
+  "ARB Changes": "ARB 变更",
+  "Pubspec Patch": "Pubspec 补丁",
+  "Merge Report": "合并报告",
+  "Generated Widgets": "生成的 Widget",
+  "Fallback Regions": "兜底区域",
+  "Unresolved Review Tasks": "未解决审查任务",
+  "Manual Overrides": "人工覆盖",
+  "Settings": "设置",
+  "Artifact Root": "产物根目录",
+  "Loaded JSON": "已加载 JSON",
+  "Last Studio Action": "最近一次 Studio 操作",
+  "Component": "组件"
+};
+
+void loadFromArtifactRoot(initialArtifactRoot);
 
 function renderShell(content: string): string {
   const model = state.model;

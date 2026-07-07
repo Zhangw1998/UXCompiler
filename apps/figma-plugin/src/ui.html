@@ -1,13 +1,55 @@
 <!doctype html>
-<html>
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <style>
+      :root {
+        color-scheme: light;
+      }
       body {
         margin: 0;
         padding: 16px;
         font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         color: #111827;
+        background: #ffffff;
+      }
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+      .connection {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 12px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #f9fafb;
+      }
+      .eyebrow {
+        margin: 0 0 4px;
+        color: #6b7280;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .status-line {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        font-weight: 700;
+      }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #9ca3af;
+      }
+      .status-dot.is-connected {
+        background: #16a34a;
+      }
+      .status-dot.is-offline {
+        background: #dc2626;
       }
       label {
         display: block;
@@ -23,48 +65,109 @@
         padding: 0 8px;
       }
       button {
-        height: 34px;
-        margin-top: 12px;
+        min-height: 34px;
         border: 0;
         border-radius: 6px;
         color: white;
         background: #1654d6;
-        font-weight: 600;
+        font-weight: 700;
       }
-      .actions {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-      }
-      .actions button:last-child {
-        grid-column: 1 / -1;
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
       }
       .secondary {
         color: #111827;
         background: #e5e7eb;
       }
-      pre {
-        min-height: 72px;
-        margin: 12px 0 0;
-        white-space: pre-wrap;
+      .sync-button {
+        width: 100%;
+        height: 40px;
+        font-size: 13px;
+      }
+      details {
         color: #374151;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .settings {
+        margin-top: 8px;
+      }
+      .status-box {
+        min-height: 66px;
+        box-sizing: border-box;
+        padding: 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        color: #374151;
+        background: #ffffff;
+        white-space: pre-wrap;
+      }
+      .status-box a {
+        color: #1654d6;
+        font-weight: 700;
       }
     </style>
   </head>
   <body>
-    <label for="endpoint">Local API endpoint</label>
-    <input id="endpoint" value="http://localhost:8787/api/snapshots" />
-    <div class="actions">
-      <button id="check" class="secondary">Check Local API</button>
-      <button id="sync">Sync Selection</button>
-      <button id="export" class="secondary">Export Snapshot ZIP</button>
-    </div>
-    <pre id="status">Select a Frame, Component, Instance, or Section.</pre>
+    <main class="stack">
+      <section class="connection" aria-live="polite">
+        <div>
+          <p class="eyebrow">服务状态</p>
+          <div class="status-line">
+            <span id="connectionDot" class="status-dot"></span>
+            <span id="connectionText">正在连接本地服务...</span>
+          </div>
+        </div>
+        <button id="check" class="secondary">重新连接</button>
+      </section>
+
+      <button id="sync" class="sync-button" disabled>同步到 UXCompiler</button>
+
+      <details>
+        <summary>连接设置</summary>
+        <div class="settings">
+          <label for="endpoint">本地服务地址</label>
+          <input id="endpoint" value="http://localhost:8787/api/snapshots" />
+        </div>
+      </details>
+
+      <div id="status" class="status-box">请选择一个 Frame、Component、Instance、Section、Group 或可见节点。</div>
+    </main>
     <script>
       const endpoint = document.getElementById("endpoint");
       const status = document.getElementById("status");
-      document.getElementById("check").onclick = () => {
-        status.textContent = "Checking...";
+      const syncButton = document.getElementById("sync");
+      const connectionDot = document.getElementById("connectionDot");
+      const connectionText = document.getElementById("connectionText");
+
+      let connected = false;
+
+      function setConnection(nextConnected, text) {
+        connected = nextConnected;
+        syncButton.disabled = !connected;
+        connectionText.textContent = text;
+        connectionDot.className = `status-dot ${connected ? "is-connected" : "is-offline"}`;
+      }
+
+      function setStatus(text, link) {
+        status.textContent = text;
+        if (link) {
+          status.append(document.createTextNode("\n"));
+          const anchor = document.createElement("a");
+          anchor.href = link;
+          anchor.target = "_blank";
+          anchor.rel = "noreferrer";
+          anchor.textContent = "打开 Web 工作台";
+          status.append(anchor);
+        }
+      }
+
+      function checkConnection() {
+        setConnection(false, "正在连接本地服务...");
+        setStatus("正在检查本地服务...");
         parent.postMessage(
           {
             pluginMessage: {
@@ -74,9 +177,12 @@
           },
           "*"
         );
-      };
-      document.getElementById("sync").onclick = () => {
-        status.textContent = "Syncing...";
+      }
+
+      document.getElementById("check").onclick = checkConnection;
+      syncButton.onclick = () => {
+        setStatus("正在同步当前选择...");
+        syncButton.disabled = true;
         parent.postMessage(
           {
             pluginMessage: {
@@ -87,20 +193,24 @@
           "*"
         );
       };
-      document.getElementById("export").onclick = () => {
-        status.textContent = "Exporting offline ZIP...";
-        parent.postMessage(
-          {
-            pluginMessage: {
-              type: "export-snapshot-zip"
-            }
-          },
-          "*"
-        );
-      };
+
       window.onmessage = (event) => {
         const message = event.data.pluginMessage;
         if (!message) return;
+        if (message.kind === "health") {
+          setConnection(Boolean(message.ok), message.ok ? "已连接本地服务" : "未连接本地服务");
+          setStatus(message.message || (message.ok ? "服务已就绪。" : "服务不可用。"), message.workbenchUrl);
+          return;
+        }
+        if (message.kind === "sync") {
+          syncButton.disabled = !connected;
+          if (message.ok) {
+            setStatus(message.message || "同步完成。", message.workbenchUrl);
+          } else {
+            setStatus(message.message || "同步失败。");
+          }
+          return;
+        }
         if (message.type === "snapshot-zip") {
           const binary = atob(message.bytesBase64);
           const bytes = new Uint8Array(binary.length);
@@ -114,8 +224,10 @@
           link.remove();
           URL.revokeObjectURL(url);
         }
-        status.textContent = message.message || JSON.stringify(message, null, 2);
+        setStatus(message.message || JSON.stringify(message, null, 2));
       };
+
+      checkConnection();
     </script>
   </body>
 </html>
