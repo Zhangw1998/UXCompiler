@@ -23,6 +23,7 @@ try {
   const rawFigmaScene = JSON.parse(readFileSync("examples/fixtures/login_raw_figma_scene.json", "utf8"));
   rawFigmaScene.source.projectName = "Smoke Project";
   rawFigmaScene.source.pageName = "Login Page";
+  rawFigmaScene.source.figmaPageName = "Figma Canvas";
   rawFigmaScene.source.selectedNodeName = rawFigmaScene.root.name;
   const imageSourceNodeId = "smoke:asset:1";
   const duplicateImageSourceNodeId = "smoke:asset:2";
@@ -173,6 +174,7 @@ try {
   assert.equal(pipelineRunReport.source.sourceKind, "local_smoke");
   assert.equal(pipelineRunReport.source.projectName, "Smoke Project");
   assert.equal(pipelineRunReport.source.pageName, "Login Page");
+  assert.equal(pipelineRunReport.source.figmaPageName, "Figma Canvas");
   assert.equal(pipelineRunReport.steps.snapshot.materializedAssets, 3);
   assert.equal(pipelineRunReport.steps.snapshot.frameScreenshotFallback, false);
   assert.equal(pipelineRunReport.steps.flutterAnalyze.status, "success");

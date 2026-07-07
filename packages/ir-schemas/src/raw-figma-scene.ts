@@ -112,6 +112,7 @@ export interface RawFigmaSceneSource {
   fileName?: string;
   projectName?: string;
   pageName?: string;
+  figmaPageName?: string;
   selectedNodeName?: string;
   lastModified?: string;
   version?: string;

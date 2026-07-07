@@ -95,6 +95,24 @@
       .settings {
         margin-top: 8px;
       }
+      .directory-card {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+      .field-grid {
+        display: grid;
+        gap: 10px;
+      }
+      .selection-name {
+        min-height: 18px;
+        color: #6b7280;
+        font-size: 11px;
+        line-height: 16px;
+      }
       .status-box {
         min-height: 66px;
         box-sizing: border-box;
@@ -124,6 +142,23 @@
         <button id="check" class="secondary">重新连接</button>
       </section>
 
+      <section class="directory-card">
+        <div>
+          <p class="eyebrow">同步目录</p>
+          <div id="selectionName" class="selection-name">正在读取当前选择...</div>
+        </div>
+        <div class="field-grid">
+          <label>
+            项目目录名
+            <input id="projectName" value="" placeholder="Figma 项目名称" />
+          </label>
+          <label>
+            页面目录名
+            <input id="pageName" value="" placeholder="当前选中页面名称" />
+          </label>
+        </div>
+      </section>
+
       <button id="sync" class="sync-button" disabled>同步到 UXCompiler</button>
 
       <details>
@@ -142,8 +177,20 @@
       const syncButton = document.getElementById("sync");
       const connectionDot = document.getElementById("connectionDot");
       const connectionText = document.getElementById("connectionText");
+      const projectName = document.getElementById("projectName");
+      const pageName = document.getElementById("pageName");
+      const selectionName = document.getElementById("selectionName");
 
       let connected = false;
+      let lastAutoProjectName = "";
+      let lastAutoPageName = "";
+
+      projectName.addEventListener("input", () => {
+        lastAutoProjectName = "";
+      });
+      pageName.addEventListener("input", () => {
+        lastAutoPageName = "";
+      });
 
       function setConnection(nextConnected, text) {
         connected = nextConnected;
@@ -187,7 +234,9 @@
           {
             pluginMessage: {
               type: "sync-selection",
-              endpoint: endpoint.value
+              endpoint: endpoint.value,
+              projectName: projectName.value,
+              pageName: pageName.value
             }
           },
           "*"
@@ -197,6 +246,20 @@
       window.onmessage = (event) => {
         const message = event.data.pluginMessage;
         if (!message) return;
+        if (message.type === "selection-context") {
+          selectionName.textContent = message.hasSelection
+            ? `当前选择：${message.selectedNodeName} · Figma 页面：${message.figmaPageName}`
+            : message.message || "请选择一个可同步节点。";
+          if (!projectName.value || projectName.value === lastAutoProjectName) {
+            projectName.value = message.projectName || "";
+            lastAutoProjectName = projectName.value;
+          }
+          if (!pageName.value || pageName.value === lastAutoPageName) {
+            pageName.value = message.pageName || "";
+            lastAutoPageName = pageName.value;
+          }
+          return;
+        }
         if (message.kind === "health") {
           setConnection(Boolean(message.ok), message.ok ? "已连接本地服务" : "未连接本地服务");
           setStatus(message.message || (message.ok ? "服务已就绪。" : "服务不可用。"), message.workbenchUrl);
@@ -228,6 +291,14 @@
       };
 
       checkConnection();
+      parent.postMessage(
+        {
+          pluginMessage: {
+            type: "read-selection-context"
+          }
+        },
+        "*"
+      );
     </script>
   </body>
 </html>

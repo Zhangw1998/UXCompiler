@@ -95,6 +95,7 @@ interface LocalPipelineRunReport {
     fileName?: string;
     projectName?: string;
     pageName?: string;
+    figmaPageName?: string;
     selectedNodeName?: string;
     frameNodeId?: string;
   };
@@ -246,6 +247,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{
     projectId: location.projectName,
     projectName: location.projectName,
     pageName: location.pageName,
+    figmaPageName: stringValue(source.figmaPageName),
     selectedNodeName: location.selectedNodeName,
     sourceKind: body.sourceKind ?? "unknown",
     frameNodeId: source.frameNodeId,
@@ -914,6 +916,7 @@ async function runLocalPipeline(
       fileName: source.fileName,
       projectName: stringValue(source.projectName),
       pageName: stringValue(source.pageName),
+      figmaPageName: stringValue(source.figmaPageName),
       selectedNodeName: stringValue(source.selectedNodeName),
       frameNodeId: source.frameNodeId
     },

@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 360, height: 330 });
+figma.showUI(__html__, { width: 380, height: 430 });
 
 type SerializableNode = Record<string, unknown> & {
   id: string;
@@ -28,7 +28,16 @@ type SnapshotPayload = {
   extractionReport: Record<string, unknown>;
 };
 
-figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
+type SelectionNames = {
+  projectName?: string;
+  pageName?: string;
+};
+
+figma.ui.onmessage = async (message: { type?: string; endpoint?: string; projectName?: string; pageName?: string }) => {
+  if (message.type === "read-selection-context") {
+    postSelectionContext();
+    return;
+  }
   if (message.type === "check-health") {
     await checkLocalApi(message.endpoint || "http://localhost:8787/api/snapshots");
     return;
@@ -40,7 +49,11 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
   if (message.type !== "sync-selection") return;
   try {
     const endpoint = message.endpoint || "http://localhost:8787/api/snapshots";
-    const { root, rawFigmaScene, png, assets, extractionReport } = await collectSnapshotPayload();
+    const names = {
+      projectName: normalizeName(message.projectName) ?? readPluginProjectName(),
+      pageName: normalizeName(message.pageName) ?? readSelectedPageName()
+    };
+    const { root, rawFigmaScene, png, assets, extractionReport } = await collectSnapshotPayload(names);
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -80,9 +93,30 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string }) => {
   }
 };
 
-async function collectSnapshotPayload(): Promise<SnapshotPayload> {
+figma.on("selectionchange", () => {
+  postSelectionContext();
+});
+
+function postSelectionContext(): void {
+  const selected = figma.currentPage.selection[0];
+  figma.ui.postMessage({
+    type: "selection-context",
+    projectName: readPluginProjectName(),
+    pageName: selected?.name ?? figma.currentPage.name,
+    selectedNodeName: selected?.name,
+    figmaPageName: figma.currentPage.name,
+    hasSelection: Boolean(selected),
+    message: selected ? `当前选择：${selected.name}` : "请选择一个 Frame、Component、Instance、Section、Group 或可见节点。"
+  });
+}
+
+postSelectionContext();
+
+async function collectSnapshotPayload(names: SelectionNames = {}): Promise<SnapshotPayload> {
   const root = resolveSelectedRoot();
-  const rawFigmaScene = buildRawFigmaScene(root);
+  const projectName = normalizeName(names.projectName) ?? readPluginProjectName();
+  const pageName = normalizeName(names.pageName) ?? root.name;
+  const rawFigmaScene = buildRawFigmaScene(root, { projectName, pageName });
   const [png, assets] = await Promise.all([
     root.exportAsync({ format: "PNG", constraint: { type: "SCALE", value: 1 } }),
     exportNodeAssets(root)
@@ -91,9 +125,10 @@ async function collectSnapshotPayload(): Promise<SnapshotPayload> {
     source: {
       fileKey: figma.fileKey ?? "plugin_file",
       frameNodeId: root.id,
-      fileName: readPluginProjectName(),
-      projectName: readPluginProjectName(),
-      pageName: figma.currentPage.name,
+      fileName: projectName,
+      projectName,
+      pageName,
+      figmaPageName: figma.currentPage.name,
       selectedNodeName: root.name,
       apiBaseUrl: "figma-plugin"
     },
@@ -224,7 +259,7 @@ function resolveSelectedRoot(): SceneNode {
   return selected;
 }
 
-function buildRawFigmaScene(root: SceneNode) {
+function buildRawFigmaScene(root: SceneNode, names: Required<SelectionNames>) {
   const bounds = readBounds(root);
   return {
     version: "2.0",
@@ -234,9 +269,10 @@ function buildRawFigmaScene(root: SceneNode) {
       frameNodeId: root.id,
       exportedAt: new Date().toISOString(),
       viewport: bounds ? { width: bounds.width, height: bounds.height, scale: 1 } : undefined,
-      fileName: readPluginProjectName(),
-      projectName: readPluginProjectName(),
-      pageName: figma.currentPage.name,
+      fileName: names.projectName,
+      projectName: names.projectName,
+      pageName: names.pageName,
+      figmaPageName: figma.currentPage.name,
       selectedNodeName: root.name,
       editorType: "figma",
       apiBaseUrl: "figma-plugin"
@@ -249,6 +285,15 @@ function readPluginProjectName(): string {
   const fileName = typeof figma.root?.name === "string" ? figma.root.name : "";
   if (fileName.trim()) return fileName.trim();
   return figma.fileKey ? `figma_${figma.fileKey}` : `figma_plugin_${figma.currentPage.name}`;
+}
+
+function readSelectedPageName(): string {
+  return figma.currentPage.selection[0]?.name ?? figma.currentPage.name;
+}
+
+function normalizeName(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }
 
 function serializeNode(node: SceneNode): SerializableNode {
