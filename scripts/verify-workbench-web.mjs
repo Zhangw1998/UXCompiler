@@ -185,8 +185,10 @@ try {
   assert.match(js, /兜底区域/);
   assert.match(js, /未解决审查任务/);
   assert.match(js, /人工覆盖/);
+  assert.match(js, /artifactUrl\(state\.artifactRoot, assetPath\)/);
   assert.match(modelJs, /buildWorkbenchModel/);
   assert.match(css, /preview-stage/);
+  assert.match(css, /\.viz-image img/);
   assert.match(css, /code-block/);
   assert.equal(visual.root.type, "scene");
   if (previewPng) {

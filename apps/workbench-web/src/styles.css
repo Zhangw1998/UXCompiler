@@ -1032,6 +1032,17 @@ button {
 }
 
 .viz-image {
+  background: #ffffff;
+}
+
+.viz-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+
+.viz-image--placeholder {
   display: grid;
   place-items: center;
   border: 1px dashed #9aa7b8;

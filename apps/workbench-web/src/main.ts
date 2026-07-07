@@ -1335,7 +1335,15 @@ function renderVisualNode(positioned: JsonRecord): string {
   }
 
   if (type === "image") {
-    return `<div class="viz-node viz-image${selected}" ${common} style="${baseStyle}">IMG</div>`;
+    const assetPath = stringFrom(child.assetPath);
+    if (assetPath) {
+      return `
+        <div class="viz-node viz-image${selected}" ${common} style="${baseStyle}">
+          <img src="${escapeAttr(artifactUrl(state.artifactRoot, assetPath))}" alt="" />
+        </div>
+      `;
+    }
+    return `<div class="viz-node viz-image viz-image--placeholder${selected}" ${common} style="${baseStyle}">IMG</div>`;
   }
 
   const fill = cssColor(stringFrom(child.fill) ?? "transparent");
@@ -1690,8 +1698,16 @@ function renderWebPreviewCommand(command: JsonRecord): string {
   }
 
   if (type === "image") {
+    const assetPath = stringFrom(command.assetPath);
+    if (assetPath) {
+      return `
+        <div class="viz-node viz-image${selected}" ${common} style="${baseStyle}">
+          <img src="${escapeAttr(artifactUrl(state.artifactRoot, assetPath))}" alt="" />
+        </div>
+      `;
+    }
     return `
-      <div class="viz-node viz-image${selected}" ${common} style="${baseStyle}">
+      <div class="viz-node viz-image viz-image--placeholder${selected}" ${common} style="${baseStyle}">
         <span>${escapeHtml(stringFrom(command.mode) === "asset" ? "asset" : "image")}</span>
       </div>
     `;
