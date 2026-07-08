@@ -2,7 +2,7 @@
 
 import { createServer } from "node:http";
 import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { dirname, extname, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 import { codegenProjectFileProbePaths, createCodegenReview } from "../packages/codegen-review/dist/index.js";
 import { runIncrementalSync } from "../packages/incremental-sync/dist/index.js";
 import { applyOverrides } from "../packages/override-engine/dist/index.js";
@@ -167,6 +167,33 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, {
         ok: true,
         ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workbench/project-pages") {
+      if (request.method !== "GET") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const result = await readWorkbenchProjectPages(requestUrl.searchParams.get("artifactRoot"));
+      sendJson(response, 200, {
+        ok: true,
+        report: result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workbench/prototype-link") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await updateWorkbenchPrototypeLink(body);
+      sendJson(response, 200, {
+        ok: true,
+        report: result
       });
       return;
     }
@@ -899,6 +926,71 @@ async function saveWorkbenchProjectPreset(body) {
       fontFamilies: nextPreset.fonts.families.length,
       resources: nextPreset.fonts.resources.length
     }
+  };
+}
+
+async function readWorkbenchProjectPages(artifactRootValue) {
+  const artifactDir = resolveArtifactRoot(stringValue(artifactRootValue));
+  const projectDir = dirname(artifactDir);
+  const projectRoot = artifactRootForDir(projectDir);
+  const entries = await readdir(projectDir, { withFileTypes: true });
+  const pages = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const pageDir = resolve(projectDir, entry.name);
+    if (!(await fileExists(resolve(pageDir, "raw_figma_scene.json")))) continue;
+    pages.push(await readProjectPageEntry(pageDir, pageDir === artifactDir));
+  }
+  pages.sort((left, right) => Number(right.current) - Number(left.current) || left.name.localeCompare(right.name));
+  const prototypeFlow = normalizePrototypeFlow(await readOptionalJson(resolve(projectDir, "prototype_flow.json"), undefined));
+  return {
+    version: "0.1.0",
+    projectName: basename(projectDir),
+    projectRoot,
+    currentArtifactRoot: artifactRootForDir(artifactDir),
+    pages,
+    prototypeFlow
+  };
+}
+
+async function updateWorkbenchPrototypeLink(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const projectDir = dirname(artifactDir);
+  const operation = stringValue(body.operation);
+  const flowPath = resolve(projectDir, "prototype_flow.json");
+  const now = new Date().toISOString();
+  const flow = normalizePrototypeFlow(await readOptionalJson(flowPath, undefined));
+  if (operation === "add") {
+    const link = body.link ?? {};
+    const fromPage = stringValue(link.fromPage);
+    const toPage = stringValue(link.toPage);
+    if (!fromPage || !toPage) throw new Error("Prototype link requires fromPage and toPage.");
+    if (fromPage === toPage) throw new Error("Prototype link cannot connect a page to itself.");
+    const trigger = stringValue(link.trigger) ?? "tap";
+    const id = stringValue(link.id) ?? `proto_${safeName(fromPage)}_${safeName(toPage)}_${safeName(trigger)}`;
+    const nextLink = {
+      id,
+      fromPage,
+      toPage,
+      trigger,
+      note: stringValue(link.note) ?? ""
+    };
+    const existingIndex = flow.links.findIndex((entry) => entry.id === id);
+    if (existingIndex >= 0) flow.links[existingIndex] = nextLink;
+    else flow.links.push(nextLink);
+  } else if (operation === "delete") {
+    const linkId = stringValue(body.linkId);
+    if (!linkId) throw new Error("Prototype link delete requires linkId.");
+    flow.links = flow.links.filter((link) => link.id !== linkId);
+  } else {
+    throw new Error(`Unsupported prototype link operation: ${operation ?? "missing"}.`);
+  }
+  flow.updatedAt = now;
+  await writeJson(flowPath, flow);
+  return {
+    path: flowPath,
+    updatedAt: now,
+    links: flow.links.length
   };
 }
 
@@ -1679,6 +1771,60 @@ function normalizePresetResource(entry) {
     weight: stringValue(entry.weight) ?? "",
     style: stringValue(entry.style) ?? ""
   };
+}
+
+async function readProjectPageEntry(pageDir, current) {
+  const snapshot = await readOptionalJson(resolve(pageDir, "local_api_snapshot_report.json"), {});
+  const rawScene = await readOptionalJson(resolve(pageDir, "raw_figma_scene.json"), {});
+  const rawSource = rawScene?.source ?? {};
+  const taskStatus = await readOptionalJson(resolve(pageDir, "task_status_report.json"), {});
+  const normalized = await readOptionalJson(resolve(pageDir, "reviewed_normalized_design_ir.json"), undefined) ??
+    await readOptionalJson(resolve(pageDir, "normalized_design_ir.json"), {});
+  const tree = normalized?.tree ?? {};
+  const viewport = rawSource.viewport ?? normalized?.source?.viewport ?? {};
+  const width = numberValue(viewport.width);
+  const height = numberValue(viewport.height);
+  const openTasks = numberValue(taskStatus.open) ?? 0;
+  const blocked = Boolean(taskStatus.codegenWriteBlocked);
+  return {
+    name: stringValue(snapshot.pageName) ?? stringValue(rawSource.pageName) ?? basename(pageDir),
+    artifactRoot: artifactRootForDir(pageDir),
+    current,
+    status: blocked ? "blocked" : openTasks > 0 ? "review" : "ready",
+    frameName: stringValue(rawSource.selectedNodeName) ?? stringValue(tree.name) ?? stringValue(rawSource.frameName),
+    frameNodeId: stringValue(rawSource.frameNodeId),
+    updatedAt: stringValue(snapshot.savedAt) ?? stringValue(snapshot.generatedAt),
+    viewport: width && height ? { width, height } : undefined,
+    openTasks
+  };
+}
+
+function normalizePrototypeFlow(value) {
+  const flow = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    version: "0.1.0",
+    updatedAt: stringValue(flow.updatedAt),
+    links: asArray(flow.links)
+      .map((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+        const fromPage = stringValue(entry.fromPage);
+        const toPage = stringValue(entry.toPage);
+        if (!fromPage || !toPage) return undefined;
+        const trigger = stringValue(entry.trigger) ?? "tap";
+        return {
+          id: stringValue(entry.id) ?? `proto_${safeName(fromPage)}_${safeName(toPage)}_${safeName(trigger)}`,
+          fromPage,
+          toPage,
+          trigger,
+          note: stringValue(entry.note) ?? ""
+        };
+      })
+      .filter(Boolean)
+  };
+}
+
+function artifactRootForDir(dir) {
+  return `/${relative(root, dir).replaceAll(sep, "/")}`;
 }
 
 function resolveArtifactRoot(value) {

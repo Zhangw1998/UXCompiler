@@ -416,6 +416,193 @@ button {
   margin-bottom: 16px;
 }
 
+.project-pages-panel {
+  margin-bottom: 16px;
+}
+
+.project-pages-body {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.page-review-selector {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.current-page-summary {
+  min-height: 54px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.current-page-summary strong,
+.current-page-summary span {
+  display: block;
+}
+
+.current-page-summary strong {
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.current-page-summary span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.page-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.page-card {
+  display: grid;
+  gap: 4px;
+  min-height: 76px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+  text-align: left;
+}
+
+.page-card:hover {
+  border-color: #9db5d6;
+  background: #f4f8ff;
+}
+
+.page-card.is-current {
+  border-color: #1769e0;
+  background: #eef5ff;
+}
+
+.page-card strong,
+.page-card span,
+.page-card small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-card strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.page-card span,
+.page-card small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.prototype-builder {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.prototype-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.prototype-note-field {
+  grid-column: span 2;
+}
+
+.prototype-form .action-button {
+  grid-column: 1 / -1;
+}
+
+.prototype-map {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.prototype-node-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.prototype-node {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f7f9fc;
+  color: #415064;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prototype-node.is-current {
+  border-color: #1769e0;
+  background: #eaf2ff;
+  color: #0d55ba;
+}
+
+.prototype-link-list {
+  display: grid;
+  gap: 8px;
+}
+
+.prototype-link-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) auto minmax(92px, 1fr) minmax(0, 1.2fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.prototype-link-row span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #3f4d60;
+  font-weight: 750;
+}
+
+.prototype-link-row em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workbench-launcher {
   display: grid;
   grid-template-columns: repeat(9, minmax(104px, 1fr));
@@ -1441,6 +1628,14 @@ button {
     grid-template-columns: repeat(3, minmax(120px, 1fr));
   }
 
+  .page-card-grid {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+
+  .prototype-builder {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .pipeline-board {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1534,7 +1729,18 @@ button {
   }
 
   .workbench-launcher,
+  .page-review-selector,
+  .page-card-grid,
+  .prototype-form,
   .pipeline-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prototype-note-field {
+    grid-column: auto;
+  }
+
+  .prototype-link-row {
     grid-template-columns: minmax(0, 1fr);
   }
 

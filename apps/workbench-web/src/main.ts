@@ -39,8 +39,10 @@ interface AppState {
   pendingDiffRepair?: string;
   pendingDiffRollback?: string;
   pendingProjectPreset?: boolean;
+  pendingPrototypeLink?: string;
   codegenProjectPath?: string;
   selectedGateId?: PipelineGateId;
+  projectPages?: ProjectPagesReport;
 }
 
 interface ProjectPresetSettings {
@@ -73,6 +75,37 @@ interface PipelineGate {
   description: string;
   view?: ViewId;
   details: Array<{ label: string; value: string; tone?: "neutral" | "good" | "warn" | "bad" }>;
+}
+
+interface ProjectPagesReport {
+  projectName: string;
+  projectRoot: string;
+  currentArtifactRoot: string;
+  pages: ProjectPageEntry[];
+  prototypeFlow: {
+    version?: string;
+    updatedAt?: string;
+    links: PrototypeLink[];
+  };
+}
+
+interface ProjectPageEntry {
+  name: string;
+  artifactRoot: string;
+  current?: boolean;
+  status?: string;
+  frameName?: string;
+  frameNodeId?: string;
+  updatedAt?: string;
+  viewport?: { width: number; height: number };
+}
+
+interface PrototypeLink {
+  id: string;
+  fromPage: string;
+  toPage: string;
+  trigger?: string;
+  note?: string;
 }
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
@@ -165,6 +198,7 @@ const state: AppState = {
 
 app.addEventListener("click", onAppClick);
 app.addEventListener("input", onAppInput);
+app.addEventListener("change", onAppChange);
 artifactInput.addEventListener("change", () => {
   void handleArtifactDirectory(artifactInput.files);
 });
@@ -184,10 +218,12 @@ async function loadFromArtifactRoot(root: string): Promise<void> {
   state.artifactRoot = root;
   if (root !== previousRoot) state.codegenProjectPath = savedCodegenProjectPath(root);
   state.artifacts = { artifactRoot: root };
+  state.projectPages = undefined;
   render();
 
   try {
     const artifacts = await fetchArtifacts(root);
+    state.projectPages = await fetchProjectPages(root);
     state.artifacts = artifacts;
     state.model = buildWorkbenchModel(artifacts);
   } catch (error) {
@@ -208,6 +244,20 @@ async function fetchArtifacts(root: string): Promise<WorkbenchArtifacts> {
   artifacts.flutterPreviewUrl = await fetchFirstAsset(root, ["flutter_preview.png"]);
   artifacts.diffHeatmapUrl = await fetchFirstAsset(root, ["diff_heatmap.png", "diff/diff_heatmap.png"]);
   return artifacts;
+}
+
+async function fetchProjectPages(root: string): Promise<ProjectPagesReport | undefined> {
+  if (root === "selected directory") return undefined;
+  try {
+    const url = new URL("/api/workbench/project-pages", window.location.origin);
+    url.searchParams.set("artifactRoot", root);
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return undefined;
+    const result = (await response.json()) as { ok?: boolean; report?: ProjectPagesReport };
+    return result.ok ? result.report : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function fetchFirstJson(root: string, files: string[]): Promise<unknown> {
@@ -517,6 +567,8 @@ function renderDashboard(model: WorkbenchModel): string {
       </div>
       <span class="confidence">${formatConfidence(model.project.confidence)}</span>
     </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
+    ${renderProjectPagesPanel(model)}
     <section class="metric-grid">
       ${model.metrics.map((entry) => renderMetric(entry.label, entry.value, entry.tone)).join("")}
     </section>
@@ -604,6 +656,125 @@ function renderDashboard(model: WorkbenchModel): string {
         </article>
       </div>
     </section>
+  `;
+}
+
+function renderProjectPagesPanel(model: WorkbenchModel): string {
+  const report = state.projectPages;
+  const fallbackPageName = pageNameFromArtifactRoot(state.artifactRoot);
+  const pages = report?.pages ?? [
+    {
+      name: fallbackPageName,
+      artifactRoot: state.artifactRoot,
+      current: true,
+      status: model.project.status,
+      frameName: model.project.frameName,
+      frameNodeId: model.project.frameNodeId,
+      viewport: model.viewport
+    }
+  ];
+  const currentPage = pages.find((page) => page.current) ?? pages.find((page) => page.artifactRoot === state.artifactRoot) ?? pages[0];
+  const links = report?.prototypeFlow.links ?? [];
+  const canEditPrototype = Boolean(report && pages.length > 0 && state.artifactRoot !== "selected directory");
+  const defaultFrom = currentPage?.name ?? pages[0]?.name ?? "";
+  const defaultTo = pages.find((page) => page.name !== defaultFrom)?.name ?? pages[0]?.name ?? "";
+  return `
+    <section class="panel project-pages-panel">
+      <div class="panel-header">
+        <h2>页面与原型</h2>
+        <span>${escapeHtml(report?.projectName ?? "当前页面")}</span>
+      </div>
+      <div class="project-pages-body">
+        <div class="page-review-selector">
+          <label class="codegen-field">
+            <span>正在审查的页面</span>
+            <select class="studio-input codegen-input" data-page-selector ${pages.length > 1 ? "" : "disabled"}>
+              ${pages
+                .map(
+                  (page) => `
+                    <option value="${escapeAttr(page.artifactRoot)}" ${page.artifactRoot === currentPage?.artifactRoot ? "selected" : ""}>
+                      ${escapeHtml(page.name)}
+                    </option>
+                  `
+                )
+                .join("")}
+            </select>
+          </label>
+          <div class="current-page-summary">
+            <strong>${escapeHtml(currentPage?.name ?? fallbackPageName)}</strong>
+            <span>${escapeHtml(currentPage?.frameName ?? model.project.frameName)} · ${escapeHtml(currentPage?.frameNodeId ?? model.project.frameNodeId)}</span>
+          </div>
+        </div>
+        <div class="page-card-grid">
+          ${pages.map((page) => renderProjectPageCard(page, currentPage?.artifactRoot === page.artifactRoot)).join("")}
+        </div>
+        <div class="prototype-builder">
+          <div class="prototype-form">
+            <label class="codegen-field">
+              <span>从页面</span>
+              <select class="studio-input codegen-input" data-prototype-field="from" ${canEditPrototype ? "" : "disabled"}>
+                ${pages.map((page) => `<option value="${escapeAttr(page.name)}" ${page.name === defaultFrom ? "selected" : ""}>${escapeHtml(page.name)}</option>`).join("")}
+              </select>
+            </label>
+            <label class="codegen-field">
+              <span>到页面</span>
+              <select class="studio-input codegen-input" data-prototype-field="to" ${canEditPrototype ? "" : "disabled"}>
+                ${pages.map((page) => `<option value="${escapeAttr(page.name)}" ${page.name === defaultTo ? "selected" : ""}>${escapeHtml(page.name)}</option>`).join("")}
+              </select>
+            </label>
+            <label class="codegen-field">
+              <span>触发方式</span>
+              <input class="studio-input codegen-input" data-prototype-field="trigger" value="tap" placeholder="tap / swipe / button" ${canEditPrototype ? "" : "disabled"} />
+            </label>
+            <label class="codegen-field prototype-note-field">
+              <span>说明</span>
+              <input class="studio-input codegen-input" data-prototype-field="note" placeholder="例如：点击开始按钮" ${canEditPrototype ? "" : "disabled"} />
+            </label>
+            <button class="action-button action-button--secondary" data-prototype-link-add ${canEditPrototype && state.pendingPrototypeLink !== "add" ? "" : "disabled"}>
+              ${escapeHtml(state.pendingPrototypeLink === "add" ? "保存中..." : "连接页面")}
+            </button>
+          </div>
+          <div class="prototype-map">
+            <div class="prototype-node-row">
+              ${pages.map((page) => `<span class="prototype-node ${page.artifactRoot === currentPage?.artifactRoot ? "is-current" : ""}">${escapeHtml(page.name)}</span>`).join("")}
+            </div>
+            <div class="prototype-link-list">
+              ${
+                links.length === 0
+                  ? renderEmpty("还没有原型连接。")
+                  : links.map((link) => renderPrototypeLinkRow(link, canEditPrototype)).join("")
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderProjectPageCard(page: ProjectPageEntry, current: boolean): string {
+  const viewport = page.viewport ? `${page.viewport.width}x${page.viewport.height}` : "-";
+  return `
+    <button class="page-card ${current ? "is-current" : ""}" data-open-page="${escapeAttr(page.artifactRoot)}">
+      <strong>${escapeHtml(page.name)}</strong>
+      <span>${escapeHtml(page.frameName ?? page.frameNodeId ?? "页面")}</span>
+      <small>${escapeHtml(page.status ?? "unknown")} · ${escapeHtml(viewport)}</small>
+    </button>
+  `;
+}
+
+function renderPrototypeLinkRow(link: PrototypeLink, enabled: boolean): string {
+  const pending = state.pendingPrototypeLink === link.id;
+  return `
+    <div class="prototype-link-row">
+      <strong>${escapeHtml(link.fromPage)}</strong>
+      <span>${escapeHtml(link.trigger ?? "tap")}</span>
+      <strong>${escapeHtml(link.toPage)}</strong>
+      <em>${escapeHtml(link.note ?? "")}</em>
+      <button class="table-action table-action--danger" data-prototype-link-delete="${escapeAttr(link.id)}" ${enabled && !pending ? "" : "disabled"}>
+        ${escapeHtml(pending ? "删除中..." : "删除")}
+      </button>
+    </div>
   `;
 }
 
@@ -2323,6 +2494,24 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const openPageButton = target.closest<HTMLButtonElement>("[data-open-page]");
+  if (openPageButton?.dataset.openPage) {
+    void switchArtifactPage(openPageButton.dataset.openPage);
+    return;
+  }
+
+  const addPrototypeButton = target.closest<HTMLButtonElement>("[data-prototype-link-add]");
+  if (addPrototypeButton) {
+    void addPrototypeLink();
+    return;
+  }
+
+  const deletePrototypeButton = target.closest<HTMLButtonElement>("[data-prototype-link-delete]");
+  if (deletePrototypeButton?.dataset.prototypeLinkDelete) {
+    void deletePrototypeLink(deletePrototypeButton.dataset.prototypeLinkDelete);
+    return;
+  }
+
   const pipelineGateButton = target.closest<HTMLButtonElement>("[data-pipeline-gate]");
   if (pipelineGateButton?.dataset.pipelineGate && isPipelineGateId(pipelineGateButton.dataset.pipelineGate)) {
     state.selectedGateId = pipelineGateButton.dataset.pipelineGate;
@@ -2374,6 +2563,13 @@ function onAppInput(event: Event): void {
   if (target.dataset.codegenField === "project-path") {
     state.codegenProjectPath = target.value;
     saveCodegenProjectPath(state.artifactRoot, target.value);
+  }
+}
+
+function onAppChange(event: Event): void {
+  const target = event.target;
+  if (target instanceof HTMLSelectElement && target.dataset.pageSelector) {
+    void switchArtifactPage(target.value);
   }
 }
 
@@ -2710,6 +2906,90 @@ async function saveProjectPreset(): Promise<void> {
   } finally {
     state.pendingProjectPreset = undefined;
     render();
+  }
+}
+
+async function switchArtifactPage(artifactRoot: string): Promise<void> {
+  if (!artifactRoot || artifactRoot === state.artifactRoot) return;
+  state.activeView = "dashboard";
+  state.selectedGateId = undefined;
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.set("artifacts", artifactRoot);
+  nextUrl.hash = "dashboard";
+  window.history.replaceState(null, "", nextUrl);
+  await loadFromArtifactRoot(artifactRoot);
+}
+
+async function addPrototypeLink(): Promise<void> {
+  const fromPage = inputValue("[data-prototype-field='from']").trim();
+  const toPage = inputValue("[data-prototype-field='to']").trim();
+  const trigger = inputValue("[data-prototype-field='trigger']").trim() || "tap";
+  const note = inputValue("[data-prototype-field='note']").trim();
+  if (!fromPage || !toPage) {
+    state.actionMessage = { tone: "bad", text: "请选择要连接的两个页面。" };
+    render();
+    return;
+  }
+  if (fromPage === toPage) {
+    state.actionMessage = { tone: "bad", text: "原型连接的起点和终点不能是同一个页面。" };
+    render();
+    return;
+  }
+  state.pendingPrototypeLink = "add";
+  state.actionMessage = undefined;
+  render();
+  try {
+    await savePrototypeLinkMutation({
+      operation: "add",
+      link: { fromPage, toPage, trigger, note }
+    });
+    state.projectPages = await fetchProjectPages(state.artifactRoot);
+    state.actionMessage = { tone: "good", text: `已连接 ${fromPage} -> ${toPage}。` };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingPrototypeLink = undefined;
+    render();
+  }
+}
+
+async function deletePrototypeLink(linkId: string): Promise<void> {
+  state.pendingPrototypeLink = linkId;
+  state.actionMessage = undefined;
+  render();
+  try {
+    await savePrototypeLinkMutation({
+      operation: "delete",
+      linkId
+    });
+    state.projectPages = await fetchProjectPages(state.artifactRoot);
+    state.actionMessage = { tone: "good", text: "已删除原型连接。" };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingPrototypeLink = undefined;
+    render();
+  }
+}
+
+async function savePrototypeLinkMutation(body: Record<string, unknown>): Promise<void> {
+  const response = await fetch("/api/workbench/prototype-link", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: state.artifactRoot,
+      ...body
+    })
+  });
+  const result = (await response.json()) as { ok?: boolean; error?: string };
+  if (!response.ok || !result.ok) {
+    throw new Error(result.error ?? `Prototype link update failed with ${response.status}`);
   }
 }
 
@@ -3426,6 +3706,11 @@ function shadowCss(shadows: unknown[]): string {
 function artifactUrl(root: string, file: string): string {
   const cleanRoot = root.endsWith("/") ? root.slice(0, -1) : root;
   return `${cleanRoot}/${file}`;
+}
+
+function pageNameFromArtifactRoot(root: string): string {
+  const parts = root.replace(/\\/g, "/").split("/").filter(Boolean);
+  return decodeURIComponent(parts.at(-1) ?? "当前页面");
 }
 
 function indexSelectedFiles(files: File[]): Map<string, File> {

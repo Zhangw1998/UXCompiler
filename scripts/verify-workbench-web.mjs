@@ -178,7 +178,10 @@ try {
   assert.match(js, /项目看板/);
   assert.match(js, /审查任务/);
   assert.match(js, /工作台入口/);
+  assert.match(js, /页面与原型/);
   assert.match(js, /pipeline-gate/);
+  assert.match(js, /\/api\/workbench\/project-pages/);
+  assert.match(js, /\/api\/workbench\/prototype-link/);
   assert.doesNotMatch(js, /aside class="sidebar"/);
   assert.match(js, /资源导出需要处理/);
   assert.match(js, /视觉对比未通过/);
@@ -201,12 +204,51 @@ try {
   assert.match(css, /\.viz-image img/);
   assert.match(css, /pipeline-board/);
   assert.match(css, /workbench-launcher/);
+  assert.match(css, /project-pages-panel/);
+  assert.match(css, /prototype-link-row/);
   assert.match(css, /code-block/);
   assert.equal(visual.root.type, "scene");
   if (previewPng) {
     assert.equal(previewPng.ok, true);
     assert.equal(previewPng.headers.get("content-type"), "image/png");
   }
+
+  const projectPagesResponse = await fetch(`${base}/api/workbench/project-pages?artifactRoot=/artifacts/workbench-web-smoke/sample`);
+  assert.equal(projectPagesResponse.ok, true);
+  const projectPagesResult = await projectPagesResponse.json();
+  assert.equal(projectPagesResult.ok, true);
+  assert.equal(projectPagesResult.report.projectName, "workbench-web-smoke");
+  assert.equal(projectPagesResult.report.pages.some((page) => page.name === "sample" && page.current === true), true);
+  assert.ok(projectPagesResult.report.pages.length >= 2, "Expected project page list to include sibling artifact pages");
+  const prototypeAddResponse = await fetch(`${base}/api/workbench/prototype-link`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: "add",
+      link: {
+        fromPage: "sample",
+        toPage: "bulk-sample",
+        trigger: "tap",
+        note: "Verify prototype page link."
+      }
+    })
+  });
+  assert.equal(prototypeAddResponse.ok, true);
+  const prototypeAfterAdd = await fetchJson(`${base}/artifacts/workbench-web-smoke/prototype_flow.json`);
+  assert.equal(prototypeAfterAdd.links.some((link) => link.fromPage === "sample" && link.toPage === "bulk-sample"), true);
+  const prototypeDeleteResponse = await fetch(`${base}/api/workbench/prototype-link`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      operation: "delete",
+      linkId: "proto_sample_bulk-sample_tap"
+    })
+  });
+  assert.equal(prototypeDeleteResponse.ok, true);
+  const prototypeAfterDelete = await fetchJson(`${base}/artifacts/workbench-web-smoke/prototype_flow.json`);
+  assert.equal(prototypeAfterDelete.links.some((link) => link.id === "proto_sample_bulk-sample_tap"), false);
 
   const presetResponse = await fetch(`${base}/api/workbench/project-preset`, {
     method: "POST",
