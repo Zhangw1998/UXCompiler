@@ -481,6 +481,15 @@ button {
   line-height: 20px;
 }
 
+.task-body .task-next-step {
+  margin-top: -2px;
+  color: #314052;
+}
+
+.task-next-step strong {
+  color: var(--text);
+}
+
 .task-actions {
   display: grid;
   justify-items: end;

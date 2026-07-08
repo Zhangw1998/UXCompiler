@@ -176,6 +176,10 @@ try {
   assert.match(html, /UXCompiler 工作台/);
   assert.match(js, /loadFromArtifactRoot/);
   assert.match(js, /项目看板/);
+  assert.match(js, /审查任务/);
+  assert.match(js, /资源导出需要处理/);
+  assert.match(js, /视觉对比未通过/);
+  assert.match(js, /映射 Flutter 组件/);
   assert.match(js, /Token 迁移/);
   assert.match(js, /待添加资源/);
   assert.match(js, /ARB 变更/);

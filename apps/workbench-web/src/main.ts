@@ -517,8 +517,8 @@ function renderTasks(_model: WorkbenchModel): string {
   return `
     <section class="view-header">
       <div>
-        <h1>Review Tasks</h1>
-        <p>${tasks.length} tasks loaded</p>
+        <h1>审查任务</h1>
+        <p>已加载 ${tasks.length} 个任务，请优先处理 P0/P1。</p>
       </div>
     </section>
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
@@ -529,8 +529,7 @@ function renderTasks(_model: WorkbenchModel): string {
           : tasks
               .map((task) => {
                 const priority = stringFrom(task.priority) ?? "P?";
-                const title = stringFrom(task.title) ?? stringFrom(task.id) ?? "Review task";
-                const description = stringFrom(task.description) ?? "";
+                const summary = describeReviewTask(task);
                 const taskId = stringFrom(task.id) ?? "";
                 const target = asRecord(task.target);
                 const sourceNodeIds = asArray(target.sourceNodeIds)
@@ -539,13 +538,15 @@ function renderTasks(_model: WorkbenchModel): string {
                 const actions = asArray(task.suggestedActions).map(asRecord);
                 return `
                   <article class="task-item">
-                    <div class="task-priority ${priority.toLowerCase()}">${escapeHtml(priority)}</div>
+                    <div class="task-priority ${priority.toLowerCase()}" title="${escapeAttr(priorityDescription(priority))}">${escapeHtml(priority)}</div>
                     <div class="task-body">
-                      <div class="task-title">${escapeHtml(title)}</div>
-                      <p>${escapeHtml(description)}</p>
+                      <div class="task-title">${escapeHtml(summary.title)}</div>
+                      <p>${escapeHtml(summary.description)}</p>
+                      ${summary.nextStep ? `<p class="task-next-step"><strong>建议：</strong>${escapeHtml(summary.nextStep)}</p>` : ""}
                       <div class="tag-row">
-                        <span>${escapeHtml(stringFrom(task.type) ?? "unknown")}</span>
-                        <span>${escapeHtml(stringFrom(task.status) ?? "open")}</span>
+                        <span>${escapeHtml(reviewTaskTypeLabel(stringFrom(task.type)))}</span>
+                        <span>${escapeHtml(reviewTaskStatusLabel(stringFrom(task.status)))}</span>
+                        <span>${escapeHtml(priorityDescription(priority))}</span>
                         <span>${formatConfidence(numberFrom(task.confidence))}</span>
                         ${sourceNodeIds.map((id) => `<button class="mini-link" data-node-id="${escapeAttr(id)}">${escapeHtml(id)}</button>`).join("")}
                       </div>
@@ -553,12 +554,12 @@ function renderTasks(_model: WorkbenchModel): string {
                     <div class="task-actions">
                       ${
                         actions.length === 0
-                          ? `<span>No action</span>`
+                          ? `<span>无建议操作</span>`
                           : actions
                               .map((action, index) => {
                                 const actionKey = `${taskId}:${index}`;
                                 const isPending = state.pendingAction === actionKey;
-                                const label = stringFrom(action.label) ?? `Action ${index + 1}`;
+                                const label = reviewTaskActionLabel(stringFrom(action.label), index);
                                 return `
                                   <button
                                     class="action-button"
@@ -566,7 +567,7 @@ function renderTasks(_model: WorkbenchModel): string {
                                     data-action-index="${index}"
                                     ${canApplyActions && !isPending ? "" : "disabled"}
                                   >
-                                    ${escapeHtml(isPending ? "Applying..." : label)}
+                                    ${escapeHtml(isPending ? "正在应用..." : label)}
                                   </button>
                                 `;
                               })
@@ -580,6 +581,200 @@ function renderTasks(_model: WorkbenchModel): string {
       }
     </section>
   `;
+}
+
+function describeReviewTask(task: JsonRecord): { title: string; description: string; nextStep?: string } {
+  const type = stringFrom(task.type);
+  const title = stringFrom(task.title) ?? stringFrom(task.id) ?? "审查任务";
+  const description = stringFrom(task.description) ?? "";
+  const target = asRecord(task.target);
+  const evidence = asRecord(task.evidence);
+  const nodeId = firstString(asArray(target.sourceNodeIds)) ?? stringFrom(target.normalizedNodeId) ?? stringFrom(evidence.sourceNodeId);
+
+  switch (type) {
+    case "resource_export_failed":
+      return {
+        title: "资源导出需要处理",
+        description: nodeId ? `节点 ${nodeId} 的图片/切片资源没有可用导出，预览或代码生成可能会使用占位内容。` : "有资源没有成功导出，预览或代码生成可能会使用占位内容。",
+        nextStep: description.includes("contains visible Text")
+          ? "确认切片里的文字是否必须保持可编辑；如果只是装饰图，可以选择保留资源策略。"
+          : "在资源页确认导出策略，或使用建议操作强制生成切片资源。"
+      };
+    case "asset_strategy_uncertain":
+      return {
+        title: "资源策略需要确认",
+        description: nodeId ? `节点 ${nodeId} 的资源处理方式还不确定。` : "有资源处理方式还不确定。",
+        nextStep: description.includes("full-frame screenshot")
+          ? "如果当前只需要视觉还原，可以保留整帧截图；如果要生成可编辑代码，请切换到可编辑结构。"
+          : "确认它应该是图片资源、装饰切片、真实文本，还是忽略。"
+      };
+    case "font_missing":
+      return {
+        title: "字体映射缺失",
+        description: "当前设计里的字体还没有可靠映射，文字还原可能不准确。",
+        nextStep: "配置项目字体映射，让预览和生成代码使用正确字体。"
+      };
+    case "low_confidence_layout":
+      return {
+        title: "布局判断置信度较低",
+        description: nodeId ? `节点 ${nodeId} 的布局方向或定位策略不够确定。` : "有节点的布局方向或定位策略不够确定。",
+        nextStep: "在结构树里确认它应该是横向、纵向、绝对定位或其他布局。"
+      };
+    case "component_mapping_required":
+      return {
+        title: "组件需要映射到 Flutter",
+        description: "已确认的组件还没有完整的 Flutter import 和构造函数映射。",
+        nextStep: "在组件页补齐 Flutter 组件映射，或者使用本任务的建议操作。"
+      };
+    case "component_candidate":
+      return {
+        title: "发现可复用组件候选",
+        description: "系统发现一组相似节点，可能可以抽成可复用组件。",
+        nextStep: "确认是否应该创建组件；不确定时先查看组件页的实例列表。"
+      };
+    case "token_conflict":
+      return {
+        title: "Token 需要确认",
+        description: stringFrom(target.tokenName) ? `Token ${stringFrom(target.tokenName)} 的置信度较低。` : "有设计 Token 的置信度较低。",
+        nextStep: "在 Token 页确认命名、合并或保留策略。"
+      };
+    case "i18n_key_uncertain":
+      return {
+        title: "文案 Key 需要确认",
+        description: "有文案的 i18n key 还不够确定。",
+        nextStep: "在文案页确认 key、描述、占位符或是否需要翻译。"
+      };
+    case "stale_override":
+      return {
+        title: "人工覆盖已过期",
+        description: "之前保存的人工覆盖无法稳定匹配到当前节点。",
+        nextStep: "在增量同步或对应 Studio 页面重新确认覆盖关系。"
+      };
+    case "visual_diff_failed":
+      return {
+        title: "视觉对比未通过",
+        description: nodeId ? `节点 ${nodeId} 或整页预览和 Figma 存在明显差异。` : "页面预览和 Figma 存在明显差异。",
+        nextStep: "先查看预览页的差异区域；必要时应用修复、切片或校准文本。"
+      };
+    case "semantic_uplift_pending":
+      return {
+        title: "可尝试语义化结构优化",
+        description: "当前区域可以尝试更语义化的布局，但需要用前后视觉对比证明不破坏还原度。",
+        nextStep: "想提升代码可读性时运行 uplift diff；只追求还原时可以保留 fidelity 结构。"
+      };
+    case "flutter_capture_failed":
+      return {
+        title: "Flutter 预览截图失败",
+        description: description || "Flutter 预览截图没有成功生成。",
+        nextStep: "检查 Flutter 环境、依赖和预览工程，再重新运行。"
+      };
+    default:
+      return {
+        title: translateReviewTaskTitle(title),
+        description: translateReviewTaskDescription(description) || description || "该任务需要人工确认后才能继续。",
+        nextStep: "查看任务详情和建议操作，确认后再继续生成或同步。"
+      };
+  }
+}
+
+function reviewTaskTypeLabel(type: string | undefined): string {
+  const labels: Record<string, string> = {
+    low_confidence_layout: "布局置信度低",
+    component_candidate: "组件候选",
+    component_mapping_required: "组件映射",
+    resource_export_failed: "资源导出",
+    asset_strategy_uncertain: "资源策略",
+    font_missing: "字体映射",
+    token_conflict: "Token 确认",
+    i18n_key_uncertain: "文案确认",
+    stale_override: "过期覆盖",
+    visual_diff_failed: "视觉差异",
+    semantic_uplift_pending: "语义优化",
+    flutter_capture_failed: "Flutter 截图"
+  };
+  return type ? (labels[type] ?? type) : "未知类型";
+}
+
+function reviewTaskStatusLabel(status: string | undefined): string {
+  const labels: Record<string, string> = {
+    open: "待处理",
+    resolved: "已处理",
+    closed: "已关闭",
+    ignored: "已忽略"
+  };
+  return status ? (labels[status] ?? status) : "待处理";
+}
+
+function priorityDescription(priority: string): string {
+  if (priority === "P0") return "阻塞生成";
+  if (priority === "P1") return "需要优先确认";
+  if (priority === "P2") return "建议优化";
+  return "待确认";
+}
+
+function reviewTaskActionLabel(label: string | undefined, index: number): string {
+  const labels: Record<string, string> = {
+    "Keep generated asset strategy": "保留当前资源策略",
+    "Force decorative slice export": "强制导出装饰切片",
+    "Configure font mapping": "配置字体映射",
+    "Keep frame screenshot fallback": "保留整帧截图",
+    "Use editable fidelity tree": "使用可编辑结构",
+    "Force absolute": "设为绝对定位",
+    "Force column": "设为纵向布局",
+    "Force row": "设为横向布局",
+    "Run uplift diff": "运行语义优化对比",
+    "Keep fidelity for region": "保留高保真结构",
+    "Keep token": "保留 Token",
+    "Map Flutter component": "映射 Flutter 组件",
+    "Keep blocked": "保持阻塞",
+    "Apply text calibration": "应用文字校准",
+    "Accept low visual score": "接受当前视觉分数",
+    "Use asset slice": "改用资源切片"
+  };
+  return label ? (labels[label] ?? label) : `操作 ${index + 1}`;
+}
+
+function translateReviewTaskTitle(title: string): string {
+  const labels: Record<string, string> = {
+    "Review low-confidence layout strategy": "检查低置信度布局策略",
+    "Review inferred component candidate": "检查组件候选",
+    "Map approved component to Flutter": "把已确认组件映射到 Flutter",
+    "Resolve blocking asset strategy": "处理阻塞的资源策略",
+    "Confirm asset strategy": "确认资源策略",
+    "Export missing render asset": "导出缺失的渲染资源",
+    "Replace full-frame screenshot fallback when ready": "准备好后替换整帧截图兜底",
+    "Review fidelity warning": "检查高保真预览警告",
+    "Map missing text font": "映射缺失字体",
+    "Review low-confidence token": "检查低置信度 Token",
+    "Review low-confidence i18n key": "检查低置信度文案 Key",
+    "Review stale override": "检查过期人工覆盖",
+    "Resolve failing visual diff before codegen": "代码生成前处理视觉差异",
+    "Review visual diff region": "检查视觉差异区域",
+    "Review semantic uplift candidate": "检查语义优化候选",
+    "Run semantic uplift diff candidate": "运行语义优化对比候选",
+    "Fix Flutter preview capture failure": "修复 Flutter 预览截图失败"
+  };
+  return labels[title] ?? title;
+}
+
+function translateReviewTaskDescription(description: string): string {
+  if (!description) return "";
+  if (description.includes("No concrete exported asset is available")) return "缺少可用的导出资源，预览会先显示占位内容。";
+  if (description.includes("No typography samples were discovered")) return "没有发现可用的字体样本，需要先配置字体映射。";
+  if (description.includes("The preview is visually exact because it uses the exported Figma frame screenshot")) {
+    return "当前预览依赖整帧截图，所以视觉还原准确，但还不是可编辑的生产代码结构。";
+  }
+  if (description.includes("does not have a complete Flutter import and constructor mapping")) return "该组件缺少 Flutter import 和构造函数映射。";
+  if (description.includes("fidelity remains authoritative")) return "可以尝试更语义化结构，但必须先通过视觉对比验证。";
+  return description;
+}
+
+function firstString(values: unknown[]): string | undefined {
+  for (const value of values) {
+    const entry = stringFrom(value);
+    if (entry) return entry;
+  }
+  return undefined;
 }
 
 function renderTree(model: WorkbenchModel): string {
