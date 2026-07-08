@@ -45,6 +45,8 @@ interface AppState {
   selectedGateId?: PipelineGateId;
   selectedCanvasPage?: string;
   elementsTab?: ElementTab;
+  projectPreset?: unknown;
+  projectElements?: ProjectElementsReport;
   projectPages?: ProjectPagesReport;
   projectList?: ProjectListReport;
 }
@@ -96,6 +98,28 @@ interface ProjectPagesReport {
 interface ProjectListReport {
   currentProjectName: string;
   projects: Array<{ name: string; artifactRoot: string; pageCount: number; current?: boolean }>;
+}
+
+interface ProjectElementsReport {
+  projectName: string;
+  projectRoot: string;
+  pages: ProjectPageEntry[];
+  tokens: ProjectElementEntry[];
+  components: ProjectElementEntry[];
+  assets: ProjectElementEntry[];
+  docs: ProjectElementEntry[];
+}
+
+interface ProjectElementEntry {
+  pageName: string;
+  type?: string;
+  id?: string;
+  name?: string;
+  key?: string;
+  value?: unknown;
+  source?: string;
+  path?: string;
+  strategy?: string;
 }
 
 interface ProjectPageEntry {
@@ -225,15 +249,24 @@ async function loadFromArtifactRoot(root: string): Promise<void> {
   state.artifactRoot = root;
   if (root !== previousRoot) state.codegenProjectPath = savedCodegenProjectPath(root);
   state.artifacts = { artifactRoot: root };
+  state.projectPreset = undefined;
+  state.projectElements = undefined;
   state.projectPages = undefined;
   state.projectList = undefined;
   render();
 
   try {
     const artifacts = await fetchArtifacts(root);
-    const [projectPages, projectList] = await Promise.all([fetchProjectPages(root), fetchProjectList(root)]);
+    const [projectPages, projectList, projectPreset, projectElements] = await Promise.all([
+      fetchProjectPages(root),
+      fetchProjectList(root),
+      fetchProjectPreset(root),
+      fetchProjectElements(root)
+    ]);
     state.projectPages = projectPages;
     state.projectList = projectList;
+    state.projectPreset = projectPreset;
+    state.projectElements = projectElements;
     state.selectedCanvasPage = projectPages?.pages.find((page) => page.current)?.name ?? projectPages?.pages[0]?.name;
     state.artifacts = artifacts;
     state.model = buildWorkbenchModel(artifacts);
@@ -279,6 +312,34 @@ async function fetchProjectPages(root: string): Promise<ProjectPagesReport | und
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) return undefined;
     const result = (await response.json()) as { ok?: boolean; report?: ProjectPagesReport };
+    return result.ok ? result.report : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchProjectPreset(root: string): Promise<unknown> {
+  if (root === "selected directory") return undefined;
+  try {
+    const url = new URL("/api/workbench/project-preset", window.location.origin);
+    url.searchParams.set("artifactRoot", root);
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return undefined;
+    const result = (await response.json()) as { ok?: boolean; preset?: unknown };
+    return result.ok ? result.preset : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchProjectElements(root: string): Promise<ProjectElementsReport | undefined> {
+  if (root === "selected directory") return undefined;
+  try {
+    const url = new URL("/api/workbench/project-elements", window.location.origin);
+    url.searchParams.set("artifactRoot", root);
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return undefined;
+    const result = (await response.json()) as { ok?: boolean; report?: ProjectElementsReport };
     return result.ok ? result.report : undefined;
   } catch {
     return undefined;
@@ -947,13 +1008,15 @@ function renderTasks(_model: WorkbenchModel): string {
   `;
 }
 
-function renderElements(model: WorkbenchModel): string {
+function renderElements(_model: WorkbenchModel): string {
   const active = state.elementsTab ?? "tokens";
+  const report = state.projectElements;
+  const pageCount = report?.pages.length ?? state.projectPages?.pages.length ?? 1;
   return `
     <section class="view-header">
       <div>
         <h1>项目元素</h1>
-        <p>设计 Token、组件、图片资源和文档集中在这里查看。</p>
+        <p>${escapeHtml(report?.projectName ?? "当前项目")} · ${pageCount} 个页面 · 项目级汇总</p>
       </div>
       <div class="element-tabbar" role="tablist" aria-label="项目元素">
         ${renderElementTab("tokens", "设计 Token", active)}
@@ -963,7 +1026,7 @@ function renderElements(model: WorkbenchModel): string {
       </div>
     </section>
     <section class="element-tab-panel">
-      ${renderElementTabContent(model, active)}
+      ${renderProjectElementTabContent(report, active)}
     </section>
   `;
 }
@@ -972,47 +1035,56 @@ function renderElementTab(tab: ElementTab, label: string, active: ElementTab): s
   return `<button class="${tab === active ? "is-active" : ""}" data-element-tab="${tab}">${escapeHtml(label)}</button>`;
 }
 
-function renderElementTabContent(model: WorkbenchModel, active: ElementTab): string {
-  if (active === "tokens") return renderTokens(model);
-  if (active === "components") return renderComponents(model);
-  if (active === "assets") return renderAssets(model);
-  return renderElementDocs(model);
+function renderProjectElementTabContent(report: ProjectElementsReport | undefined, active: ElementTab): string {
+  if (!report) return renderEmpty("暂无项目级元素数据。请使用本地服务打开项目产物目录。");
+  if (active === "tokens") {
+    return renderProjectElementTable("设计 Token", report.tokens, ["pageName", "type", "name", "value"], ["页面", "类型", "名称", "值"]);
+  }
+  if (active === "components") {
+    return renderProjectElementTable("组件", report.components, ["pageName", "name", "id", "source"], ["页面", "名称", "ID", "来源"]);
+  }
+  if (active === "assets") {
+    return renderProjectElementTable("图片资源", report.assets, ["pageName", "name", "strategy", "path"], ["页面", "名称", "策略", "路径"]);
+  }
+  return renderProjectElementTable("文档", report.docs, ["pageName", "key", "value", "source"], ["页面", "Key", "文案/文件", "来源"]);
 }
 
-function renderElementDocs(_model: WorkbenchModel): string {
-  const i18nManifest = asRecord(state.artifacts.finalI18nManifest ?? state.artifacts.reviewedI18nManifest ?? state.artifacts.i18nManifest);
-  const messages = asArray(i18nManifest.messages).map(asRecord);
-  const arbPatch = asRecord(state.artifacts.arbPatch);
-  const pubspecPatch = asRecord(state.artifacts.pubspecPatch);
+function renderProjectElementTable(
+  title: string,
+  entries: ProjectElementEntry[],
+  keys: Array<keyof ProjectElementEntry>,
+  labels: string[]
+): string {
   return `
-    <section class="two-column">
-      <div class="panel">
-        <div class="panel-header">
-          <h2>文案文档</h2>
-          <span>${messages.length} 条</span>
-        </div>
-        <div class="status-list">
-          ${
-            messages.length === 0
-              ? renderEmpty("暂无文案。")
-              : messages
-                  .slice(0, 18)
-                  .map((message) => `<div class="status-row"><strong>${escapeHtml(stringFrom(message.key) ?? "-")}</strong><span>${escapeHtml(stringFrom(message.value) ?? "")}</span></div>`)
-                  .join("")
-          }
-        </div>
+    <section class="panel table-panel project-element-panel">
+      <div class="panel-header">
+        <h2>${escapeHtml(title)}</h2>
+        <span>${entries.length} 条 · 项目级</span>
       </div>
-      <div class="panel">
-        <div class="panel-header">
-          <h2>工程文档</h2>
-          <span>ARB / Pubspec</span>
-        </div>
-        <div class="status-list">
-          <div class="status-row"><strong>ARB Patch</strong><span>${escapeHtml(stringFrom(arbPatch.status) ?? (Object.keys(arbPatch).length ? "loaded" : "missing"))}</span></div>
-          <div class="status-row"><strong>Pubspec Patch</strong><span>${escapeHtml(stringFrom(pubspecPatch.status) ?? (Object.keys(pubspecPatch).length ? "loaded" : "missing"))}</span></div>
-          <div class="status-row"><strong>页面目录</strong><span>${escapeHtml(state.artifactRoot)}</span></div>
-        </div>
-      </div>
+      ${
+        entries.length === 0
+          ? renderEmpty("暂无项目级元素。")
+          : `
+            <table class="data-table">
+              <thead>
+                <tr>${labels.map((label) => `<th>${escapeHtml(label)}</th>`).join("")}</tr>
+              </thead>
+              <tbody>
+                ${entries
+                  .slice(0, 120)
+                  .map(
+                    (entry) => `
+                      <tr>
+                        ${keys.map((key) => `<td>${escapeHtml(projectElementValue(entry[key]))}</td>`).join("")}
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+            ${entries.length > 120 ? `<p class="table-note">已显示前 120 条。</p>` : ""}
+          `
+      }
     </section>
   `;
 }
@@ -1888,14 +1960,14 @@ function renderSettings(model: WorkbenchModel): string {
     <section class="view-header">
       <div>
         <h1>设置</h1>
-        <p>${escapeHtml(model.artifactRoot)}</p>
+        <p>${escapeHtml(state.projectPages?.projectRoot ?? model.artifactRoot)} · 项目级资源配置</p>
       </div>
     </section>
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
     <section class="panel project-preset-panel">
       <div class="panel-header">
         <h2>项目预设资源</h2>
-        <span>project_preset.json</span>
+        <span>项目级 project_preset.json</span>
       </div>
       <div class="project-preset-grid" data-project-preset>
         <label class="codegen-field">
@@ -1983,7 +2055,7 @@ function renderSettings(model: WorkbenchModel): string {
 }
 
 function projectPresetForSettings(model: WorkbenchModel): ProjectPresetSettings {
-  const preset = asRecord(state.artifacts.projectPreset);
+  const preset = asRecord(state.projectPreset ?? state.artifacts.projectPreset);
   const design = asRecord(preset.design);
   const fonts = asRecord(preset.fonts);
   const assets = asRecord(preset.assets);
@@ -3090,7 +3162,7 @@ async function saveProjectPreset(): Promise<void> {
     await loadFromArtifactRoot(state.artifactRoot);
     state.actionMessage = {
       tone: "good",
-      text: `项目预设已保存到 project_preset.json；${result.report?.fontFamilies ?? 0} 个字体族，${result.report?.resources ?? 0} 个字体资源。`
+      text: `项目预设已保存到项目目录的 project_preset.json；${result.report?.fontFamilies ?? 0} 个字体族，${result.report?.resources ?? 0} 个字体资源。`
     };
   } catch (error) {
     state.actionMessage = {
@@ -3846,6 +3918,12 @@ function tokenValue(token: JsonRecord): string {
     numberFrom(token.lineHeight) ? `${numberFrom(token.lineHeight)}px` : undefined
   ].filter(Boolean);
   return parts.join(" / ") || "-";
+}
+
+function projectElementValue(value: unknown): string {
+  if (value === undefined || value === null) return "-";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
 }
 
 function fileLabel(file: unknown): string {

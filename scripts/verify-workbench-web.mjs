@@ -182,6 +182,7 @@ try {
   assert.match(js, /data-edit-page/);
   assert.match(js, /\/api\/workbench\/projects/);
   assert.match(js, /\/api\/workbench\/project-pages/);
+  assert.match(js, /\/api\/workbench\/project-elements/);
   assert.match(js, /\/api\/workbench\/prototype-link/);
   assert.doesNotMatch(js, /Artifact Status/);
   assert.doesNotMatch(js, /aside class="sidebar"/);
@@ -229,6 +230,22 @@ try {
   assert.equal(projectPagesResult.report.projectName, "workbench-web-smoke");
   assert.equal(projectPagesResult.report.pages.some((page) => page.name === "sample" && page.current === true), true);
   assert.ok(projectPagesResult.report.pages.length >= 2, "Expected project page list to include sibling artifact pages");
+
+  const projectElementsResponse = await fetch(`${base}/api/workbench/project-elements?artifactRoot=/artifacts/workbench-web-smoke/sample`);
+  assert.equal(projectElementsResponse.ok, true);
+  const projectElementsResult = await projectElementsResponse.json();
+  assert.equal(projectElementsResult.ok, true);
+  assert.equal(projectElementsResult.report.projectName, "workbench-web-smoke");
+  assert.ok(projectElementsResult.report.pages.length >= 2, "Expected project elements to aggregate sibling pages");
+  assert.ok(projectElementsResult.report.tokens.some((entry) => entry.pageName === "sample"), "Expected page-scoped token rows in project elements");
+  assert.ok(projectElementsResult.report.assets.length > 0, "Expected project asset rows");
+
+  const presetBeforeResponse = await fetch(`${base}/api/workbench/project-preset?artifactRoot=/artifacts/workbench-web-smoke/sample`);
+  assert.equal(presetBeforeResponse.ok, true);
+  const presetBeforeResult = await presetBeforeResponse.json();
+  assert.equal(presetBeforeResult.ok, true);
+  assert.equal(presetBeforeResult.scope, "project");
+
   const prototypeAddResponse = await fetch(`${base}/api/workbench/prototype-link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -286,7 +303,7 @@ try {
   const presetResult = await presetResponse.json();
   assert.equal(presetResult.ok, true);
   assert.equal(presetResult.report.fontFamilies, 2);
-  const savedPreset = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/project_preset.json`);
+  const savedPreset = await fetchJson(`${base}/artifacts/workbench-web-smoke/project_preset.json`);
   assert.equal(savedPreset.design.width, 390);
   assert.equal(savedPreset.fonts.defaultFamily, "Inter");
   assert.equal(savedPreset.fonts.resources[0].path, "assets/fonts/Inter.ttf");

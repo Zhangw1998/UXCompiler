@@ -158,6 +158,14 @@ const server = createServer(async (request, response) => {
     }
 
     if (requestUrl.pathname === "/api/workbench/project-preset") {
+      if (request.method === "GET") {
+        const result = await readWorkbenchProjectPreset(requestUrl.searchParams.get("artifactRoot"));
+        sendJson(response, 200, {
+          ok: true,
+          ...result
+        });
+        return;
+      }
       if (request.method !== "POST") {
         sendJson(response, 405, { ok: false, error: "Method not allowed" });
         return;
@@ -167,6 +175,19 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, {
         ok: true,
         ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/workbench/project-elements") {
+      if (request.method !== "GET") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const result = await readWorkbenchProjectElements(requestUrl.searchParams.get("artifactRoot"));
+      sendJson(response, 200, {
+        ok: true,
+        report: result
       });
       return;
     }
@@ -890,7 +911,7 @@ async function applyWorkbenchSyncRemap(body) {
 }
 
 async function saveWorkbenchProjectPreset(body) {
-  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const { projectDir } = await resolveWorkbenchProjectContext(stringValue(body.artifactRoot));
   const preset = body.preset;
   if (!preset || typeof preset !== "object" || Array.isArray(preset)) {
     throw new Error("Missing project preset.");
@@ -930,11 +951,12 @@ async function saveWorkbenchProjectPreset(body) {
     },
     notes: stringValue(preset.notes) ?? ""
   };
-  const path = resolve(artifactDir, "project_preset.json");
+  const path = resolve(projectDir, "project_preset.json");
   await writeJson(path, nextPreset);
   return {
     report: {
       path,
+      scope: "project",
       updatedAt: now,
       fontFamilies: nextPreset.fonts.families.length,
       resources: nextPreset.fonts.resources.length
@@ -942,17 +964,122 @@ async function saveWorkbenchProjectPreset(body) {
   };
 }
 
+async function readWorkbenchProjectPreset(artifactRootValue) {
+  const { pageDir: currentPageDir, projectDir } = await resolveWorkbenchProjectContext(stringValue(artifactRootValue));
+  const projectPath = resolve(projectDir, "project_preset.json");
+  const pagePath = resolve(currentPageDir, "project_preset.json");
+  const projectPreset = await readOptionalJson(projectPath, undefined);
+  const pagePreset = await readOptionalJson(pagePath, undefined);
+  return {
+    scope: "project",
+    path: projectPath,
+    preset: projectPreset ?? pagePreset
+  };
+}
+
+async function readWorkbenchProjectElements(artifactRootValue) {
+  const { pageDir: currentPageDir, projectDir } = await resolveWorkbenchProjectContext(stringValue(artifactRootValue));
+  const pageDirs = await projectPagesInDir(projectDir);
+  const pages = [];
+  const tokens = [];
+  const components = [];
+  const assets = [];
+  const docs = [];
+
+  for (const pageDir of pageDirs) {
+    const page = await readProjectPageEntry(pageDir, pageDir === currentPageDir);
+    pages.push(page);
+    const pageName = page.name;
+
+    const tokenRoot =
+      (await readOptionalJson(resolve(pageDir, "reviewed_inferred_tokens.json"), undefined)) ??
+      (await readOptionalJson(resolve(pageDir, "inferred_tokens.json"), {}));
+    for (const [type, entries] of Object.entries(tokenRoot && typeof tokenRoot === "object" ? tokenRoot : {})) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+        const name = stringValue(entry.name) ?? stringValue(entry.id);
+        if (!name) continue;
+        tokens.push({
+          pageName,
+          type,
+          name,
+          value: projectElementDisplayValue(entry),
+          source: stringValue(entry.source)
+        });
+      }
+    }
+
+    const registry = await readOptionalJson(resolve(pageDir, "component_registry.json"), undefined);
+    const normalized =
+      (await readOptionalJson(resolve(pageDir, "reviewed_normalized_design_ir.json"), undefined)) ??
+      (await readOptionalJson(resolve(pageDir, "normalized_design_ir.json"), {}));
+    for (const component of asArray(registry?.components ?? normalized?.components)) {
+      if (!component || typeof component !== "object" || Array.isArray(component)) continue;
+      const id = stringValue(component.id) ?? stringValue(component.componentId);
+      components.push({
+        pageName,
+        id,
+        name: stringValue(component.name) ?? id,
+        source: stringValue(component.source) ?? stringValue(component.status)
+      });
+    }
+
+    const assetManifest =
+      (await readOptionalJson(resolve(pageDir, "final_asset_manifest.json"), undefined)) ??
+      (await readOptionalJson(resolve(pageDir, "reviewed_asset_manifest.json"), undefined)) ??
+      (await readOptionalJson(resolve(pageDir, "asset_manifest.json"), {}));
+    for (const asset of asArray(assetManifest?.assets)) {
+      if (!asset || typeof asset !== "object" || Array.isArray(asset)) continue;
+      const id = stringValue(asset.id) ?? stringValue(asset.sourceNodeId);
+      assets.push({
+        pageName,
+        id,
+        name: stringValue(asset.sourceName) ?? id,
+        path: stringValue(asset.path),
+        strategy: stringValue(asset.strategy) ?? stringValue(asset.format)
+      });
+    }
+
+    const i18nManifest =
+      (await readOptionalJson(resolve(pageDir, "final_i18n_manifest.json"), undefined)) ??
+      (await readOptionalJson(resolve(pageDir, "reviewed_i18n_manifest.json"), undefined)) ??
+      (await readOptionalJson(resolve(pageDir, "i18n_manifest.json"), {}));
+    for (const message of asArray(i18nManifest?.messages)) {
+      if (!message || typeof message !== "object" || Array.isArray(message)) continue;
+      const key = stringValue(message.key);
+      if (!key) continue;
+      docs.push({
+        pageName,
+        key,
+        value: stringValue(message.value) ?? "",
+        source: "i18n"
+      });
+    }
+  }
+
+  return {
+    version: "0.1.0",
+    projectName: basename(projectDir),
+    projectRoot: artifactRootForDir(projectDir),
+    pages,
+    tokens,
+    components,
+    assets,
+    docs
+  };
+}
+
 async function readWorkbenchProjectPages(artifactRootValue) {
-  const artifactDir = resolveArtifactRoot(stringValue(artifactRootValue));
-  const projectDir = dirname(artifactDir);
+  const { pageDir, projectDir } = await resolveWorkbenchProjectContext(stringValue(artifactRootValue));
   const projectRoot = artifactRootForDir(projectDir);
   const entries = await readdir(projectDir, { withFileTypes: true });
   const pages = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const pageDir = resolve(projectDir, entry.name);
-    if (!(await fileExists(resolve(pageDir, "raw_figma_scene.json")))) continue;
-    pages.push(await readProjectPageEntry(pageDir, pageDir === artifactDir));
+    const candidatePageDir = resolve(projectDir, entry.name);
+    if (!(await fileExists(resolve(candidatePageDir, "raw_figma_scene.json")))) continue;
+    pages.push(await readProjectPageEntry(candidatePageDir, candidatePageDir === pageDir));
   }
   pages.sort((left, right) => Number(right.current) - Number(left.current) || left.name.localeCompare(right.name));
   const prototypeFlow = normalizePrototypeFlow(await readOptionalJson(resolve(projectDir, "prototype_flow.json"), undefined));
@@ -960,15 +1087,14 @@ async function readWorkbenchProjectPages(artifactRootValue) {
     version: "0.1.0",
     projectName: basename(projectDir),
     projectRoot,
-    currentArtifactRoot: artifactRootForDir(artifactDir),
+    currentArtifactRoot: artifactRootForDir(pageDir),
     pages,
     prototypeFlow
   };
 }
 
 async function readWorkbenchProjects(artifactRootValue) {
-  const artifactDir = resolveArtifactRoot(stringValue(artifactRootValue));
-  const currentProjectDir = dirname(artifactDir);
+  const { projectDir: currentProjectDir } = await resolveWorkbenchProjectContext(stringValue(artifactRootValue));
   const projectsRoot = dirname(currentProjectDir);
   const entries = await readdir(projectsRoot, { withFileTypes: true });
   const projects = [];
@@ -993,8 +1119,7 @@ async function readWorkbenchProjects(artifactRootValue) {
 }
 
 async function updateWorkbenchPrototypeLink(body) {
-  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
-  const projectDir = dirname(artifactDir);
+  const { projectDir } = await resolveWorkbenchProjectContext(stringValue(body.artifactRoot));
   const operation = stringValue(body.operation);
   const flowPath = resolve(projectDir, "prototype_flow.json");
   const now = new Date().toISOString();
@@ -1030,6 +1155,27 @@ async function updateWorkbenchPrototypeLink(body) {
     path: flowPath,
     updatedAt: now,
     links: flow.links.length
+  };
+}
+
+async function resolveWorkbenchProjectContext(artifactRootValue) {
+  const artifactDir = resolveArtifactRoot(artifactRootValue);
+  if (await fileExists(resolve(artifactDir, "raw_figma_scene.json"))) {
+    return {
+      pageDir: artifactDir,
+      projectDir: dirname(artifactDir)
+    };
+  }
+  const pageDirs = await projectPagesInDir(artifactDir);
+  if (pageDirs.length > 0) {
+    return {
+      pageDir: pageDirs[0],
+      projectDir: artifactDir
+    };
+  }
+  return {
+    pageDir: artifactDir,
+    projectDir: dirname(artifactDir)
   };
 }
 
@@ -1821,6 +1967,17 @@ function normalizePresetResource(entry) {
     weight: stringValue(entry.weight) ?? "",
     style: stringValue(entry.style) ?? ""
   };
+}
+
+function projectElementDisplayValue(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return "";
+  if (typeof entry.value === "string" || typeof entry.value === "number") return String(entry.value);
+  const parts = [
+    stringValue(entry.fontFamily),
+    numberValue(entry.fontSize) ? `${numberValue(entry.fontSize)}px` : undefined,
+    numberValue(entry.lineHeight) ? `${numberValue(entry.lineHeight)}px` : undefined
+  ].filter(Boolean);
+  return parts.join(" / ");
 }
 
 async function readProjectPageEntry(pageDir, current) {
