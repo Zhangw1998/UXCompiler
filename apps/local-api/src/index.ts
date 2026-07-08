@@ -801,7 +801,7 @@ function isMaterializableAsset(entry: AssetManifestEntry): boolean {
 
 function shouldUseFrameScreenshotFallback(body: SnapshotRequest): boolean {
   if (!body.figmaReferencePngBase64) return false;
-  return body.preferFrameScreenshotFallback ?? body.sourceKind === "figma_plugin";
+  return body.preferFrameScreenshotFallback === true;
 }
 
 function safeAssetPath(path: string): string {

@@ -62,7 +62,7 @@ figma.ui.onmessage = async (message: { type?: string; endpoint?: string; project
         projectId: rawFigmaScene.source.projectName,
         rawFigmaScene,
         figmaReferencePngBase64: uint8ToBase64(png),
-        preferFrameScreenshotFallback: true,
+        preferFrameScreenshotFallback: false,
         assets,
         extractionReport
       })

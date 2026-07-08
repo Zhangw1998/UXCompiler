@@ -258,7 +258,7 @@ try {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      sourceKind: "local_smoke",
+      sourceKind: "figma_plugin",
       rawFigmaScene,
       projectId: rawFigmaScene.source.projectName,
       figmaReferencePngBase64: referencePngBase64,
@@ -271,6 +271,11 @@ try {
   assert.equal(updateResult.ok, true);
   assert.equal(updateResult.artifactDir, result.artifactDir);
   assert.equal(updateResult.artifactRootPath, result.artifactRootPath);
+  const updatePipelineRunReport = JSON.parse(readFileSync(resolve(updateResult.artifactDir, "pipeline_run_report.json"), "utf8"));
+  const updateWebPreviewState = JSON.parse(readFileSync(resolve(updateResult.artifactDir, "web_preview_state.json"), "utf8"));
+  assert.equal(updatePipelineRunReport.source.sourceKind, "figma_plugin");
+  assert.equal(updatePipelineRunReport.steps.snapshot.frameScreenshotFallback, false);
+  assert.equal(updateWebPreviewState.commands.some((command) => command.type === "image" && command.mode === "asset" && command.assetPath === "assets/frames/figma_reference.png"), false);
 
   const fallbackScene = {
     version: "2.0",
@@ -307,6 +312,7 @@ try {
       rawFigmaScene: fallbackScene,
       projectId: "fallback-smoke",
       figmaReferencePngBase64: referencePngBase64,
+      preferFrameScreenshotFallback: true,
       runPreview: false,
       runDiff: false
     })
