@@ -182,6 +182,7 @@ try {
   assert.match(js, /pipeline-gate/);
   assert.match(js, /\/api\/workbench\/project-pages/);
   assert.match(js, /\/api\/workbench\/prototype-link/);
+  assert.doesNotMatch(js, /Artifact Status/);
   assert.doesNotMatch(js, /aside class="sidebar"/);
   assert.match(js, /资源导出需要处理/);
   assert.match(js, /视觉对比未通过/);

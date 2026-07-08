@@ -392,7 +392,6 @@ const zhCn: Record<string, string> = {
   "review": "需审查",
   "not-generated": "未生成",
   "Project Dashboard": "项目看板",
-  "Artifact Status": "产物状态",
   "Review Distribution": "任务分布",
   "Pipeline Gates": "流水线门禁",
   "Tasks": "任务",
@@ -589,33 +588,13 @@ function renderDashboard(model: WorkbenchModel): string {
         ${renderWorkbenchLauncherItem("settings", "设置", "预设资源", "neutral")}
       </div>
     </section>
-    <section class="two-column">
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Artifact Status</h2>
-        </div>
-        <div class="status-list">
-          ${model.artifactStatus
-            .map(
-              (entry) => `
-                <div class="status-row">
-                  <span class="status-dot ${entry.present ? "is-good" : "is-muted"}"></span>
-                  <strong>${escapeHtml(entry.label)}</strong>
-                  <span>${escapeHtml(entry.note)}</span>
-                </div>
-              `
-            )
-            .join("")}
-        </div>
+    <section class="panel review-distribution-panel">
+      <div class="panel-header">
+        <h2>Review Distribution</h2>
       </div>
-      <div class="panel">
-        <div class="panel-header">
-          <h2>Review Distribution</h2>
-        </div>
-        <div class="compact-grid">
-          ${renderKeyValues(model.reviewSummary.byPriority)}
-          ${renderKeyValues(model.reviewSummary.byType)}
-        </div>
+      <div class="compact-grid review-distribution-grid">
+        ${renderKeyValues(model.reviewSummary.byPriority)}
+        ${renderKeyValues(model.reviewSummary.byType)}
       </div>
     </section>
     <section class="panel">
