@@ -37,7 +37,31 @@ interface AppState {
   pendingSyncOperation?: string;
   pendingDiffRepair?: string;
   pendingDiffRollback?: string;
+  pendingProjectPreset?: boolean;
   codegenProjectPath?: string;
+}
+
+interface ProjectPresetSettings {
+  version?: string;
+  generatedAt?: string;
+  source?: string;
+  design: {
+    width: number;
+    height: number;
+    dpr: number;
+  };
+  fonts: {
+    defaultFamily: string;
+    families: string[];
+    resources: Array<{ family: string; path: string; weight?: string; style?: string }>;
+  };
+  assets: {
+    root: string;
+    images: string;
+    slices: string;
+    frames: string;
+  };
+  notes: string;
 }
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
@@ -94,7 +118,8 @@ const jsonArtifacts: ArtifactSpec[] = [
   { key: "flutterPreviewFormatReport", files: ["flutter_preview_format_report.json"] },
   { key: "flutterPreviewAnalyzeReport", files: ["flutter_preview_analyze_report.json"] },
   { key: "flutterPreviewCaptureReport", files: ["flutter_preview_capture_report.json"] },
-  { key: "fidelityGenerationManifest", files: ["fidelity_generation_manifest.json"] }
+  { key: "fidelityGenerationManifest", files: ["fidelity_generation_manifest.json"] },
+  { key: "projectPreset", files: ["project_preset.json"] }
 ];
 
 const navItems: Array<{ id: ViewId; label: string }> = [
@@ -1447,27 +1472,88 @@ function renderSettings(model: WorkbenchModel): string {
   const format = asRecord(state.artifacts.flutterPreviewFormatReport);
   const capture = asRecord(state.artifacts.flutterPreviewCaptureReport);
   const conflicts = asRecord(state.artifacts.overrideConflictReport);
+  const preset = projectPresetForSettings(model);
+  const canSavePreset = state.artifactRoot !== "selected directory";
+  const presetPending = state.pendingProjectPreset === true;
   return `
     <section class="view-header">
       <div>
-        <h1>Settings</h1>
+        <h1>设置</h1>
         <p>${escapeHtml(model.artifactRoot)}</p>
+      </div>
+    </section>
+    ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
+    <section class="panel project-preset-panel">
+      <div class="panel-header">
+        <h2>项目预设资源</h2>
+        <span>project_preset.json</span>
+      </div>
+      <div class="project-preset-grid" data-project-preset>
+        <label class="codegen-field">
+          <span>设计稿宽度</span>
+          <input class="studio-input codegen-input" data-preset-field="design-width" type="number" min="1" step="1" value="${escapeAttr(String(preset.design.width))}" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field">
+          <span>设计稿高度</span>
+          <input class="studio-input codegen-input" data-preset-field="design-height" type="number" min="1" step="1" value="${escapeAttr(String(preset.design.height))}" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field">
+          <span>设备倍率</span>
+          <input class="studio-input codegen-input" data-preset-field="design-dpr" type="number" min="0.1" step="0.1" value="${escapeAttr(String(preset.design.dpr))}" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field">
+          <span>默认字体</span>
+          <input class="studio-input codegen-input" data-preset-field="default-font" value="${escapeAttr(preset.fonts.defaultFamily)}" placeholder="Inter" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field codegen-field--wide">
+          <span>字体族</span>
+          <input class="studio-input codegen-input" data-preset-field="font-families" value="${escapeAttr(preset.fonts.families.join(", "))}" placeholder="Inter, SF Pro Display" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field codegen-field--wide">
+          <span>字体资源</span>
+          <textarea class="studio-input studio-input--textarea codegen-input" data-preset-field="font-resources" placeholder="Inter=assets/fonts/Inter.ttf" ${canSavePreset ? "" : "disabled"}>${escapeHtml(fontResourcesText(preset.fonts.resources))}</textarea>
+        </label>
+        <label class="codegen-field">
+          <span>资源根目录</span>
+          <input class="studio-input codegen-input" data-preset-field="asset-root" value="${escapeAttr(preset.assets.root)}" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field">
+          <span>图片目录</span>
+          <input class="studio-input codegen-input" data-preset-field="asset-images" value="${escapeAttr(preset.assets.images)}" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field">
+          <span>切片目录</span>
+          <input class="studio-input codegen-input" data-preset-field="asset-slices" value="${escapeAttr(preset.assets.slices)}" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field">
+          <span>整帧目录</span>
+          <input class="studio-input codegen-input" data-preset-field="asset-frames" value="${escapeAttr(preset.assets.frames)}" ${canSavePreset ? "" : "disabled"} />
+        </label>
+        <label class="codegen-field project-preset-notes">
+          <span>备注</span>
+          <textarea class="studio-input studio-input--textarea codegen-input" data-preset-field="notes" ${canSavePreset ? "" : "disabled"}>${escapeHtml(preset.notes)}</textarea>
+        </label>
+        <div class="project-preset-actions">
+          <button class="action-button action-button--secondary" data-project-preset-save ${canSavePreset && !presetPending ? "" : "disabled"}>
+            ${escapeHtml(presetPending ? "保存中..." : "保存预设")}
+          </button>
+        </div>
       </div>
     </section>
     <section class="two-column">
       <div class="panel">
-        <div class="panel-header"><h2>Artifact Root</h2></div>
+        <div class="panel-header"><h2>产物目录</h2></div>
         <dl class="detail-list">
-          <dt>Root</dt><dd>${escapeHtml(model.artifactRoot)}</dd>
-          <dt>Viewport</dt><dd>${model.viewport.width}x${model.viewport.height}</dd>
-          <dt>Frame</dt><dd>${escapeHtml(model.project.frameNodeId)}</dd>
-          <dt>Dart Format</dt><dd>${escapeHtml(stringFrom(format.status) ?? "not loaded")}</dd>
-          <dt>Flutter Capture</dt><dd>${escapeHtml(stringFrom(capture.status) ?? "not loaded")}</dd>
-          <dt>Override Conflicts</dt><dd>${asArray(conflicts.conflicts).length}</dd>
+          <dt>目录</dt><dd>${escapeHtml(model.artifactRoot)}</dd>
+          <dt>视口</dt><dd>${model.viewport.width}x${model.viewport.height}</dd>
+          <dt>画框</dt><dd>${escapeHtml(model.project.frameNodeId)}</dd>
+          <dt>Dart 格式化</dt><dd>${escapeHtml(stringFrom(format.status) ?? "未加载")}</dd>
+          <dt>Flutter 截图</dt><dd>${escapeHtml(stringFrom(capture.status) ?? "未加载")}</dd>
+          <dt>覆盖冲突</dt><dd>${asArray(conflicts.conflicts).length}</dd>
         </dl>
       </div>
       <div class="panel">
-        <div class="panel-header"><h2>Loaded JSON</h2></div>
+        <div class="panel-header"><h2>已加载 JSON</h2></div>
         <div class="status-list">
           ${jsonArtifacts
             .map((spec) => {
@@ -1476,7 +1562,7 @@ function renderSettings(model: WorkbenchModel): string {
                 <div class="status-row">
                   <span class="status-dot ${loaded ? "is-good" : "is-muted"}"></span>
                   <strong>${escapeHtml(String(spec.key))}</strong>
-                  <span>${loaded ? "loaded" : "missing"}</span>
+                  <span>${loaded ? "已加载" : "缺失"}</span>
                 </div>
               `;
             })
@@ -1485,6 +1571,78 @@ function renderSettings(model: WorkbenchModel): string {
       </div>
     </section>
   `;
+}
+
+function projectPresetForSettings(model: WorkbenchModel): ProjectPresetSettings {
+  const preset = asRecord(state.artifacts.projectPreset);
+  const design = asRecord(preset.design);
+  const fonts = asRecord(preset.fonts);
+  const assets = asRecord(preset.assets);
+  const inferredFamilies = collectPresetFontFamilies();
+  const storedFamilies = asArray(fonts.families)
+    .map((entry) => stringFrom(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  const families = uniqueStrings([...storedFamilies, ...inferredFamilies]);
+  const defaultFamily = stringFrom(fonts.defaultFamily) ?? families[0] ?? "Inter";
+  if (!families.includes(defaultFamily)) families.unshift(defaultFamily);
+  return {
+    version: stringFrom(preset.version),
+    generatedAt: stringFrom(preset.generatedAt),
+    source: stringFrom(preset.source),
+    design: {
+      width: numberFrom(design.width) ?? model.viewport.width,
+      height: numberFrom(design.height) ?? model.viewport.height,
+      dpr: numberFrom(design.dpr) ?? 1
+    },
+    fonts: {
+      defaultFamily,
+      families,
+      resources: asArray(fonts.resources).map(normalizePresetResource).filter((entry): entry is ProjectPresetSettings["fonts"]["resources"][number] => Boolean(entry))
+    },
+    assets: {
+      root: stringFrom(assets.root) ?? "assets",
+      images: stringFrom(assets.images) ?? "assets/images",
+      slices: stringFrom(assets.slices) ?? "assets/slices",
+      frames: stringFrom(assets.frames) ?? "assets/frames"
+    },
+    notes: stringFrom(preset.notes) ?? ""
+  };
+}
+
+function collectPresetFontFamilies(): string[] {
+  const tokens = asRecord(state.artifacts.reviewedInferredTokens ?? state.artifacts.inferredTokens);
+  const typography = asArray(tokens.typography).map(asRecord);
+  const normalized = asRecord(state.artifacts.reviewedNormalizedDesignIR ?? state.artifacts.normalizedDesignIR);
+  const normalizedTokens = asRecord(normalized.tokens);
+  const normalizedTypography = asArray(normalizedTokens.typography).map(asRecord);
+  return uniqueStrings(
+    [...typography, ...normalizedTypography]
+      .map((token) => stringFrom(token.fontFamily) ?? stringFrom(token.value))
+      .filter((entry): entry is string => Boolean(entry))
+  );
+}
+
+function normalizePresetResource(entry: unknown): ProjectPresetSettings["fonts"]["resources"][number] | undefined {
+  if (typeof entry === "string" && entry.trim()) return { family: entry.trim(), path: "" };
+  const record = asRecord(entry);
+  const family = stringFrom(record.family) ?? stringFrom(record.name);
+  if (!family) return undefined;
+  return {
+    family,
+    path: stringFrom(record.path) ?? "",
+    ...(stringFrom(record.weight) ? { weight: stringFrom(record.weight) } : {}),
+    ...(stringFrom(record.style) ? { style: stringFrom(record.style) } : {})
+  };
+}
+
+function fontResourcesText(resources: ProjectPresetSettings["fonts"]["resources"]): string {
+  return resources
+    .map((resource) => {
+      const suffix = [resource.weight, resource.style].filter(Boolean).join(",");
+      const right = suffix ? `${resource.path} ${suffix}` : resource.path;
+      return right ? `${resource.family}=${right}` : resource.family;
+    })
+    .join("\n");
 }
 
 function renderVisualScene(visualIR: unknown): string {
@@ -1982,6 +2140,12 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const projectPresetButton = target.closest<HTMLButtonElement>("[data-project-preset-save]");
+  if (projectPresetButton) {
+    void saveProjectPreset();
+    return;
+  }
+
   const diffRepairButton = target.closest<HTMLButtonElement>("[data-diff-repair]");
   if (diffRepairButton?.dataset.diffRepair) {
     void applyDiffRepair(diffRepairButton.dataset.diffRepair, diffRepairButton.dataset.diffIssueId);
@@ -2311,6 +2475,50 @@ async function applySyncOperation(operation: string): Promise<void> {
     };
   } finally {
     state.pendingSyncOperation = undefined;
+    render();
+  }
+}
+
+async function saveProjectPreset(): Promise<void> {
+  if (state.artifactRoot === "selected directory") {
+    state.actionMessage = { tone: "bad", text: "请选择本地产物目录后再保存项目预设。" };
+    render();
+    return;
+  }
+  const payload = buildProjectPresetPayload();
+  if (payload.error) {
+    state.actionMessage = { tone: "bad", text: payload.error };
+    render();
+    return;
+  }
+  state.pendingProjectPreset = true;
+  state.actionMessage = undefined;
+  render();
+  try {
+    const response = await fetch("/api/workbench/project-preset", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        artifactRoot: state.artifactRoot,
+        preset: payload.preset
+      })
+    });
+    const result = (await response.json()) as { ok?: boolean; error?: string; report?: { resources?: number; fontFamilies?: number } };
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error ?? `Project preset save failed with ${response.status}`);
+    }
+    await loadFromArtifactRoot(state.artifactRoot);
+    state.actionMessage = {
+      tone: "good",
+      text: `项目预设已保存到 project_preset.json；${result.report?.fontFamilies ?? 0} 个字体族，${result.report?.resources ?? 0} 个字体资源。`
+    };
+  } catch (error) {
+    state.actionMessage = {
+      tone: "bad",
+      text: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    state.pendingProjectPreset = undefined;
     render();
   }
 }
@@ -2774,6 +2982,64 @@ function buildSyncPayload(operation: string): { body?: Record<string, unknown>; 
   };
 }
 
+function buildProjectPresetPayload(): { preset?: ProjectPresetSettings; error?: string } {
+  const current = projectPresetForSettings(state.model ?? buildWorkbenchModel(state.artifacts));
+  const width = Number(inputValue("[data-preset-field='design-width']"));
+  const height = Number(inputValue("[data-preset-field='design-height']"));
+  const dpr = Number(inputValue("[data-preset-field='design-dpr']"));
+  if (!Number.isFinite(width) || width <= 0) return { error: "设计稿宽度必须是大于 0 的数字。" };
+  if (!Number.isFinite(height) || height <= 0) return { error: "设计稿高度必须是大于 0 的数字。" };
+  if (!Number.isFinite(dpr) || dpr <= 0) return { error: "设备倍率必须是大于 0 的数字。" };
+
+  const defaultFamily = inputValue("[data-preset-field='default-font']").trim();
+  const families = uniqueStrings([...splitList(inputValue("[data-preset-field='font-families']")), defaultFamily].filter(Boolean));
+  const resources = parseFontResources(inputValue("[data-preset-field='font-resources']"));
+  return {
+    preset: {
+      version: current.version,
+      generatedAt: current.generatedAt,
+      source: "workbench",
+      design: {
+        width,
+        height,
+        dpr
+      },
+      fonts: {
+        defaultFamily,
+        families,
+        resources
+      },
+      assets: {
+        root: inputValue("[data-preset-field='asset-root']").trim() || "assets",
+        images: inputValue("[data-preset-field='asset-images']").trim() || "assets/images",
+        slices: inputValue("[data-preset-field='asset-slices']").trim() || "assets/slices",
+        frames: inputValue("[data-preset-field='asset-frames']").trim() || "assets/frames"
+      },
+      notes: inputValue("[data-preset-field='notes']")
+    }
+  };
+}
+
+function parseFontResources(value: string): ProjectPresetSettings["fonts"]["resources"] {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [familyPart, rest = ""] = line.split("=");
+      const family = familyPart.trim();
+      const [path = "", metadata = ""] = rest.trim().split(/\s+/, 2);
+      const [weight = "", style = ""] = metadata.split(",").map((entry) => entry.trim());
+      return {
+        family,
+        path,
+        ...(weight ? { weight } : {}),
+        ...(style ? { style } : {})
+      };
+    })
+    .filter((entry) => entry.family);
+}
+
 function codegenResultMessage(operation: string, report: { gateStatus?: string; mode?: string; wrote?: boolean; filesToCreate?: number; filesToModify?: number; blockers?: number | unknown[] } | undefined): string {
   if (operation === "review") {
     return `Codegen review ${report?.gateStatus ?? "updated"}; ${report?.filesToCreate ?? 0} creates, ${report?.filesToModify ?? 0} modifies.`;
@@ -2797,6 +3063,10 @@ function splitList(value: string): string[] {
     .split(/[,\n]/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((entry) => entry.trim()).filter(Boolean))];
 }
 
 function parseJsonObject(value: string, label: string): Record<string, unknown> {
@@ -2835,7 +3105,7 @@ function tokenTypeForGroup(group: string): string {
 }
 
 function inputValue(selector: string): string {
-  const field = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
+  const field = document.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(selector);
   return field?.value ?? "";
 }
 

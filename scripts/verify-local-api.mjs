@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -137,6 +137,14 @@ try {
   assert.equal(existsSync(resolve(result.artifactDir, "reviewed_normalized_design_ir.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "override_conflict_report.json")), true);
   assert.equal(existsSync(resolve(result.artifactDir, "stale_override_report.json")), true);
+  assert.equal(existsSync(resolve(result.artifactDir, "project_preset.json")), true);
+  const projectPreset = JSON.parse(readFileSync(resolve(result.artifactDir, "project_preset.json"), "utf8"));
+  assert.equal(projectPreset.design.width, rawFigmaScene.source.viewport.width);
+  assert.equal(projectPreset.design.height, rawFigmaScene.source.viewport.height);
+  assert.ok(Array.isArray(projectPreset.fonts.families));
+  projectPreset.fonts.defaultFamily = "Preset Sans";
+  projectPreset.notes = "Keep this project preset across sync.";
+  writeFileSync(resolve(result.artifactDir, "project_preset.json"), `${JSON.stringify(projectPreset, null, 2)}\n`, "utf8");
   const materializedAssetReport = JSON.parse(readFileSync(resolve(result.artifactDir, "materialized_assets_report.json"), "utf8"));
   const repairPatch = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/repair_patch.json"), "utf8"));
   const repairIterationLog = JSON.parse(readFileSync(resolve(result.artifactDir, "diff/repair_iteration_log.json"), "utf8"));
@@ -273,9 +281,12 @@ try {
   assert.equal(updateResult.artifactRootPath, result.artifactRootPath);
   const updatePipelineRunReport = JSON.parse(readFileSync(resolve(updateResult.artifactDir, "pipeline_run_report.json"), "utf8"));
   const updateWebPreviewState = JSON.parse(readFileSync(resolve(updateResult.artifactDir, "web_preview_state.json"), "utf8"));
+  const updateProjectPreset = JSON.parse(readFileSync(resolve(updateResult.artifactDir, "project_preset.json"), "utf8"));
   assert.equal(updatePipelineRunReport.source.sourceKind, "figma_plugin");
   assert.equal(updatePipelineRunReport.steps.snapshot.frameScreenshotFallback, false);
   assert.equal(updateWebPreviewState.commands.some((command) => command.type === "image" && command.mode === "asset" && command.assetPath === "assets/frames/figma_reference.png"), false);
+  assert.equal(updateProjectPreset.fonts.defaultFamily, "Preset Sans");
+  assert.equal(updateProjectPreset.notes, "Keep this project preset across sync.");
 
   const fallbackScene = {
     version: "2.0",

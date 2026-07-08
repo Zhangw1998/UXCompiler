@@ -184,6 +184,9 @@ try {
   assert.match(js, /待添加资源/);
   assert.match(js, /ARB 变更/);
   assert.match(js, /Pubspec 补丁/);
+  assert.match(js, /项目预设资源/);
+  assert.match(js, /project_preset\.json/);
+  assert.match(js, /\/api\/workbench\/project-preset/);
   assert.match(js, /合并报告/);
   assert.match(js, /生成的 Widget/);
   assert.match(js, /兜底区域/);
@@ -199,6 +202,39 @@ try {
     assert.equal(previewPng.ok, true);
     assert.equal(previewPng.headers.get("content-type"), "image/png");
   }
+
+  const presetResponse = await fetch(`${base}/api/workbench/project-preset`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      artifactRoot: "/artifacts/workbench-web-smoke/sample",
+      preset: {
+        source: "verify-workbench-web",
+        design: { width: 390, height: 844, dpr: 1 },
+        fonts: {
+          defaultFamily: "Inter",
+          families: ["Inter", "SF Pro Display"],
+          resources: [{ family: "Inter", path: "assets/fonts/Inter.ttf", weight: "400", style: "normal" }]
+        },
+        assets: {
+          root: "assets",
+          images: "assets/images",
+          slices: "assets/slices",
+          frames: "assets/frames"
+        },
+        notes: "Verify preset save."
+      }
+    })
+  });
+  assert.equal(presetResponse.ok, true);
+  const presetResult = await presetResponse.json();
+  assert.equal(presetResult.ok, true);
+  assert.equal(presetResult.report.fontFamilies, 2);
+  const savedPreset = await fetchJson(`${base}/artifacts/workbench-web-smoke/sample/project_preset.json`);
+  assert.equal(savedPreset.design.width, 390);
+  assert.equal(savedPreset.fonts.defaultFamily, "Inter");
+  assert.equal(savedPreset.fonts.resources[0].path, "assets/fonts/Inter.ttf");
+  assert.equal(savedPreset.notes, "Verify preset save.");
 
   const bulkTasks = await fetchJson(`${base}/artifacts/workbench-web-smoke/bulk-sample/review_tasks.json`);
   const bulkTaskIds = bulkTasks.filter((task) => task.status === "open" && task.priority === "P2").slice(0, 2).map((task) => task.id);

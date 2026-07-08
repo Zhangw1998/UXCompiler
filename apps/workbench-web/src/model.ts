@@ -42,6 +42,7 @@ export interface WorkbenchArtifacts {
   flutterPreviewAnalyzeReport?: unknown;
   flutterPreviewCaptureReport?: unknown;
   fidelityGenerationManifest?: unknown;
+  projectPreset?: unknown;
   flutterPreviewUrl?: string;
   diffHeatmapUrl?: string;
 }

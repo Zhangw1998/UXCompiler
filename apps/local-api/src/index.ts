@@ -207,6 +207,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{
   const source = body.rawFigmaScene.source;
   const location = artifactLocation(body);
   const artifactDir = location.artifactDir;
+  const existingProjectPreset = await readOptionalJson(resolve(artifactDir, "project_preset.json"), undefined);
 
   await rm(artifactDir, { recursive: true, force: true });
   await mkdir(artifactDir, { recursive: true });
@@ -237,6 +238,7 @@ async function saveSnapshot(body: SnapshotRequest): Promise<{
     frameScreenshotAssetPath,
     frameScreenshotPngBase64: body.figmaReferencePngBase64
   });
+  await writeJson(resolve(artifactDir, "project_preset.json"), buildProjectPreset(body, artifacts, existingProjectPreset));
   const pipelineRunReport = await runLocalPipeline(artifactDir, body, artifacts, materializedAssetReport);
   await writePreviewArtifact(artifactDir, pipelineRunReport);
   await writeRuntimeReviewTaskArtifacts(artifactDir, artifacts, pipelineRunReport);
@@ -1166,6 +1168,15 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+async function readOptionalJson(path: string, fallback: unknown): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as unknown;
+  } catch (error) {
+    if ((error as { code?: string })?.code === "ENOENT") return fallback;
+    throw error;
+  }
+}
+
 function sendJson(response: ServerResponse, status: number, value: unknown): void {
   setCors(response);
   response.writeHead(status, { "content-type": "application/json" });
@@ -1192,6 +1203,44 @@ function collectFontFamilies(artifacts: PipelineArtifacts): string[] {
   return [...new Set(typography.map((token) => token.fontFamily).filter((fontFamily) => typeof fontFamily === "string" && fontFamily.length > 0))].sort(
     (left, right) => left.localeCompare(right)
   );
+}
+
+function buildProjectPreset(body: SnapshotRequest, artifacts: PipelineArtifacts, existingPreset: unknown): Record<string, unknown> {
+  const source = body.rawFigmaScene.source;
+  const existing = objectValue(existingPreset) ?? {};
+  const existingDesign = objectValue(existing.design) ?? {};
+  const existingFonts = objectValue(existing.fonts) ?? {};
+  const existingAssets = objectValue(existing.assets) ?? {};
+  const families = collectFontFamilies(artifacts);
+  const design = {
+    width: source.viewport?.width ?? artifacts.normalizedDesignIR.source.viewport.width,
+    height: source.viewport?.height ?? artifacts.normalizedDesignIR.source.viewport.height,
+    dpr: source.viewport?.scale ?? 1,
+    ...existingDesign
+  };
+  const fonts = {
+    defaultFamily: families[0] ?? "Inter",
+    families,
+    resources: [],
+    ...existingFonts
+  };
+  const assets = {
+    root: "assets",
+    images: "assets/images",
+    slices: "assets/slices",
+    frames: "assets/frames",
+    ...existingAssets
+  };
+  return {
+    version: "0.1.0",
+    generatedAt: stringValue(existing.generatedAt) ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    source: body.sourceKind ?? "unknown",
+    design,
+    fonts,
+    assets,
+    notes: stringValue(existing.notes) ?? ""
+  };
 }
 
 function stringValue(value: unknown): string | undefined {

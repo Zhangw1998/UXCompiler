@@ -157,6 +157,20 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/workbench/project-preset") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const result = await saveWorkbenchProjectPreset(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/workbench/codegen-write") {
       if (request.method !== "POST") {
         sendJson(response, 405, { ok: false, error: "Method not allowed" });
@@ -832,6 +846,59 @@ async function applyWorkbenchSyncRemap(body) {
     tokenMigrationReport: result.tokenMigrationReport,
     reviewTasks: mergedReviewTasks,
     taskStatusReport: nextTaskStatusReport
+  };
+}
+
+async function saveWorkbenchProjectPreset(body) {
+  const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
+  const preset = body.preset;
+  if (!preset || typeof preset !== "object" || Array.isArray(preset)) {
+    throw new Error("Missing project preset.");
+  }
+
+  const now = new Date().toISOString();
+  const design = preset.design ?? {};
+  const fonts = preset.fonts ?? {};
+  const assets = preset.assets ?? {};
+  const width = numberValue(design.width);
+  const height = numberValue(design.height);
+  const dpr = numberValue(design.dpr) ?? 1;
+  if (!Number.isFinite(width) || width <= 0) throw new Error("Design width must be positive.");
+  if (!Number.isFinite(height) || height <= 0) throw new Error("Design height must be positive.");
+  if (!Number.isFinite(dpr) || dpr <= 0) throw new Error("Design DPR must be positive.");
+
+  const nextPreset = {
+    version: "0.1.0",
+    generatedAt: stringValue(preset.generatedAt) ?? now,
+    updatedAt: now,
+    source: stringValue(preset.source) ?? "workbench",
+    design: {
+      width,
+      height,
+      dpr
+    },
+    fonts: {
+      defaultFamily: stringValue(fonts.defaultFamily) ?? "",
+      families: stringArray(fonts.families),
+      resources: asArray(fonts.resources).map(normalizePresetResource).filter(Boolean)
+    },
+    assets: {
+      root: stringValue(assets.root) ?? "assets",
+      images: stringValue(assets.images) ?? "assets/images",
+      slices: stringValue(assets.slices) ?? "assets/slices",
+      frames: stringValue(assets.frames) ?? "assets/frames"
+    },
+    notes: stringValue(preset.notes) ?? ""
+  };
+  const path = resolve(artifactDir, "project_preset.json");
+  await writeJson(path, nextPreset);
+  return {
+    report: {
+      path,
+      updatedAt: now,
+      fontFamilies: nextPreset.fonts.families.length,
+      resources: nextPreset.fonts.resources.length
+    }
   };
 }
 
@@ -1598,6 +1665,19 @@ function buildTaskStatusReport(reviewTasks, generatedAt) {
     byType,
     codegenWriteBlocked: blockedReasons.length > 0,
     blockedReasons
+  };
+}
+
+function normalizePresetResource(entry) {
+  if (typeof entry === "string") return { family: entry, path: "" };
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+  const family = stringValue(entry.family) ?? stringValue(entry.name);
+  if (!family) return undefined;
+  return {
+    family,
+    path: stringValue(entry.path) ?? "",
+    weight: stringValue(entry.weight) ?? "",
+    style: stringValue(entry.style) ?? ""
   };
 }
 
