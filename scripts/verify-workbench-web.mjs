@@ -177,6 +177,9 @@ try {
   assert.match(js, /loadFromArtifactRoot/);
   assert.match(js, /项目看板/);
   assert.match(js, /审查任务/);
+  assert.match(js, /工作台入口/);
+  assert.match(js, /pipeline-gate/);
+  assert.doesNotMatch(js, /aside class="sidebar"/);
   assert.match(js, /资源导出需要处理/);
   assert.match(js, /视觉对比未通过/);
   assert.match(js, /映射 Flutter 组件/);
@@ -196,6 +199,8 @@ try {
   assert.match(modelJs, /buildWorkbenchModel/);
   assert.match(css, /preview-stage/);
   assert.match(css, /\.viz-image img/);
+  assert.match(css, /pipeline-board/);
+  assert.match(css, /workbench-launcher/);
   assert.match(css, /code-block/);
   assert.equal(visual.root.type, "scene");
   if (previewPng) {

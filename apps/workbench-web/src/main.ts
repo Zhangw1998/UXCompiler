@@ -12,6 +12,7 @@ import {
 
 type ViewId = "dashboard" | "tasks" | "tree" | "components" | "tokens" | "assets" | "i18n" | "preview" | "codegen" | "settings";
 type PreviewMode = "side-by-side" | "overlay" | "heatmap" | "difference";
+type PipelineGateId = "tasks" | "preview" | "flutter" | "codegen" | "sync";
 
 interface ArtifactSpec {
   key: keyof WorkbenchArtifacts;
@@ -39,6 +40,7 @@ interface AppState {
   pendingDiffRollback?: string;
   pendingProjectPreset?: boolean;
   codegenProjectPath?: string;
+  selectedGateId?: PipelineGateId;
 }
 
 interface ProjectPresetSettings {
@@ -62,6 +64,15 @@ interface ProjectPresetSettings {
     frames: string;
   };
   notes: string;
+}
+
+interface PipelineGate {
+  id: PipelineGateId;
+  label: string;
+  status: string;
+  description: string;
+  view?: ViewId;
+  details: Array<{ label: string; value: string; tone?: "neutral" | "good" | "warn" | "bad" }>;
 }
 
 const appElement = document.querySelector<HTMLDivElement>("#app");
@@ -421,6 +432,7 @@ function renderShell(content: string): string {
   const model = state.model;
   const title = model?.project.frameName ?? "UXCompiler Workbench";
   const status = model?.project.status ?? "loading";
+  const subpageTitle = navItems.find((item) => item.id === state.activeView)?.label ?? "项目";
   return `
     <header class="topbar">
       <div class="brand">
@@ -437,18 +449,32 @@ function renderShell(content: string): string {
       </div>
     </header>
     <div class="workspace-shell">
-      <aside class="sidebar" aria-label="Workbench navigation">
-        ${navItems
-          .map(
-            (item) => `
-              <button class="nav-item ${item.id === state.activeView ? "is-active" : ""}" data-view="${item.id}">
-                ${escapeHtml(item.label)}
-              </button>
-            `
-          )
-          .join("")}
-      </aside>
       <main class="content">
+        ${
+          state.activeView === "dashboard"
+            ? ""
+            : `
+              <section class="subpage-bar">
+                <button class="button" data-view="dashboard">返回项目看板</button>
+                <div>
+                  <strong>${escapeHtml(subpageTitle)}</strong>
+                  <span>${escapeHtml(model?.project.frameNodeId ?? "")}</span>
+                </div>
+                <nav class="subpage-tabs" aria-label="Workbench subpages">
+                  ${navItems
+                    .filter((item) => item.id !== "dashboard")
+                    .map(
+                      (item) => `
+                        <button class="nav-item ${item.id === state.activeView ? "is-active" : ""}" data-view="${item.id}">
+                          ${escapeHtml(item.label)}
+                        </button>
+                      `
+                    )
+                    .join("")}
+                </nav>
+              </section>
+            `
+        }
         ${content}
       </main>
     </div>
@@ -481,6 +507,8 @@ function renderActiveView(model: WorkbenchModel): string {
 }
 
 function renderDashboard(model: WorkbenchModel): string {
+  const gates = buildPipelineGates(model);
+  const selectedGate = gates.find((gate) => gate.id === state.selectedGateId) ?? gates[0];
   return `
     <section class="view-header">
       <div>
@@ -491,6 +519,23 @@ function renderDashboard(model: WorkbenchModel): string {
     </section>
     <section class="metric-grid">
       ${model.metrics.map((entry) => renderMetric(entry.label, entry.value, entry.tone)).join("")}
+    </section>
+    <section class="panel workbench-launcher-panel">
+      <div class="panel-header">
+        <h2>工作台入口</h2>
+        <span>子页面</span>
+      </div>
+      <div class="workbench-launcher">
+        ${renderWorkbenchLauncherItem("tasks", "审查任务", `${model.reviewSummary.open} 个待处理`, model.reviewSummary.blocked ? "bad" : model.reviewSummary.open > 0 ? "warn" : "good")}
+        ${renderWorkbenchLauncherItem("tree", "结构树", `${model.treeRows.length} 个节点`, model.treeRows.length > 0 ? "good" : "bad")}
+        ${renderWorkbenchLauncherItem("components", "组件", `${model.componentCount} 个组件`, "neutral")}
+        ${renderWorkbenchLauncherItem("tokens", "Token", `${Object.values(model.tokenCounts).reduce((sum, count) => sum + count, 0)} 个 Token`, "neutral")}
+        ${renderWorkbenchLauncherItem("assets", "资源", `${model.assetCount} 个资源`, model.assetCount > 0 ? "good" : "warn")}
+        ${renderWorkbenchLauncherItem("i18n", "文案", `${model.i18nCount} 个 Key`, model.i18nCount > 0 ? "good" : "warn")}
+        ${renderWorkbenchLauncherItem("preview", "预览", model.preview.hasWebPreviewState ? "可预览" : "缺失", model.preview.hasWebPreviewState ? "good" : "bad")}
+        ${renderWorkbenchLauncherItem("codegen", "代码生成", model.codegen.status, statusTone(model.codegen.status))}
+        ${renderWorkbenchLauncherItem("settings", "设置", "预设资源", "neutral")}
+      </div>
     </section>
     <section class="two-column">
       <div class="panel">
@@ -524,13 +569,39 @@ function renderDashboard(model: WorkbenchModel): string {
     <section class="panel">
       <div class="panel-header">
         <h2>Pipeline Gates</h2>
+        <span>${escapeHtml(selectedGate.label)} · ${escapeHtml(selectedGate.status)}</span>
       </div>
-      <div class="gate-strip">
-        ${renderGate("Tasks", model.reviewSummary.blocked ? "blocked" : model.reviewSummary.open > 0 ? "review" : "ready")}
-        ${renderGate("Preview", model.preview.hasVisualIR ? "ready" : "missing")}
-        ${renderGate("Flutter", model.preview.hasFlutterPreview ? "ready" : "missing")}
-        ${renderGate("Codegen", model.codegen.status)}
-        ${renderGate("Sync", model.sync.matches > 0 ? "ready" : "not-generated")}
+      <div class="pipeline-board">
+        <div class="pipeline-gate-list">
+          ${gates.map((gate, index) => renderPipelineGate(gate, index, gate.id === selectedGate.id)).join("")}
+        </div>
+        <article class="pipeline-detail gate--${statusTone(selectedGate.status)}">
+          <div class="pipeline-detail-header">
+            <div>
+              <span>当前步骤</span>
+              <strong>${escapeHtml(selectedGate.label)}</strong>
+            </div>
+            <span class="status-pill status-pill--${statusTone(selectedGate.status)}">${escapeHtml(selectedGate.status)}</span>
+          </div>
+          <p>${escapeHtml(selectedGate.description)}</p>
+          <div class="pipeline-detail-grid">
+            ${selectedGate.details
+              .map(
+                (detail) => `
+                  <div class="pipeline-detail-item pipeline-detail-item--${detail.tone ?? "neutral"}">
+                    <span>${escapeHtml(detail.label)}</span>
+                    <strong>${escapeHtml(detail.value)}</strong>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+          ${
+            selectedGate.view
+              ? `<button class="action-button action-button--secondary" data-view="${escapeAttr(selectedGate.view)}">打开${escapeHtml(selectedGate.label)}子页面</button>`
+              : ""
+          }
+        </article>
       </div>
     </section>
   `;
@@ -1792,6 +1863,118 @@ function renderMetric(label: string, value: string, tone: "neutral" | "good" | "
   `;
 }
 
+function renderWorkbenchLauncherItem(view: ViewId, label: string, meta: string, tone: "neutral" | "good" | "warn" | "bad"): string {
+  return `
+    <button class="launcher-item launcher-item--${tone}" data-view="${escapeAttr(view)}">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${escapeHtml(meta)}</span>
+    </button>
+  `;
+}
+
+function renderPipelineGate(gate: PipelineGate, index: number, selected: boolean): string {
+  return `
+    <button class="pipeline-gate ${selected ? "is-selected" : ""} gate--${statusTone(gate.status)}" data-pipeline-gate="${escapeAttr(gate.id)}">
+      <span class="pipeline-step">${index + 1}</span>
+      <span class="pipeline-gate-main">
+        <strong>${escapeHtml(gate.label)}</strong>
+        <span>${escapeHtml(gate.description)}</span>
+      </span>
+      <span class="status-pill status-pill--${statusTone(gate.status)}">${escapeHtml(gate.status)}</span>
+    </button>
+  `;
+}
+
+function buildPipelineGates(model: WorkbenchModel): PipelineGate[] {
+  const taskStatusReport = asRecord(state.artifacts.taskStatusReport);
+  const blockedReasons = asArray(taskStatusReport.blockedReasons)
+    .map((entry) => stringFrom(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  const visualDiffReport = asRecord(state.artifacts.visualDiffReport);
+  const visualDiffPage = asRecord(visualDiffReport.page);
+  const visualDiffScore = asRecord(visualDiffPage.score);
+  const formatReport = asRecord(state.artifacts.flutterPreviewFormatReport);
+  const analyzeReport = asRecord(state.artifacts.flutterPreviewAnalyzeReport);
+  const captureReport = asRecord(state.artifacts.flutterPreviewCaptureReport);
+  const nodeRemapReport = asRecord(state.artifacts.nodeRemapReport);
+  const tokenMigrationReport = asRecord(state.artifacts.tokenMigrationReport);
+  const previewStatus = !model.preview.hasVisualIR ? "missing" : visualDiffPage.pass === false ? "review" : "ready";
+  const flutterCaptureStatus = stringFrom(captureReport.status);
+  const flutterStatus = !model.preview.hasFlutterPreview ? "missing" : flutterCaptureStatus === "failed" ? "blocked" : "ready";
+  const syncStatus = model.sync.matches > 0 ? "ready" : "not-generated";
+  return [
+    {
+      id: "tasks",
+      label: "审查任务",
+      status: model.reviewSummary.blocked ? "blocked" : model.reviewSummary.open > 0 ? "review" : "ready",
+      description: model.reviewSummary.blocked ? "存在会阻塞代码写入的高优先级任务。" : model.reviewSummary.open > 0 ? "还有审查任务需要处理。" : "审查任务已经处理完成。",
+      view: "tasks",
+      details: [
+        { label: "待处理", value: String(model.reviewSummary.open), tone: model.reviewSummary.open > 0 ? "warn" : "good" },
+        { label: "P0", value: String(model.reviewSummary.byPriority.P0 ?? 0), tone: (model.reviewSummary.byPriority.P0 ?? 0) > 0 ? "bad" : "good" },
+        { label: "P1", value: String(model.reviewSummary.byPriority.P1 ?? 0), tone: (model.reviewSummary.byPriority.P1 ?? 0) > 0 ? "warn" : "good" },
+        { label: "阻塞原因", value: blockedReasons[0] ?? "无", tone: blockedReasons.length > 0 ? "bad" : "good" }
+      ]
+    },
+    {
+      id: "preview",
+      label: "Web 预览",
+      status: previewStatus,
+      description: model.preview.hasVisualIR ? "Web 预览已从结构化命令生成，可继续查看视觉差异。" : "缺少视觉 IR，暂时无法生成可编辑预览。",
+      view: "preview",
+      details: [
+        { label: "视觉 IR", value: model.preview.hasVisualIR ? "已加载" : "缺失", tone: model.preview.hasVisualIR ? "good" : "bad" },
+        { label: "Web 命令", value: model.preview.hasWebPreviewState ? "已加载" : "缺失", tone: model.preview.hasWebPreviewState ? "good" : "bad" },
+        { label: "视觉对比", value: model.preview.hasDiffReport ? (visualDiffPage.pass === false ? "未通过" : "已生成") : "未生成", tone: visualDiffPage.pass === false ? "warn" : model.preview.hasDiffReport ? "good" : "neutral" },
+        { label: "视觉分数", value: formatMaybePercent(numberFrom(visualDiffScore.visualScore)) || "-", tone: visualDiffPage.pass === false ? "warn" : "neutral" }
+      ]
+    },
+    {
+      id: "flutter",
+      label: "Flutter 预览",
+      status: flutterStatus,
+      description: model.preview.hasFlutterPreview ? "Flutter 预览截图已生成，可用于和 Web/设计稿对齐。" : "Flutter 预览图片缺失，需要先生成预览。",
+      view: "preview",
+      details: [
+        { label: "预览图片", value: model.preview.hasFlutterPreview ? "可用" : "缺失", tone: model.preview.hasFlutterPreview ? "good" : "bad" },
+        { label: "截图", value: flutterCaptureStatus ?? "未生成", tone: statusTone(flutterCaptureStatus ?? "not-generated") },
+        { label: "格式化", value: stringFrom(formatReport.status) ?? "未生成", tone: statusTone(stringFrom(formatReport.status) ?? "not-generated") },
+        { label: "Analyze", value: stringFrom(analyzeReport.status) ?? "未生成", tone: statusTone(stringFrom(analyzeReport.status) ?? "not-generated") }
+      ]
+    },
+    {
+      id: "codegen",
+      label: "代码生成",
+      status: model.codegen.status,
+      description: model.codegen.status === "blocked" || model.codegen.status === "review-blocked" ? "代码写入仍被门禁阻塞。" : "代码生成审查状态已就绪或等待进一步检查。",
+      view: "codegen",
+      details: [
+        { label: "阻塞项", value: String(model.codegen.blockers), tone: model.codegen.blockers > 0 ? "bad" : "good" },
+        { label: "待创建", value: String(model.codegen.filesToCreate), tone: "neutral" },
+        { label: "待修改", value: String(model.codegen.filesToModify), tone: "neutral" },
+        { label: "审查状态", value: model.codegen.status, tone: statusTone(model.codegen.status) }
+      ]
+    },
+    {
+      id: "sync",
+      label: "增量同步",
+      status: syncStatus,
+      description: model.sync.matches > 0 ? "已生成节点映射，可用于处理新旧设计稿差异。" : "还没有增量同步结果。",
+      view: "codegen",
+      details: [
+        { label: "节点匹配", value: String(model.sync.matches), tone: model.sync.matches > 0 ? "good" : "neutral" },
+        { label: "需复核", value: String(model.sync.reviewRequired), tone: model.sync.reviewRequired > 0 ? "warn" : "good" },
+        { label: "过期覆盖", value: String(model.sync.staleOverrides), tone: model.sync.staleOverrides > 0 ? "warn" : "good" },
+        { label: "Token 迁移", value: stringFrom(tokenMigrationReport.status) ?? stringFrom(nodeRemapReport.tokenMigrationStatus) ?? "未生成", tone: "neutral" }
+      ]
+    }
+  ];
+}
+
+function isPipelineGateId(value: string): value is PipelineGateId {
+  return value === "tasks" || value === "preview" || value === "flutter" || value === "codegen" || value === "sync";
+}
+
 function renderGate(label: string, status: string): string {
   return `
     <div class="gate gate--${statusTone(status)}">
@@ -2137,6 +2320,13 @@ function onAppClick(event: MouseEvent): void {
   const syncOperationButton = target.closest<HTMLButtonElement>("[data-sync-operation]");
   if (syncOperationButton?.dataset.syncOperation) {
     void applySyncOperation(syncOperationButton.dataset.syncOperation);
+    return;
+  }
+
+  const pipelineGateButton = target.closest<HTMLButtonElement>("[data-pipeline-gate]");
+  if (pipelineGateButton?.dataset.pipelineGate && isPipelineGateId(pipelineGateButton.dataset.pipelineGate)) {
+    state.selectedGateId = pipelineGateButton.dataset.pipelineGate;
+    render();
     return;
   }
 
