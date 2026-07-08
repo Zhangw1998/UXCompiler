@@ -196,6 +196,7 @@ try {
   assert.match(js, /项目预设资源/);
   assert.match(js, /project_preset\.json/);
   assert.match(js, /\/api\/workbench\/project-preset/);
+  assert.match(js, /asset-thumb/);
   assert.match(js, /合并报告/);
   assert.match(js, /生成的 Widget/);
   assert.match(js, /兜底区域/);
@@ -209,6 +210,7 @@ try {
   assert.match(css, /infinite-canvas/);
   assert.match(css, /canvas-page-node/);
   assert.match(css, /element-tabbar/);
+  assert.match(css, /asset-thumb/);
   assert.match(css, /prototype-link-row/);
   assert.match(css, /code-block/);
   assert.equal(visual.root.type, "scene");
@@ -239,6 +241,7 @@ try {
   assert.ok(projectElementsResult.report.pages.length >= 2, "Expected project elements to aggregate sibling pages");
   assert.ok(projectElementsResult.report.tokens.some((entry) => entry.pageName === "sample"), "Expected page-scoped token rows in project elements");
   assert.ok(projectElementsResult.report.assets.length > 0, "Expected project asset rows");
+  assert.ok(projectElementsResult.report.assets.some((entry) => entry.artifactRoot === "/artifacts/workbench-web-smoke/sample"), "Expected asset rows to keep their page artifact root");
 
   const presetBeforeResponse = await fetch(`${base}/api/workbench/project-preset?artifactRoot=/artifacts/workbench-web-smoke/sample`);
   assert.equal(presetBeforeResponse.ok, true);

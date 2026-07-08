@@ -1034,6 +1034,7 @@ async function readWorkbenchProjectElements(artifactRootValue) {
       const id = stringValue(asset.id) ?? stringValue(asset.sourceNodeId);
       assets.push({
         pageName,
+        artifactRoot: page.artifactRoot,
         id,
         name: stringValue(asset.sourceName) ?? id,
         path: stringValue(asset.path),

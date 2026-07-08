@@ -112,6 +112,7 @@ interface ProjectElementsReport {
 
 interface ProjectElementEntry {
   pageName: string;
+  artifactRoot?: string;
   type?: string;
   id?: string;
   name?: string;
@@ -1044,7 +1045,7 @@ function renderProjectElementTabContent(report: ProjectElementsReport | undefine
     return renderProjectElementTable("组件", report.components, ["pageName", "name", "id", "source"], ["页面", "名称", "ID", "来源"]);
   }
   if (active === "assets") {
-    return renderProjectElementTable("图片资源", report.assets, ["pageName", "name", "strategy", "path"], ["页面", "名称", "策略", "路径"]);
+    return renderProjectAssetsTable(report.assets);
   }
   return renderProjectElementTable("文档", report.docs, ["pageName", "key", "value", "source"], ["页面", "Key", "文案/文件", "来源"]);
 }
@@ -1086,6 +1087,54 @@ function renderProjectElementTable(
           `
       }
     </section>
+  `;
+}
+
+function renderProjectAssetsTable(entries: ProjectElementEntry[]): string {
+  return `
+    <section class="panel table-panel project-element-panel">
+      <div class="panel-header">
+        <h2>图片资源</h2>
+        <span>${entries.length} 条 · 项目级</span>
+      </div>
+      ${
+        entries.length === 0
+          ? renderEmpty("暂无图片资源。")
+          : `
+            <table class="data-table project-asset-table">
+              <thead>
+                <tr><th>预览</th><th>页面</th><th>名称</th><th>策略</th><th>路径</th></tr>
+              </thead>
+              <tbody>
+                ${entries.slice(0, 120).map((entry) => renderProjectAssetRow(entry)).join("")}
+              </tbody>
+            </table>
+            ${entries.length > 120 ? `<p class="table-note">已显示前 120 条。</p>` : ""}
+          `
+      }
+    </section>
+  `;
+}
+
+function renderProjectAssetRow(entry: ProjectElementEntry): string {
+  const path = stringFrom(entry.path) ?? "";
+  const url = path && entry.artifactRoot ? artifactUrl(entry.artifactRoot, path) : "";
+  const canPreview = Boolean(url && isPreviewableImagePath(path));
+  const preview = canPreview
+    ? `
+      <a class="asset-thumb-link" href="${escapeAttr(url)}" target="_blank" rel="noreferrer" title="${escapeAttr(path)}">
+        <img class="asset-thumb" src="${escapeAttr(url)}" alt="${escapeAttr(stringFrom(entry.name) ?? path)}" loading="lazy" />
+      </a>
+    `
+    : `<span class="asset-preview-placeholder">无预览</span>`;
+  return `
+    <tr>
+      <td class="asset-preview-cell">${preview}</td>
+      <td>${escapeHtml(entry.pageName)}</td>
+      <td>${escapeHtml(stringFrom(entry.name) ?? stringFrom(entry.id) ?? "-")}</td>
+      <td>${escapeHtml(stringFrom(entry.strategy) ?? "-")}</td>
+      <td><span class="asset-path">${escapeHtml(path || "-")}</span></td>
+    </tr>
   `;
 }
 
@@ -3924,6 +3973,10 @@ function projectElementValue(value: unknown): string {
   if (value === undefined || value === null) return "-";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);
+}
+
+function isPreviewableImagePath(path: string): boolean {
+  return /\.(png|jpe?g|webp|gif|svg)$/i.test(path);
 }
 
 function fileLabel(file: unknown): string {
