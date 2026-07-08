@@ -10,9 +10,10 @@ import {
   type WorkbenchModel
 } from "./model.js";
 
-type ViewId = "dashboard" | "tasks" | "tree" | "components" | "tokens" | "assets" | "i18n" | "preview" | "codegen" | "settings";
+type ViewId = "dashboard" | "tasks" | "tree" | "elements" | "components" | "tokens" | "assets" | "i18n" | "preview" | "codegen" | "settings";
 type PreviewMode = "side-by-side" | "overlay" | "heatmap" | "difference";
 type PipelineGateId = "tasks" | "preview" | "flutter" | "codegen" | "sync";
+type ElementTab = "tokens" | "components" | "assets" | "docs";
 
 interface ArtifactSpec {
   key: keyof WorkbenchArtifacts;
@@ -42,7 +43,10 @@ interface AppState {
   pendingPrototypeLink?: string;
   codegenProjectPath?: string;
   selectedGateId?: PipelineGateId;
+  selectedCanvasPage?: string;
+  elementsTab?: ElementTab;
   projectPages?: ProjectPagesReport;
+  projectList?: ProjectListReport;
 }
 
 interface ProjectPresetSettings {
@@ -87,6 +91,11 @@ interface ProjectPagesReport {
     updatedAt?: string;
     links: PrototypeLink[];
   };
+}
+
+interface ProjectListReport {
+  currentProjectName: string;
+  projects: Array<{ name: string; artifactRoot: string; pageCount: number; current?: boolean }>;
 }
 
 interface ProjectPageEntry {
@@ -170,10 +179,7 @@ const navItems: Array<{ id: ViewId; label: string }> = [
   { id: "dashboard", label: "项目" },
   { id: "tasks", label: "任务" },
   { id: "tree", label: "结构树" },
-  { id: "components", label: "组件" },
-  { id: "tokens", label: "Token" },
-  { id: "assets", label: "资源" },
-  { id: "i18n", label: "文案" },
+  { id: "elements", label: "项目元素" },
   { id: "preview", label: "预览" },
   { id: "codegen", label: "代码生成" },
   { id: "settings", label: "设置" }
@@ -193,6 +199,7 @@ const state: AppState = {
   artifacts: { artifactRoot: initialArtifactRoot },
   loading: true,
   previewMode: "side-by-side",
+  elementsTab: "tokens",
   codegenProjectPath: savedCodegenProjectPath(initialArtifactRoot)
 };
 
@@ -219,11 +226,15 @@ async function loadFromArtifactRoot(root: string): Promise<void> {
   if (root !== previousRoot) state.codegenProjectPath = savedCodegenProjectPath(root);
   state.artifacts = { artifactRoot: root };
   state.projectPages = undefined;
+  state.projectList = undefined;
   render();
 
   try {
     const artifacts = await fetchArtifacts(root);
-    state.projectPages = await fetchProjectPages(root);
+    const [projectPages, projectList] = await Promise.all([fetchProjectPages(root), fetchProjectList(root)]);
+    state.projectPages = projectPages;
+    state.projectList = projectList;
+    state.selectedCanvasPage = projectPages?.pages.find((page) => page.current)?.name ?? projectPages?.pages[0]?.name;
     state.artifacts = artifacts;
     state.model = buildWorkbenchModel(artifacts);
   } catch (error) {
@@ -244,6 +255,20 @@ async function fetchArtifacts(root: string): Promise<WorkbenchArtifacts> {
   artifacts.flutterPreviewUrl = await fetchFirstAsset(root, ["flutter_preview.png"]);
   artifacts.diffHeatmapUrl = await fetchFirstAsset(root, ["diff_heatmap.png", "diff/diff_heatmap.png"]);
   return artifacts;
+}
+
+async function fetchProjectList(root: string): Promise<ProjectListReport | undefined> {
+  if (root === "selected directory") return undefined;
+  try {
+    const url = new URL("/api/workbench/projects", window.location.origin);
+    url.searchParams.set("artifactRoot", root);
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return undefined;
+    const result = (await response.json()) as { ok?: boolean; report?: ProjectListReport };
+    return result.ok ? result.report : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function fetchProjectPages(root: string): Promise<ProjectPagesReport | undefined> {
@@ -538,6 +563,8 @@ function renderActiveView(model: WorkbenchModel): string {
       return renderTasks(model);
     case "tree":
       return renderTree(model);
+    case "elements":
+      return renderElements(model);
     case "components":
       return renderComponents(model);
     case "tokens":
@@ -556,86 +583,177 @@ function renderActiveView(model: WorkbenchModel): string {
 }
 
 function renderDashboard(model: WorkbenchModel): string {
-  const gates = buildPipelineGates(model);
-  const selectedGate = gates.find((gate) => gate.id === state.selectedGateId) ?? gates[0];
+  const report = state.projectPages;
+  const pages = report?.pages ?? [
+    {
+      name: pageNameFromArtifactRoot(state.artifactRoot),
+      artifactRoot: state.artifactRoot,
+      current: true,
+      status: model.project.status,
+      frameName: model.project.frameName,
+      frameNodeId: model.project.frameNodeId,
+      viewport: model.viewport
+    }
+  ];
+  const selectedPage = pages.find((page) => page.name === state.selectedCanvasPage) ?? pages.find((page) => page.current) ?? pages[0];
+  const links = report?.prototypeFlow.links ?? [];
   return `
-    <section class="view-header">
-      <div>
-        <h1>Project Dashboard</h1>
-        <p>${escapeHtml(model.project.frameNodeId)} · ${model.viewport.width}x${model.viewport.height}</p>
-      </div>
-      <span class="confidence">${formatConfidence(model.project.confidence)}</span>
-    </section>
     ${state.actionMessage ? `<section class="notice notice--${state.actionMessage.tone}">${escapeHtml(state.actionMessage.text)}</section>` : ""}
-    ${renderProjectPagesPanel(model)}
-    <section class="metric-grid">
-      ${model.metrics.map((entry) => renderMetric(entry.label, entry.value, entry.tone)).join("")}
-    </section>
-    <section class="panel workbench-launcher-panel">
-      <div class="panel-header">
-        <h2>工作台入口</h2>
-        <span>子页面</span>
-      </div>
-      <div class="workbench-launcher">
-        ${renderWorkbenchLauncherItem("tasks", "审查任务", `${model.reviewSummary.open} 个待处理`, model.reviewSummary.blocked ? "bad" : model.reviewSummary.open > 0 ? "warn" : "good")}
-        ${renderWorkbenchLauncherItem("tree", "结构树", `${model.treeRows.length} 个节点`, model.treeRows.length > 0 ? "good" : "bad")}
-        ${renderWorkbenchLauncherItem("components", "组件", `${model.componentCount} 个组件`, "neutral")}
-        ${renderWorkbenchLauncherItem("tokens", "Token", `${Object.values(model.tokenCounts).reduce((sum, count) => sum + count, 0)} 个 Token`, "neutral")}
-        ${renderWorkbenchLauncherItem("assets", "资源", `${model.assetCount} 个资源`, model.assetCount > 0 ? "good" : "warn")}
-        ${renderWorkbenchLauncherItem("i18n", "文案", `${model.i18nCount} 个 Key`, model.i18nCount > 0 ? "good" : "warn")}
-        ${renderWorkbenchLauncherItem("preview", "预览", model.preview.hasWebPreviewState ? "可预览" : "缺失", model.preview.hasWebPreviewState ? "good" : "bad")}
-        ${renderWorkbenchLauncherItem("codegen", "代码生成", model.codegen.status, statusTone(model.codegen.status))}
-        ${renderWorkbenchLauncherItem("settings", "设置", "预设资源", "neutral")}
-      </div>
-    </section>
-    <section class="panel review-distribution-panel">
-      <div class="panel-header">
-        <h2>Review Distribution</h2>
-      </div>
-      <div class="compact-grid review-distribution-grid">
-        ${renderKeyValues(model.reviewSummary.byPriority)}
-        ${renderKeyValues(model.reviewSummary.byType)}
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Pipeline Gates</h2>
-        <span>${escapeHtml(selectedGate.label)} · ${escapeHtml(selectedGate.status)}</span>
-      </div>
-      <div class="pipeline-board">
-        <div class="pipeline-gate-list">
-          ${gates.map((gate, index) => renderPipelineGate(gate, index, gate.id === selectedGate.id)).join("")}
+    <section class="home-canvas-shell">
+      <div class="home-toolbar">
+        <div>
+          <h1>项目画布</h1>
+          <p>${escapeHtml(report?.projectName ?? "当前项目")} · ${pages.length} 个页面</p>
         </div>
-        <article class="pipeline-detail gate--${statusTone(selectedGate.status)}">
-          <div class="pipeline-detail-header">
-            <div>
-              <span>当前步骤</span>
-              <strong>${escapeHtml(selectedGate.label)}</strong>
-            </div>
-            <span class="status-pill status-pill--${statusTone(selectedGate.status)}">${escapeHtml(selectedGate.status)}</span>
-          </div>
-          <p>${escapeHtml(selectedGate.description)}</p>
-          <div class="pipeline-detail-grid">
-            ${selectedGate.details
+        <label class="project-picker">
+          <span>项目</span>
+          <select class="studio-input codegen-input" data-project-selector ${state.projectList && state.projectList.projects.length > 1 ? "" : "disabled"}>
+            ${(state.projectList?.projects ?? [{ name: report?.projectName ?? "当前项目", artifactRoot: state.artifactRoot, pageCount: pages.length, current: true }])
               .map(
-                (detail) => `
-                  <div class="pipeline-detail-item pipeline-detail-item--${detail.tone ?? "neutral"}">
-                    <span>${escapeHtml(detail.label)}</span>
-                    <strong>${escapeHtml(detail.value)}</strong>
-                  </div>
+                (project) => `
+                  <option value="${escapeAttr(project.artifactRoot)}" ${project.current ? "selected" : ""}>
+                    ${escapeHtml(project.name)} (${project.pageCount})
+                  </option>
                 `
               )
               .join("")}
+          </select>
+        </label>
+        <div class="home-actions">
+          <button class="button" data-view="settings">设置资源</button>
+          <button class="button button--primary" data-view="elements">项目元素</button>
+        </div>
+      </div>
+      <div class="infinite-canvas-layout">
+        <div class="infinite-canvas" data-canvas>
+          <div class="canvas-plane" style="width:${canvasWidth(pages)}px;height:${canvasHeight(pages)}px;">
+            ${renderCanvasPrototypeLinks(pages, links)}
+            ${pages.map((page, index) => renderCanvasPageNode(page, index, selectedPage?.name === page.name)).join("")}
           </div>
-          ${
-            selectedGate.view
-              ? `<button class="action-button action-button--secondary" data-view="${escapeAttr(selectedGate.view)}">打开${escapeHtml(selectedGate.label)}子页面</button>`
-              : ""
-          }
+        </div>
+        <article class="canvas-page-inspector">
+          ${selectedPage ? renderCanvasPageInspector(selectedPage, pages, links) : renderEmpty("请选择一个页面。")}
         </article>
       </div>
     </section>
   `;
+}
+
+function renderCanvasPageNode(page: ProjectPageEntry, index: number, selected: boolean): string {
+  const position = canvasNodePosition(index);
+  const viewport = page.viewport ? `${page.viewport.width}x${page.viewport.height}` : "-";
+  return `
+    <button
+      class="canvas-page-node ${selected ? "is-selected" : ""}"
+      data-canvas-page="${escapeAttr(page.name)}"
+      style="left:${position.x}px;top:${position.y}px;"
+    >
+      <span class="canvas-page-thumb">
+        <img src="${escapeAttr(artifactUrl(page.artifactRoot, "flutter_preview.png"))}" alt="" />
+      </span>
+      <strong>${escapeHtml(page.name)}</strong>
+      <span>${escapeHtml(page.frameName ?? page.frameNodeId ?? "设计稿页面")}</span>
+      <small>${escapeHtml(page.status ?? "unknown")} · ${escapeHtml(viewport)}</small>
+    </button>
+  `;
+}
+
+function renderCanvasPrototypeLinks(pages: ProjectPageEntry[], links: PrototypeLink[]): string {
+  const pageIndex = new Map(pages.map((page, index) => [page.name, index]));
+  const lines = links
+    .map((link) => {
+      const fromIndex = pageIndex.get(link.fromPage);
+      const toIndex = pageIndex.get(link.toPage);
+      if (fromIndex === undefined || toIndex === undefined) return "";
+      const from = canvasNodePosition(fromIndex);
+      const to = canvasNodePosition(toIndex);
+      const x1 = from.x + 260;
+      const y1 = from.y + 82;
+      const x2 = to.x;
+      const y2 = to.y + 82;
+      const mid = Math.max(70, Math.abs(x2 - x1) / 2);
+      return `<path class="prototype-canvas-link" d="M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}" marker-end="url(#arrow)" />`;
+    })
+    .join("");
+  return `
+    <svg class="prototype-canvas-links" width="${canvasWidth(pages)}" height="${canvasHeight(pages)}" aria-hidden="true">
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,6 L9,3 z" fill="#1769e0" />
+        </marker>
+      </defs>
+      ${lines}
+    </svg>
+  `;
+}
+
+function renderCanvasPageInspector(page: ProjectPageEntry, pages: ProjectPageEntry[], links: PrototypeLink[]): string {
+  const outgoingLinks = links.filter((link) => link.fromPage === page.name);
+  const incomingLinks = links.filter((link) => link.toPage === page.name);
+  const targets = pages.filter((candidate) => candidate.name !== page.name);
+  return `
+    <div class="canvas-inspector-header">
+      <span>当前页面</span>
+      <strong>${escapeHtml(page.name)}</strong>
+      <small>${escapeHtml(page.frameName ?? page.frameNodeId ?? "设计稿页面")}</small>
+    </div>
+    <div class="canvas-page-preview">
+      <img src="${escapeAttr(artifactUrl(page.artifactRoot, "flutter_preview.png"))}" alt="${escapeAttr(page.name)}" />
+    </div>
+    <div class="canvas-inspector-actions">
+      <button class="action-button" data-edit-page="${escapeAttr(page.artifactRoot)}">编辑页面</button>
+      <button class="action-button action-button--secondary" data-open-page="${escapeAttr(page.artifactRoot)}">设为审查页面</button>
+    </div>
+    <div class="canvas-link-form">
+      <label class="codegen-field">
+        <span>连接到</span>
+        <select class="studio-input codegen-input" data-prototype-field="to" ${targets.length > 0 ? "" : "disabled"}>
+          ${targets.map((target) => `<option value="${escapeAttr(target.name)}">${escapeHtml(target.name)}</option>`).join("")}
+        </select>
+      </label>
+      <input type="hidden" data-prototype-field="from" value="${escapeAttr(page.name)}" />
+      <label class="codegen-field">
+        <span>触发方式</span>
+        <input class="studio-input codegen-input" data-prototype-field="trigger" value="tap" />
+      </label>
+      <label class="codegen-field">
+        <span>说明</span>
+        <input class="studio-input codegen-input" data-prototype-field="note" placeholder="例如：点击开始按钮" />
+      </label>
+      <button class="action-button action-button--secondary" data-prototype-link-add ${targets.length > 0 && state.pendingPrototypeLink !== "add" ? "" : "disabled"}>
+        ${escapeHtml(state.pendingPrototypeLink === "add" ? "保存中..." : "连接页面")}
+      </button>
+    </div>
+    <div class="canvas-link-summary">
+      <strong>页面连接</strong>
+      ${
+        outgoingLinks.length + incomingLinks.length === 0
+          ? renderEmpty("还没有连接。")
+          : [...outgoingLinks, ...incomingLinks]
+              .map((link) => renderPrototypeLinkRow(link, true))
+              .join("")
+      }
+    </div>
+  `;
+}
+
+function canvasNodePosition(index: number): { x: number; y: number } {
+  const column = index % 3;
+  const row = Math.floor(index / 3);
+  return {
+    x: 96 + column * 340,
+    y: 88 + row * 250
+  };
+}
+
+function canvasWidth(pages: ProjectPageEntry[]): number {
+  const columns = Math.min(Math.max(pages.length, 1), 3);
+  return Math.max(1120, 96 + columns * 340 + 120);
+}
+
+function canvasHeight(pages: ProjectPageEntry[]): number {
+  const rows = Math.ceil(Math.max(pages.length, 1) / 3);
+  return Math.max(720, 88 + rows * 250 + 120);
 }
 
 function renderProjectPagesPanel(model: WorkbenchModel): string {
@@ -825,6 +943,76 @@ function renderTasks(_model: WorkbenchModel): string {
               })
               .join("")
       }
+    </section>
+  `;
+}
+
+function renderElements(model: WorkbenchModel): string {
+  const active = state.elementsTab ?? "tokens";
+  return `
+    <section class="view-header">
+      <div>
+        <h1>项目元素</h1>
+        <p>设计 Token、组件、图片资源和文档集中在这里查看。</p>
+      </div>
+      <div class="element-tabbar" role="tablist" aria-label="项目元素">
+        ${renderElementTab("tokens", "设计 Token", active)}
+        ${renderElementTab("components", "组件", active)}
+        ${renderElementTab("assets", "图片资源", active)}
+        ${renderElementTab("docs", "文档", active)}
+      </div>
+    </section>
+    <section class="element-tab-panel">
+      ${renderElementTabContent(model, active)}
+    </section>
+  `;
+}
+
+function renderElementTab(tab: ElementTab, label: string, active: ElementTab): string {
+  return `<button class="${tab === active ? "is-active" : ""}" data-element-tab="${tab}">${escapeHtml(label)}</button>`;
+}
+
+function renderElementTabContent(model: WorkbenchModel, active: ElementTab): string {
+  if (active === "tokens") return renderTokens(model);
+  if (active === "components") return renderComponents(model);
+  if (active === "assets") return renderAssets(model);
+  return renderElementDocs(model);
+}
+
+function renderElementDocs(_model: WorkbenchModel): string {
+  const i18nManifest = asRecord(state.artifacts.finalI18nManifest ?? state.artifacts.reviewedI18nManifest ?? state.artifacts.i18nManifest);
+  const messages = asArray(i18nManifest.messages).map(asRecord);
+  const arbPatch = asRecord(state.artifacts.arbPatch);
+  const pubspecPatch = asRecord(state.artifacts.pubspecPatch);
+  return `
+    <section class="two-column">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>文案文档</h2>
+          <span>${messages.length} 条</span>
+        </div>
+        <div class="status-list">
+          ${
+            messages.length === 0
+              ? renderEmpty("暂无文案。")
+              : messages
+                  .slice(0, 18)
+                  .map((message) => `<div class="status-row"><strong>${escapeHtml(stringFrom(message.key) ?? "-")}</strong><span>${escapeHtml(stringFrom(message.value) ?? "")}</span></div>`)
+                  .join("")
+          }
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h2>工程文档</h2>
+          <span>ARB / Pubspec</span>
+        </div>
+        <div class="status-list">
+          <div class="status-row"><strong>ARB Patch</strong><span>${escapeHtml(stringFrom(arbPatch.status) ?? (Object.keys(arbPatch).length ? "loaded" : "missing"))}</span></div>
+          <div class="status-row"><strong>Pubspec Patch</strong><span>${escapeHtml(stringFrom(pubspecPatch.status) ?? (Object.keys(pubspecPatch).length ? "loaded" : "missing"))}</span></div>
+          <div class="status-row"><strong>页面目录</strong><span>${escapeHtml(state.artifactRoot)}</span></div>
+        </div>
+      </div>
     </section>
   `;
 }
@@ -2125,6 +2313,10 @@ function isPipelineGateId(value: string): value is PipelineGateId {
   return value === "tasks" || value === "preview" || value === "flutter" || value === "codegen" || value === "sync";
 }
 
+function isElementTab(value: string): value is ElementTab {
+  return value === "tokens" || value === "components" || value === "assets" || value === "docs";
+}
+
 function renderGate(label: string, status: string): string {
   return `
     <div class="gate gate--${statusTone(status)}">
@@ -2479,6 +2671,26 @@ function onAppClick(event: MouseEvent): void {
     return;
   }
 
+  const canvasPageButton = target.closest<HTMLButtonElement>("[data-canvas-page]");
+  if (canvasPageButton?.dataset.canvasPage) {
+    state.selectedCanvasPage = canvasPageButton.dataset.canvasPage;
+    render();
+    return;
+  }
+
+  const editPageButton = target.closest<HTMLButtonElement>("[data-edit-page]");
+  if (editPageButton?.dataset.editPage) {
+    void switchArtifactPage(editPageButton.dataset.editPage, "preview");
+    return;
+  }
+
+  const elementTabButton = target.closest<HTMLButtonElement>("[data-element-tab]");
+  if (elementTabButton?.dataset.elementTab && isElementTab(elementTabButton.dataset.elementTab)) {
+    state.elementsTab = elementTabButton.dataset.elementTab;
+    render();
+    return;
+  }
+
   const addPrototypeButton = target.closest<HTMLButtonElement>("[data-prototype-link-add]");
   if (addPrototypeButton) {
     void addPrototypeLink();
@@ -2548,6 +2760,9 @@ function onAppInput(event: Event): void {
 function onAppChange(event: Event): void {
   const target = event.target;
   if (target instanceof HTMLSelectElement && target.dataset.pageSelector) {
+    void switchArtifactPage(target.value);
+  }
+  if (target instanceof HTMLSelectElement && target.dataset.projectSelector) {
     void switchArtifactPage(target.value);
   }
 }
@@ -2888,13 +3103,19 @@ async function saveProjectPreset(): Promise<void> {
   }
 }
 
-async function switchArtifactPage(artifactRoot: string): Promise<void> {
-  if (!artifactRoot || artifactRoot === state.artifactRoot) return;
-  state.activeView = "dashboard";
+async function switchArtifactPage(artifactRoot: string, nextView: ViewId = "dashboard"): Promise<void> {
+  if (!artifactRoot) return;
+  if (artifactRoot === state.artifactRoot) {
+    state.activeView = nextView;
+    location.hash = nextView;
+    render();
+    return;
+  }
+  state.activeView = nextView;
   state.selectedGateId = undefined;
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.set("artifacts", artifactRoot);
-  nextUrl.hash = "dashboard";
+  nextUrl.hash = nextView;
   window.history.replaceState(null, "", nextUrl);
   await loadFromArtifactRoot(artifactRoot);
 }

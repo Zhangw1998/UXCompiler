@@ -175,11 +175,12 @@ try {
   assert.match(html, /lang="zh-CN"/);
   assert.match(html, /UXCompiler 工作台/);
   assert.match(js, /loadFromArtifactRoot/);
-  assert.match(js, /项目看板/);
+  assert.match(js, /项目画布/);
   assert.match(js, /审查任务/);
-  assert.match(js, /工作台入口/);
-  assert.match(js, /页面与原型/);
-  assert.match(js, /pipeline-gate/);
+  assert.match(js, /infinite-canvas/);
+  assert.match(js, /项目元素/);
+  assert.match(js, /data-edit-page/);
+  assert.match(js, /\/api\/workbench\/projects/);
   assert.match(js, /\/api\/workbench\/project-pages/);
   assert.match(js, /\/api\/workbench\/prototype-link/);
   assert.doesNotMatch(js, /Artifact Status/);
@@ -203,9 +204,10 @@ try {
   assert.match(modelJs, /buildWorkbenchModel/);
   assert.match(css, /preview-stage/);
   assert.match(css, /\.viz-image img/);
-  assert.match(css, /pipeline-board/);
-  assert.match(css, /workbench-launcher/);
-  assert.match(css, /project-pages-panel/);
+  assert.match(css, /home-canvas-shell/);
+  assert.match(css, /infinite-canvas/);
+  assert.match(css, /canvas-page-node/);
+  assert.match(css, /element-tabbar/);
   assert.match(css, /prototype-link-row/);
   assert.match(css, /code-block/);
   assert.equal(visual.root.type, "scene");
@@ -213,6 +215,12 @@ try {
     assert.equal(previewPng.ok, true);
     assert.equal(previewPng.headers.get("content-type"), "image/png");
   }
+
+  const projectsResponse = await fetch(`${base}/api/workbench/projects?artifactRoot=/artifacts/workbench-web-smoke/sample`);
+  assert.equal(projectsResponse.ok, true);
+  const projectsResult = await projectsResponse.json();
+  assert.equal(projectsResult.ok, true);
+  assert.equal(projectsResult.report.projects.some((project) => project.name === "workbench-web-smoke" && project.current === true), true);
 
   const projectPagesResponse = await fetch(`${base}/api/workbench/project-pages?artifactRoot=/artifacts/workbench-web-smoke/sample`);
   assert.equal(projectPagesResponse.ok, true);

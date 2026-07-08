@@ -184,6 +184,19 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/workbench/projects") {
+      if (request.method !== "GET") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const result = await readWorkbenchProjects(requestUrl.searchParams.get("artifactRoot"));
+      sendJson(response, 200, {
+        ok: true,
+        report: result
+      });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/workbench/prototype-link") {
       if (request.method !== "POST") {
         sendJson(response, 405, { ok: false, error: "Method not allowed" });
@@ -953,6 +966,32 @@ async function readWorkbenchProjectPages(artifactRootValue) {
   };
 }
 
+async function readWorkbenchProjects(artifactRootValue) {
+  const artifactDir = resolveArtifactRoot(stringValue(artifactRootValue));
+  const currentProjectDir = dirname(artifactDir);
+  const projectsRoot = dirname(currentProjectDir);
+  const entries = await readdir(projectsRoot, { withFileTypes: true });
+  const projects = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const projectDir = resolve(projectsRoot, entry.name);
+    const pages = await projectPagesInDir(projectDir);
+    if (pages.length === 0) continue;
+    projects.push({
+      name: entry.name,
+      artifactRoot: artifactRootForDir(pages[0]),
+      pageCount: pages.length,
+      current: projectDir === currentProjectDir
+    });
+  }
+  projects.sort((left, right) => Number(right.current) - Number(left.current) || left.name.localeCompare(right.name));
+  return {
+    version: "0.1.0",
+    currentProjectName: basename(currentProjectDir),
+    projects
+  };
+}
+
 async function updateWorkbenchPrototypeLink(body) {
   const artifactDir = resolveArtifactRoot(stringValue(body.artifactRoot));
   const projectDir = dirname(artifactDir);
@@ -992,6 +1031,17 @@ async function updateWorkbenchPrototypeLink(body) {
     updatedAt: now,
     links: flow.links.length
   };
+}
+
+async function projectPagesInDir(projectDir) {
+  const entries = await readdir(projectDir, { withFileTypes: true });
+  const pages = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const pageDir = resolve(projectDir, entry.name);
+    if (await fileExists(resolve(pageDir, "raw_figma_scene.json"))) pages.push(pageDir);
+  }
+  return pages.sort((left, right) => basename(left).localeCompare(basename(right)));
 }
 
 async function applyWorkbenchCodegenWrite(body) {
